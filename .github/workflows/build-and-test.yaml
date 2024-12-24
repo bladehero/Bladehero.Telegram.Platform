@@ -14,6 +14,8 @@ jobs:
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: 8.0.x
+      - name: Add Nuget Source
+        run: dotnet nuget add source --username bladehero --password ${{ secrets.GH_PAT }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/bladehero/index.json"
       - name: Restore dependencies
         run: dotnet restore
       - name: Build
