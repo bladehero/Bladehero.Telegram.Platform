@@ -1,0 +1,31 @@
+name: Publish to NuGet
+
+on:
+  push:
+    branches: ["master"]
+    tags: ["v*.*.*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build the project
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Pack the project
+        run: dotnet pack --configuration Release --no-build -o ./out
+
+      - name: Publish to NuGet
+        run: dotnet nuget push ./out/*.nupkg --api-key ${{ secrets.GH_PAT }} --source "https://nuget.pkg.github.com/bladehero/index.json"
