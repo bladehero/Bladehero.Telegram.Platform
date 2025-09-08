@@ -19,10 +19,8 @@ jobs:
           dotnet nuget add source "https://nuget.pkg.github.com/bladehero/index.json" \
             --name bladehero \
             --username ${{ github.actor }} \
-            --password ${{ secrets.PAT_TOKEN }} \
+            --password ${{ secrets.GH_PAT }} \
             --store-password-in-clear-text
-      - name: Add Nuget Source
-        run: dotnet nuget add source --username bladehero --password ${{ secrets.GH_PAT }} --store-password-in-clear-text --name bladehero "https://nuget.pkg.github.com/bladehero/index.json"
       - name: Restore dependencies
         run: dotnet restore
       - name: Build
