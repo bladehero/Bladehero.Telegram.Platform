@@ -17,6 +17,11 @@ public static class DependencyInjection
         params Assembly[] assemblies
     )
     {
+        if (assemblies.Length == 0)
+        {
+            throw new ArgumentException("At least one assembly is required", nameof(assemblies));
+        }
+
         services.AddSingleton<ITelegramErrorHandler, LoggingTelegramErrorHandler>();
         services.AddSingleton<ITelegramCommandExecutor, ParallelTelegramCommandExecutor>();
         services.AddSingleton<IUpdateHandler, ReceivingUpdateHandler>();

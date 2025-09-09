@@ -16,7 +16,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 9.0.x
 
       - name: Add GitHub Packages source
         run: |
@@ -32,8 +32,19 @@ jobs:
       - name: Build the project
         run: dotnet build --configuration Release --no-restore
 
-      - name: Pack the project
-        run: dotnet pack --configuration Release --no-build -o ./out
+      - name: Build & Pack selected projects
+        run: |
+          projects=(
+            "src/Telegram.DotNet.Platform/Telegram.DotNet.Platform.csproj"
+            "src/Telegram.DotNet.Platform.Receiving/Telegram.DotNet.Platform.Receiving.csproj"
+            "src/Telegram.DotNet.Platform.Receiving.Background/Telegram.DotNet.Platform.Receiving.Background.csproj"
+          )
+          for proj in "${projects[@]}"; do
+            echo "📦 Packing $proj"
+            dotnet restore "$proj"
+            dotnet build "$proj" --configuration Release --no-restore
+            dotnet pack "$proj" --configuration Release --no-build -o ./out
+          done
 
       - name: Publish to NuGet
         run: dotnet nuget push ./out/*.nupkg --api-key ${{ secrets.GH_PAT }} --source "https://nuget.pkg.github.com/bladehero/index.json"
