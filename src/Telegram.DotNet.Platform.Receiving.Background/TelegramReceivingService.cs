@@ -10,12 +10,11 @@ internal class TelegramReceivingService(IServiceScopeFactory serviceScopeFactory
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await using var scope = serviceScopeFactory.CreateAsyncScope();
+        using var scope = serviceScopeFactory.CreateScope();
         var provider = scope.ServiceProvider;
         var client = provider.GetRequiredService<ITelegramBotClient>();
-        var optionsProvider = provider.GetRequiredService<IReceiverOptionsProvider>();
         var handler = provider.GetRequiredService<IUpdateHandler>();
-        var options = optionsProvider.Get();
+        var options = provider.GetRequiredService<IOptions<ReceiverConfiguration>>().Value.ToOptions();
         await client.ReceiveAsync(handler, options, stoppingToken);
     }
 }

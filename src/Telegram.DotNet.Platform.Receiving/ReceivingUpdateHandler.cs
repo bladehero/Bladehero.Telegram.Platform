@@ -1,7 +1,6 @@
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
-using Telegram.DotNet.Platform.Receiving.Commands;
 using Telegram.DotNet.Platform.Receiving.Commands.Execution;
 using Telegram.DotNet.Platform.Receiving.Errors;
 
@@ -18,9 +17,10 @@ internal sealed class ReceivingUpdateHandler(
         return telegramCommandExecutor.ExecuteAsync(request, cancellationToken);
     }
 
-    public Task HandlePollingErrorAsync(
+    public Task HandleErrorAsync(
         ITelegramBotClient botClient,
         Exception exception,
+        HandleErrorSource source,
         CancellationToken cancellationToken
     )
     {

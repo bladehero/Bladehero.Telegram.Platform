@@ -1,6 +1,7 @@
 using Microsoft.Configuration.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Telegram.Bot.Polling;
 
 namespace Telegram.DotNet.Platform.Receiving.Background;
 
@@ -94,8 +95,6 @@ public static class DependencyInjection
 
     private static void AddTelegramReceivingBackgroundCore(this IServiceCollection services)
     {
-        services.AddSingleton<IReceiverOptionsMapper, ReceiverOptionsMapper>();
-        services.AddTransient<IReceiverOptionsProvider, ReceiverOptionsProvider>();
         services.AddTelegramReceiving();
         services.AddHostedService<TelegramReceivingService>();
     }
