@@ -17,4 +17,11 @@ public sealed class TypedCommandRequest<TPayload>
     public TPayload Payload { get; }
 
     public ITelegramBotClient Client { get; }
+
+    public void Deconstruct(out int updateId, out TPayload payload, out ITelegramBotClient client)
+    {
+        updateId = UpdateId;
+        payload = Payload;
+        client = Client;
+    }
 }

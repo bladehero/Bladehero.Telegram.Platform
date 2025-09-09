@@ -14,7 +14,7 @@ public abstract class TypedTelegramCommand<T> : TypedTelegramCommand
         return CanHandleAsync(_typedCommandRequest, token);
     }
 
-    public sealed override Task HandleAsync(CommandRequest request, CancellationToken token = default)
+    public sealed override Task HandleAsync(CommandRequest request, CancellationToken token)
     {
         if (_typedCommandRequest is null)
         {
@@ -26,7 +26,7 @@ public abstract class TypedTelegramCommand<T> : TypedTelegramCommand
         return HandleAsync(_typedCommandRequest, token);
     }
 
-    protected abstract Task<bool> CanHandleAsync(TypedCommandRequest<T> request, CancellationToken token = default);
+    protected abstract Task<bool> CanHandleAsync(TypedCommandRequest<T> request, CancellationToken token);
 
-    protected abstract Task HandleAsync(TypedCommandRequest<T> request, CancellationToken token = default);
+    protected abstract Task HandleAsync(TypedCommandRequest<T> request, CancellationToken token);
 }

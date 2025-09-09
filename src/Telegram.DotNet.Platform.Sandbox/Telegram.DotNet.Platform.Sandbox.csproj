@@ -15,9 +15,9 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\src\Telegram.DotNet.Platform.Receiving.Background\Telegram.DotNet.Platform.Receiving.Background.csproj" />
-      <ProjectReference Include="..\src\Telegram.DotNet.Platform.Receiving\Telegram.DotNet.Platform.Receiving.csproj" />
-      <ProjectReference Include="..\src\Telegram.DotNet.Platform\Telegram.DotNet.Platform.csproj" />
+      <ProjectReference Include="..\Telegram.DotNet.Platform.Receiving.Background\Telegram.DotNet.Platform.Receiving.Background.csproj" />
+      <ProjectReference Include="..\Telegram.DotNet.Platform.Receiving\Telegram.DotNet.Platform.Receiving.csproj" />
+      <ProjectReference Include="..\Telegram.DotNet.Platform\Telegram.DotNet.Platform.csproj" />
     </ItemGroup>
 
     <ItemGroup>
