@@ -9,7 +9,14 @@ public abstract class TypedTelegramCommand<T> : TypedTelegramCommand
 
     public override Task<bool> CanHandleAsync(CommandRequest request, CancellationToken token)
     {
-        var payload = (T)UpdateProperties[request.Update.Type].GetValue(request.Update)!;
+        if (Type != request.Update.Type)
+        {
+            return Task.FromResult(false);
+        }
+
+        var property = UpdateProperties[request.Update.Type];
+        var value = property.GetValue(request.Update)!;
+        var payload = (T)value;
         _typedCommandRequest = new TypedCommandRequest<T>(request.Update.Id, payload, request.Client);
         return CanHandleAsync(_typedCommandRequest, token);
     }
