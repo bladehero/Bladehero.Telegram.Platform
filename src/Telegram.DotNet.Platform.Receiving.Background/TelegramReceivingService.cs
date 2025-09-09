@@ -14,7 +14,7 @@ internal class TelegramReceivingService(IServiceScopeFactory serviceScopeFactory
         var provider = scope.ServiceProvider;
         var client = provider.GetRequiredService<ITelegramBotClient>();
         var handler = provider.GetRequiredService<IUpdateHandler>();
-        var options = provider.GetRequiredService<IOptions<ReceiverConfiguration>>().Value.ToOptions();
+        var options = provider.GetRequiredService<IOptions<TelegramReceiverConfiguration>>().Value.ToOptions();
         await client.ReceiveAsync(handler, options, stoppingToken);
     }
 }

@@ -1,6 +1,6 @@
 namespace Telegram.DotNet.Platform;
 
-public sealed class TelegramBotConfiguration
+public class TelegramBotConfiguration
 {
     public required string Token { get; set; }
 }

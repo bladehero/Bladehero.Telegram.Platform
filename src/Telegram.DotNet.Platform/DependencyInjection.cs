@@ -30,7 +30,7 @@ public static class DependencyInjection
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1>(
+    public static IServiceCollection AddTelegramBot<TDep1>(
         this IServiceCollection services,
         Action<TelegramBotConfiguration, TDep1> configure
     )
@@ -41,7 +41,7 @@ public static class DependencyInjection
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1, TDep2>(
+    public static IServiceCollection AddTelegramBot<TDep1, TDep2>(
         this IServiceCollection services,
         Action<TelegramBotConfiguration, TDep1, TDep2> configure
     )
@@ -53,7 +53,7 @@ public static class DependencyInjection
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1, TDep2, TDep3>(
+    public static IServiceCollection AddTelegramBot<TDep1, TDep2, TDep3>(
         this IServiceCollection services,
         Action<TelegramBotConfiguration, TDep1, TDep2, TDep3> configure
     )
@@ -66,7 +66,7 @@ public static class DependencyInjection
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1, TDep2, TDep3, TDep4>(
+    public static IServiceCollection AddTelegramBot<TDep1, TDep2, TDep3, TDep4>(
         this IServiceCollection services,
         Action<TelegramBotConfiguration, TDep1, TDep2, TDep3, TDep4> configure
     )
@@ -80,7 +80,7 @@ public static class DependencyInjection
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1, TDep2, TDep3, TDep4, TDep5>(
+    public static IServiceCollection AddTelegramBot<TDep1, TDep2, TDep3, TDep4, TDep5>(
         this IServiceCollection services,
         Action<TelegramBotConfiguration, TDep1, TDep2, TDep3, TDep4, TDep5> configure
     )

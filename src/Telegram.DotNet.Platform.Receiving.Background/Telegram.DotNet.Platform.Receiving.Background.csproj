@@ -13,6 +13,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Telegram.DotNet.Platform.Receiving\Telegram.DotNet.Platform.Receiving.csproj" />
+      <ProjectReference Include="..\Telegram.DotNet.Platform\Telegram.DotNet.Platform.csproj" />
     </ItemGroup>
 
 </Project>
