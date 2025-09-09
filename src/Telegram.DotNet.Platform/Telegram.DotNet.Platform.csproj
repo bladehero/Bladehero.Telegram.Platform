@@ -4,12 +4,16 @@
         <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <PackageId>Telegram.DotNet.Platform</PackageId>
-        <Version>9.0.0</Version>
-        <Authors>bladehero</Authors>
-        <PackageDescription>CTelegram.DotNet.Platform</PackageDescription>
-        <RepositoryUrl>https://github.com/bladehero/Telegram.DotNet.Platform</RepositoryUrl>
         <LangVersion>latest</LangVersion>
+
+        <Version>9.0.1</Version>
+        <Authors>bladehero</Authors>
+        <PackageId>Telegram.DotNet.Platform</PackageId>
+        <RepositoryUrl>https://github.com/bladehero/Telegram.DotNet.Platform</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageProjectUrl>https://github.com/bladehero/Telegram.DotNet.Platform</PackageProjectUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageDescription>Telegram.DotNet.Platform</PackageDescription>
     </PropertyGroup>
 
     <ItemGroup>
