@@ -22,9 +22,9 @@ public static class DependencyInjection
             throw new ArgumentException("At least one assembly is required", nameof(assemblies));
         }
 
-        services.AddSingleton<ITelegramErrorHandler, LoggingTelegramErrorHandler>();
-        services.AddSingleton<ITelegramCommandExecutor, ParallelTelegramCommandExecutor>();
-        services.AddSingleton<IUpdateHandler, ReceivingUpdateHandler>();
+        services.AddScoped<ITelegramErrorHandler, LoggingTelegramErrorHandler>();
+        services.AddScoped<ITelegramCommandExecutor, ParallelTelegramCommandExecutor>();
+        services.AddScoped<IUpdateHandler, ReceivingUpdateHandler>();
         services.AddTelegramCommands(assemblies);
         return services;
     }
