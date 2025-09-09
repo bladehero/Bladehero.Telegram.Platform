@@ -20,4 +20,10 @@
       <ProjectReference Include="..\src\Telegram.DotNet.Platform\Telegram.DotNet.Platform.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Reference Include="Microsoft.Extensions.Hosting">
+        <HintPath>bin\Debug\net9.0\Microsoft.Extensions.Hosting.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+
 </Project>
