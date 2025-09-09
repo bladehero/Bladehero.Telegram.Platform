@@ -12,7 +12,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Telegram.DotNet.Platform", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Telegram.DotNet.Platform.Receiving.Background", "src\Telegram.DotNet.Platform.Receiving.Background\Telegram.DotNet.Platform.Receiving.Background.csproj", "{C6A66358-4B44-4902-BD32-D8038ADBCDBA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Telegram.DotNet.Platform.Sandbox", "Telegram.DotNet.Platform.Sandbox\Telegram.DotNet.Platform.Sandbox.csproj", "{7AB1B926-54FD-45A6-A8E9-7BCD90D834D7}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Telegram.DotNet.Platform.Sandbox", "src\Telegram.DotNet.Platform.Sandbox\Telegram.DotNet.Platform.Sandbox.csproj", "{7AB1B926-54FD-45A6-A8E9-7BCD90D834D7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

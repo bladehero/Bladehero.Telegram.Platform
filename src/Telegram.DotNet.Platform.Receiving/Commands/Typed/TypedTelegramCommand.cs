@@ -23,5 +23,5 @@ public abstract class TypedTelegramCommand : ITelegramCommand
     public virtual Task<bool> CanHandleAsync(CommandRequest request, CancellationToken token) =>
         Task.FromResult(request.Update.Type == Type);
 
-    public abstract Task HandleAsync(CommandRequest request, CancellationToken token = default);
+    public abstract Task HandleAsync(CommandRequest request, CancellationToken token);
 }

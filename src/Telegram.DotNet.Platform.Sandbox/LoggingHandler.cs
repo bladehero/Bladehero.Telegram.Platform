@@ -2,8 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot.Types;
-using Telegram.DotNet.Platform.Receiving.Commands;
-using Telegram.DotNet.Platform.Receiving.Commands.Execution;
 using Telegram.DotNet.Platform.Receiving.Commands.Typed;
 using Telegram.DotNet.Platform.Receiving.Commands.Typed.MyChatMembers;
 
@@ -16,13 +14,10 @@ public class LoggingTelegramCommand(ILogger<LoggingTelegramCommand> logger) : My
 
     protected override Task<bool> CanHandleAsync(
         TypedCommandRequest<ChatMemberUpdated> request,
-        CancellationToken token = default
+        CancellationToken token
     ) => Task.FromResult(true);
 
-    protected override Task HandleAsync(
-        TypedCommandRequest<ChatMemberUpdated> request,
-        CancellationToken token = default
-    )
+    protected override Task HandleAsync(TypedCommandRequest<ChatMemberUpdated> request, CancellationToken token)
     {
         logger.LogInformation(
             """
