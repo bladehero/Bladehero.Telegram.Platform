@@ -3,11 +3,11 @@ using Microsoft.Configuration.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Telegram.DotNet.Platform.Receiving.Background;
+namespace Telegram.DotNet.Platform.Receiving.Background.LongPolling;
 
-public static class DependencyInjection
+public static class LongPollingDependencyInjection
 {
-    public static IServiceCollection AddTelegramReceivingBackground(
+    public static IServiceCollection AddTelegramLongPollingReceiving(
         this IServiceCollection services,
         IConfiguration configuration,
         string? sectionName = null,
@@ -16,22 +16,22 @@ public static class DependencyInjection
     {
         services.AddConfiguration<TelegramReceiverConfiguration>(configuration, sectionName);
         services.AddTelegramBot(configuration, sectionName ?? nameof(TelegramReceiverConfiguration));
-        services.AddTelegramReceivingBackgroundCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(assemblies);
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground(
+    public static IServiceCollection AddTelegramLongPollingReceiving(
         this IServiceCollection services,
         Action<TelegramReceiverConfiguration> configure,
         params Assembly[] assemblies
     )
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramReceivingBackgroundCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(assemblies);
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1>(
+    public static IServiceCollection AddTelegramLongPollingReceiving<TDep1>(
         this IServiceCollection services,
         Action<TelegramReceiverConfiguration, TDep1> configure,
         params Assembly[] assemblies
@@ -39,11 +39,11 @@ public static class DependencyInjection
         where TDep1 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramReceivingBackgroundCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(assemblies);
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1, TDep2>(
+    public static IServiceCollection AddTelegramLongPollingReceiving<TDep1, TDep2>(
         this IServiceCollection services,
         Action<TelegramReceiverConfiguration, TDep1, TDep2> configure,
         params Assembly[] assemblies
@@ -52,11 +52,11 @@ public static class DependencyInjection
         where TDep2 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramReceivingBackgroundCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(assemblies);
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1, TDep2, TDep3>(
+    public static IServiceCollection AddTelegramLongPollingReceiving<TDep1, TDep2, TDep3>(
         this IServiceCollection services,
         Action<TelegramReceiverConfiguration, TDep1, TDep2, TDep3> configure,
         params Assembly[] assemblies
@@ -66,11 +66,11 @@ public static class DependencyInjection
         where TDep3 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramReceivingBackgroundCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(assemblies);
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1, TDep2, TDep3, TDep4>(
+    public static IServiceCollection AddTelegramLongPollingReceiving<TDep1, TDep2, TDep3, TDep4>(
         this IServiceCollection services,
         Action<TelegramReceiverConfiguration, TDep1, TDep2, TDep3, TDep4> configure,
         params Assembly[] assemblies
@@ -81,11 +81,11 @@ public static class DependencyInjection
         where TDep4 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramReceivingBackgroundCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(assemblies);
         return services;
     }
 
-    public static IServiceCollection AddTelegramReceivingBackground<TDep1, TDep2, TDep3, TDep4, TDep5>(
+    public static IServiceCollection AddTelegramLongPollingReceiving<TDep1, TDep2, TDep3, TDep4, TDep5>(
         this IServiceCollection services,
         Action<TelegramReceiverConfiguration, TDep1, TDep2, TDep3, TDep4, TDep5> configure,
         params Assembly[] assemblies
@@ -97,16 +97,16 @@ public static class DependencyInjection
         where TDep5 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramReceivingBackgroundCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(assemblies);
         return services;
     }
 
-    private static void AddTelegramReceivingBackgroundCore(
+    private static void AddTelegramLongPollingReceivingCore(
         this IServiceCollection services,
         params Assembly[] assemblies
     )
     {
         services.AddTelegramReceiving(assemblies);
-        services.AddHostedService<TelegramReceivingService>();
+        services.AddHostedService<TelegramLongPollingBackgroundService>();
     }
 }
