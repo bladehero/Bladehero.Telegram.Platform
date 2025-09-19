@@ -4,9 +4,9 @@ using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 
-namespace Telegram.DotNet.Platform.Receiving.Background;
+namespace Telegram.DotNet.Platform.Receiving.Background.LongPolling;
 
-internal class TelegramReceivingService(IServiceScopeFactory serviceScopeFactory) : BackgroundService
+internal class TelegramLongPollingBackgroundService(IServiceScopeFactory serviceScopeFactory) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

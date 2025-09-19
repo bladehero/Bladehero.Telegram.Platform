@@ -3,7 +3,7 @@ using Telegram.Bot.Types.Enums;
 
 namespace Telegram.DotNet.Platform.Receiving.Background;
 
-public sealed class TelegramReceiverConfiguration : TelegramBotConfiguration
+public class TelegramReceiverConfiguration : TelegramBotConfiguration
 {
     public int? Offset { get; set; }
     public UpdateType[]? AllowedUpdates { get; set; }
