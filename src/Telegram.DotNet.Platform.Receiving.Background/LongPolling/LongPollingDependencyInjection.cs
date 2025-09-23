@@ -11,11 +11,12 @@ public static class LongPollingDependencyInjection
         this IServiceCollection services,
         IConfiguration configuration,
         string? sectionName = null,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null,
         params Assembly[] assemblies
     )
     {
         services.AddConfiguration<TelegramReceiverConfiguration>(configuration, sectionName);
-        services.AddTelegramBot(configuration, sectionName ?? nameof(TelegramReceiverConfiguration));
+        services.AddTelegramBot(configuration, sectionName ?? nameof(TelegramReceiverConfiguration), httpClientFactory);
         services.AddTelegramLongPollingReceivingCore(assemblies);
         return services;
     }

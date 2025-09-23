@@ -37,11 +37,12 @@ public static class WebhookDependencyInjection
         this IServiceCollection services,
         IConfiguration configuration,
         string? sectionName = null,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null,
         params Assembly[] assemblies
     )
     {
         services.AddConfiguration<TelegramWebhookConfiguration>(configuration, sectionName);
-        services.AddTelegramBot(configuration, sectionName ?? nameof(TelegramWebhookConfiguration));
+        services.AddTelegramBot(configuration, sectionName ?? nameof(TelegramWebhookConfiguration), httpClientFactory);
         services.AddTelegramWebhookReceivingCore(assemblies);
         return services;
     }
