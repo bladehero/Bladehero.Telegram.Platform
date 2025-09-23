@@ -5,7 +5,7 @@ namespace Telegram.DotNet.Platform.Receiving.Background.Webhook;
 internal static class WebhookComparingExtensions
 {
     internal static bool HasNoChangesBasedOn(this WebhookInfo? current, TelegramWebhookConfiguration desired) =>
-        current.HasChangesBasedOn(desired);
+        !current.HasChangesBasedOn(desired);
 
     internal static bool HasChangesBasedOn(this WebhookInfo? current, TelegramWebhookConfiguration desired)
     {
