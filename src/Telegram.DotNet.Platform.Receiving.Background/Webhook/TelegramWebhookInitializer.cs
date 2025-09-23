@@ -16,25 +16,32 @@ internal sealed class TelegramWebhookInitializer(
         var configuration = options.Value;
         try
         {
-            logger.LogInformation("Starting webhook");
+            logger.LogDebug("Starting webhook initializer");
+
             var me = await client.GetMe(cancellationToken);
-            logger.LogInformation("Bot info: {Id}, @{Username}", me.Id, me.Username);
+            logger.LogDebug("Bot info: {Id}, @{Username}", me.Id, me.Username);
+
             var webhook = await client.GetWebhookInfo(cancellationToken);
-            logger.LogInformation("Current webhook info: {@Info}", webhook);
+            logger.LogDebug("Current webhook info: {@Info}", webhook);
+
             if (webhook.HasNoChangesBasedOn(configuration))
             {
                 logger.LogInformation("No webhook changes detected, keeping as it was...");
                 return;
             }
 
+            logger.LogInformation("Webhook will be re-applied now");
             await client.DeleteWebhook(cancellationToken: cancellationToken);
 
+            logger.LogInformation("Webhook has been deleted");
             await client.SetWebhook(
                 configuration.WebhookUri.AbsoluteUri,
                 allowedUpdates: configuration.AllowedUpdates,
                 dropPendingUpdates: configuration.DropPendingUpdates,
                 cancellationToken: cancellationToken
             );
+
+            logger.LogInformation("Webhook has been applied with the latest changes");
         }
         catch (Exception ex)
         {

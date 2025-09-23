@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using Microsoft.Configuration.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,63 +12,69 @@ public static class DependencyInjection
     public static IServiceCollection AddTelegramBot(
         this IServiceCollection services,
         IConfiguration configuration,
-        string? sectionName = null
+        string? sectionName = null,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null
     )
     {
         services.AddConfiguration<TelegramBotConfiguration>(configuration, sectionName);
-        services.AddTelegramBotCore();
+        services.AddTelegramBotCore(httpClientFactory);
         return services;
     }
 
     public static IServiceCollection AddTelegramBot(
         this IServiceCollection services,
-        Action<TelegramBotConfiguration> configure
+        Action<TelegramBotConfiguration> configure,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null
     )
     {
         services.AddOptions<TelegramBotConfiguration>().Configure(configure);
-        services.AddTelegramBotCore();
+        services.AddTelegramBotCore(httpClientFactory);
         return services;
     }
 
     public static IServiceCollection AddTelegramBot<TDep1>(
         this IServiceCollection services,
-        Action<TelegramBotConfiguration, TDep1> configure
+        Action<TelegramBotConfiguration, TDep1> configure,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null
     )
         where TDep1 : class
     {
         services.AddOptions<TelegramBotConfiguration>().Configure(configure);
-        services.AddTelegramBotCore();
+        services.AddTelegramBotCore(httpClientFactory);
         return services;
     }
 
     public static IServiceCollection AddTelegramBot<TDep1, TDep2>(
         this IServiceCollection services,
-        Action<TelegramBotConfiguration, TDep1, TDep2> configure
+        Action<TelegramBotConfiguration, TDep1, TDep2> configure,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null
     )
         where TDep1 : class
         where TDep2 : class
     {
         services.AddOptions<TelegramBotConfiguration>().Configure(configure);
-        services.AddTelegramBotCore();
+        services.AddTelegramBotCore(httpClientFactory);
         return services;
     }
 
     public static IServiceCollection AddTelegramBot<TDep1, TDep2, TDep3>(
         this IServiceCollection services,
-        Action<TelegramBotConfiguration, TDep1, TDep2, TDep3> configure
+        Action<TelegramBotConfiguration, TDep1, TDep2, TDep3> configure,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null
     )
         where TDep1 : class
         where TDep2 : class
         where TDep3 : class
     {
         services.AddOptions<TelegramBotConfiguration>().Configure(configure);
-        services.AddTelegramBotCore();
+        services.AddTelegramBotCore(httpClientFactory);
         return services;
     }
 
     public static IServiceCollection AddTelegramBot<TDep1, TDep2, TDep3, TDep4>(
         this IServiceCollection services,
-        Action<TelegramBotConfiguration, TDep1, TDep2, TDep3, TDep4> configure
+        Action<TelegramBotConfiguration, TDep1, TDep2, TDep3, TDep4> configure,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null
     )
         where TDep1 : class
         where TDep2 : class
@@ -78,13 +82,14 @@ public static class DependencyInjection
         where TDep4 : class
     {
         services.AddOptions<TelegramBotConfiguration>().Configure(configure);
-        services.AddTelegramBotCore();
+        services.AddTelegramBotCore(httpClientFactory);
         return services;
     }
 
     public static IServiceCollection AddTelegramBot<TDep1, TDep2, TDep3, TDep4, TDep5>(
         this IServiceCollection services,
-        Action<TelegramBotConfiguration, TDep1, TDep2, TDep3, TDep4, TDep5> configure
+        Action<TelegramBotConfiguration, TDep1, TDep2, TDep3, TDep4, TDep5> configure,
+        Func<IServiceProvider, HttpClient>? httpClientFactory = null
     )
         where TDep1 : class
         where TDep2 : class
@@ -93,37 +98,21 @@ public static class DependencyInjection
         where TDep5 : class
     {
         services.AddOptions<TelegramBotConfiguration>().Configure(configure);
-        services.AddTelegramBotCore();
+        services.AddTelegramBotCore(httpClientFactory);
         return services;
     }
 
-    private static void AddTelegramBotCore(this IServiceCollection services)
+    private static void AddTelegramBotCore(
+        this IServiceCollection services,
+        Func<IServiceProvider, HttpClient>? httpClientFactory
+    )
     {
         services.TryAddSingleton<ITelegramBotClient>(provider =>
         {
             var botConfiguration = provider.GetRequiredService<IOptions<TelegramBotConfiguration>>().Value;
             var options = new TelegramBotClientOptions(botConfiguration.Token);
-            var handler = new SocketsHttpHandler
-            {
-                ConnectCallback = async (context, token) =>
-                {
-                    var addresses = await Dns.GetHostAddressesAsync(
-                        context.DnsEndPoint.Host,
-                        AddressFamily.InterNetwork,
-                        token
-                    );
-
-                    var address = addresses[0];
-                    var endpoint = new IPEndPoint(address, context.DnsEndPoint.Port);
-
-                    var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    await socket.ConnectAsync(endpoint, token);
-                    return new NetworkStream(socket, ownsSocket: true);
-                },
-            };
-
-            var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
-            return new TelegramBotClient(options, httpClient);
+            var client = httpClientFactory?.Invoke(provider);
+            return new TelegramBotClient(options, client);
         });
     }
 }
