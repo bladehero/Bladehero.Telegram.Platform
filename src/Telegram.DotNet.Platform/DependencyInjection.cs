@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.Configuration.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -101,7 +103,27 @@ public static class DependencyInjection
         {
             var botConfiguration = provider.GetRequiredService<IOptions<TelegramBotConfiguration>>().Value;
             var options = new TelegramBotClientOptions(botConfiguration.Token);
-            return new TelegramBotClient(options);
+            var handler = new SocketsHttpHandler
+            {
+                ConnectCallback = async (context, token) =>
+                {
+                    var addresses = await Dns.GetHostAddressesAsync(
+                        context.DnsEndPoint.Host,
+                        AddressFamily.InterNetwork,
+                        token
+                    );
+
+                    var address = addresses[0];
+                    var endpoint = new IPEndPoint(address, context.DnsEndPoint.Port);
+
+                    var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    await socket.ConnectAsync(endpoint, token);
+                    return new NetworkStream(socket, ownsSocket: true);
+                },
+            };
+
+            var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+            return new TelegramBotClient(options, httpClient);
         });
     }
 }
