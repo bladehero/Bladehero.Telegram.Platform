@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Configuration.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
@@ -17,16 +18,25 @@ public static class WebhookDependencyInjection
     {
         var configuration = builder.ServiceProvider.GetRequiredService<IOptions<TelegramWebhookConfiguration>>().Value;
         var endpoint = NormalizeEndpointPath(configuration.UpdateEndpoint);
+        Console.WriteLine("[{0}]: Set bot update endpoint `{1}`", nameof(UseTelegramWebhook), endpoint);
         builder.MapPost(
             endpoint,
-            async (Update update, ITelegramBotClient client, IUpdateHandler handler, CancellationToken token) =>
+            async (
+                Update update,
+                ITelegramBotClient client,
+                IUpdateHandler handler,
+                ILogger<WebhookEndpoints> logger,
+                CancellationToken token
+            ) =>
             {
                 try
                 {
+                    logger.LogInformation("Received webhook update: {@Update}", update);
                     await handler.HandleUpdateAsync(client, update, token);
                 }
                 catch (Exception ex)
                 {
+                    logger.LogError(ex, "An error occurred while handling telegram update");
                     await handler.HandleErrorAsync(client, ex, HandleErrorSource.HandleUpdateError, token);
                 }
             }
@@ -143,4 +153,6 @@ public static class WebhookDependencyInjection
 
         return $"/{path.Trim(' ', '/')}";
     }
+
+    private sealed class WebhookEndpoints;
 }
