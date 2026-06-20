@@ -3,15 +3,21 @@ name: Publish to NuGet
 on:
   push:
     branches: ["master"]
-    tags: ["v*.*.*"]
 
 jobs:
   publish:
     runs-on: ubuntu-latest
 
+    # Published version comes from the `VERSION` repository variable
+    # (Settings -> Secrets and variables -> Actions -> Variables). All packed
+    # projects share it. After a successful publish the patch is incremented
+    # and written back. Edit the variable to set or jump the version.
+    env:
+      VERSION: ${{ vars.VERSION }}
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
@@ -42,9 +48,21 @@ jobs:
           for proj in "${projects[@]}"; do
             echo "📦 Packing $proj"
             dotnet restore "$proj"
-            dotnet build "$proj" --configuration Release --no-restore
-            dotnet pack "$proj" --configuration Release --no-build -o ./out
+            dotnet build "$proj" --configuration Release --no-restore -p:Version=$VERSION
+            dotnet pack "$proj" --configuration Release --no-build -o ./out -p:Version=$VERSION
           done
 
       - name: Publish to NuGet
-        run: dotnet nuget push ./out/*.nupkg --api-key ${{ secrets.GH_PAT }} --source "https://nuget.pkg.github.com/bladehero/index.json"
+        run: dotnet nuget push ./out/*.nupkg --api-key ${{ secrets.GH_PAT }} --source "https://nuget.pkg.github.com/bladehero/index.json" --skip-duplicate
+
+      # Increment the patch and store it back in the VERSION variable so the
+      # next merge to master publishes the following version. Requires GH_PAT
+      # to have variable-write scope (classic `repo` or fine-grained Variables).
+      - name: Bump patch version for next run
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          IFS='.' read -r major minor patch <<< "$VERSION"
+          next="$major.$minor.$((patch + 1))"
+          echo "Published $VERSION; setting VERSION variable to $next"
+          gh variable set VERSION --body "$next" --repo "$GITHUB_REPOSITORY"
