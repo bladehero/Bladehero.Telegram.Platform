@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Bladehero.Telegram.Platform.Receiving</PackageId>
+    <Title>Bladehero.Telegram.Platform.Receiving</Title>
+    <Description>Command-style update handling for Telegram bots: ITelegramCommand, strongly typed per-update-type base commands, assembly scanning and a parallel command executor.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Bladehero.Configuration.Extensions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Telegram.Bot" />
+  </ItemGroup>
+</Project>

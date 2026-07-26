@@ -1,4 +1,4 @@
-name: .NET
+name: Format
 on:
   push:
     branches: ["master"]
@@ -9,7 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     name: Check Formatting
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
       - run: |
           dotnet tool restore
-          dotnet csharpier --check .
+          dotnet csharpier check .

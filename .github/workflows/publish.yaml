@@ -20,40 +20,35 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
-
-      - name: Add GitHub Packages source
-        run: |
-          dotnet nuget add source "https://nuget.pkg.github.com/bladehero/index.json" \
-            --name bladehero \
-            --username ${{ github.actor }} \
-            --password ${{ secrets.GH_PAT }} \
-            --store-password-in-clear-text
+          dotnet-version: 10.0.x
 
       - name: Restore dependencies
         run: dotnet restore
 
       - name: Build the project
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build --configuration Release --no-restore -p:Version=$VERSION
 
-      - name: Build & Pack selected projects
+      - name: Pack packable projects
         run: |
           projects=(
-            "src/Telegram.DotNet.Platform/Telegram.DotNet.Platform.csproj"
-            "src/Telegram.DotNet.Platform.Receiving/Telegram.DotNet.Platform.Receiving.csproj"
-            "src/Telegram.DotNet.Platform.Receiving.Background/Telegram.DotNet.Platform.Receiving.Background.csproj"
+            "src/Bladehero.Telegram.Platform/Bladehero.Telegram.Platform.csproj"
+            "src/Bladehero.Telegram.Platform.Receiving/Bladehero.Telegram.Platform.Receiving.csproj"
+            "src/Bladehero.Telegram.Platform.Receiving.Background/Bladehero.Telegram.Platform.Receiving.Background.csproj"
           )
           for proj in "${projects[@]}"; do
             echo "📦 Packing $proj"
-            dotnet restore "$proj"
-            dotnet build "$proj" --configuration Release --no-restore -p:Version=$VERSION
             dotnet pack "$proj" --configuration Release --no-build -o ./out -p:Version=$VERSION
           done
 
+      # Pushing a .nupkg to nuget.org also uploads the matching .snupkg symbol package.
       - name: Publish to NuGet
-        run: dotnet nuget push ./out/*.nupkg --api-key ${{ secrets.GH_PAT }} --source "https://nuget.pkg.github.com/bladehero/index.json" --skip-duplicate
+        run: |
+          dotnet nuget push ./out/*.nupkg \
+            --api-key ${{ secrets.NUGET_API_KEY }} \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
 
       # Increment the patch and store it back in the VERSION variable so the
       # next merge to master publishes the following version. Requires GH_PAT

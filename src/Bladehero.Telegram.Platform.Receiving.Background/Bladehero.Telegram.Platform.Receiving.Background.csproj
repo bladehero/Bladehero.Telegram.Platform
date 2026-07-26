@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Bladehero.Telegram.Platform.Receiving.Background</PackageId>
+    <Title>Bladehero.Telegram.Platform.Receiving.Background</Title>
+    <Description>Hosting for Bladehero.Telegram.Platform.Receiving: a long-polling BackgroundService and an ASP.NET Core webhook endpoint that registers and keeps the Telegram webhook in sync.</Description>
+    <UserSecretsId>b5888a66-416e-4dd8-a75f-16666046d1a2</UserSecretsId>
+  </PropertyGroup>
+
+  <!-- Brings in the DI, Hosting and Routing abstractions this package builds on. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bladehero.Telegram.Platform.Receiving\Bladehero.Telegram.Platform.Receiving.csproj" />
+    <ProjectReference Include="..\Bladehero.Telegram.Platform\Bladehero.Telegram.Platform.csproj" />
+  </ItemGroup>
+</Project>
