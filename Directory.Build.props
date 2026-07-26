@@ -1,0 +1,35 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- Shared NuGet metadata. Individual packages only declare PackageId/Title/Description. -->
+  <PropertyGroup>
+    <Authors>bladehero</Authors>
+    <Company>bladehero</Company>
+    <Copyright>Copyright (c) Nikita Dermenzhi</Copyright>
+    <PackageProjectUrl>https://github.com/bladehero/Bladehero.Telegram.Platform</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/bladehero/Bladehero.Telegram.Platform</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>telegram;telegram-bot;bot;commands;webhook;long-polling;aspnetcore;dependency-injection</PackageTags>
+  </PropertyGroup>
+
+  <!-- Source Link ships in the SDK; these switches are all that is needed for debuggable packages. -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+</Project>

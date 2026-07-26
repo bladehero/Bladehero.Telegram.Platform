@@ -1,0 +1,10 @@
+<Project>
+  <!--
+      Runs after the project body, so `IsPackable` set inside a .csproj is visible here.
+      Ships the repo README and LICENSE inside every package.
+    -->
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+</Project>

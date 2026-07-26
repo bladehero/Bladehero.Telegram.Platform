@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Bladehero.Telegram.Platform</PackageId>
+    <Title>Bladehero.Telegram.Platform</Title>
+    <Description>Core building blocks for Telegram bots on .NET: strongly typed bot configuration and an ITelegramBotClient registration for Microsoft.Extensions.DependencyInjection.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Bladehero.Configuration.Extensions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Telegram.Bot" />
+  </ItemGroup>
+
+  <Target Name="Husky" BeforeTargets="Restore;CollectPackageReferences" Condition="'$(HUSKY)' != 0">
+    <Exec Command="dotnet tool restore" StandardOutputImportance="Low" StandardErrorImportance="High" />
+    <Exec
+      Command="dotnet husky install"
+      StandardOutputImportance="Low"
+      StandardErrorImportance="High"
+      WorkingDirectory="../.."
+    />
+  </Target>
+</Project>
