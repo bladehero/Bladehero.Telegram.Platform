@@ -8,10 +8,18 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
+    # Trusted Publishing to nuget.org exchanges a GitHub OIDC token for a
+    # short-lived API key, so the job needs id-token write permission.
+    # contents:read keeps the default GITHUB_TOKEN at least-privilege (the
+    # version-bump step authenticates separately via GH_PAT).
+    permissions:
+      id-token: write
+      contents: read
+
     # Published version comes from the `VERSION` repository variable
     # (Settings -> Secrets and variables -> Actions -> Variables). All packed
     # projects share it. After a successful publish the patch is incremented
-    # and written back. Edit the variable to set or jump the version.
+    # and written back. Edit the variable to set or jump the version (e.g. 10.1.0).
     env:
       VERSION: ${{ vars.VERSION }}
 
@@ -42,13 +50,22 @@ jobs:
             dotnet pack "$proj" --configuration Release --no-build -o ./out -p:Version=$VERSION
           done
 
+      - name: Publish to GitHub Packages
+        run: dotnet nuget push ./out/*.nupkg --api-key ${{ secrets.GH_PAT }} --source "https://nuget.pkg.github.com/bladehero/index.json" --skip-duplicate
+
+      # nuget.org Trusted Publishing (OIDC): exchange the job's OIDC token for a
+      # short-lived API key — no long-lived secret is stored. Requires a trusted
+      # publishing policy on nuget.org bound to this repo + workflow, and the
+      # `NUGET_USER` repo variable set to the nuget.org account owning the policy.
+      - name: Log in to NuGet.org (trusted publishing)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       # Pushing a .nupkg to nuget.org also uploads the matching .snupkg symbol package.
-      - name: Publish to NuGet
-        run: |
-          dotnet nuget push ./out/*.nupkg \
-            --api-key ${{ secrets.NUGET_API_KEY }} \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+      - name: Publish to NuGet.org
+        run: dotnet nuget push ./out/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source "https://api.nuget.org/v3/index.json" --skip-duplicate
 
       # Increment the patch and store it back in the VERSION variable so the
       # next merge to master publishes the following version. Requires GH_PAT
