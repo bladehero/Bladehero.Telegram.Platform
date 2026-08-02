@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Background.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Bladehero.Telegram.Platform.Receiving\Bladehero.Telegram.Platform.Receiving.csproj" />
     <ProjectReference Include="..\Bladehero.Telegram.Platform\Bladehero.Telegram.Platform.csproj" />
   </ItemGroup>

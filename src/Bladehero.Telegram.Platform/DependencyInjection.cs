@@ -107,12 +107,13 @@ public static class DependencyInjection
         Func<IServiceProvider, HttpClient>? httpClientFactory
     )
     {
-        services.TryAddSingleton<ITelegramBotClient>(provider =>
+        services.TryAddSingleton(provider =>
         {
             var botConfiguration = provider.GetRequiredService<IOptions<TelegramBotConfiguration>>().Value;
             var options = new TelegramBotClientOptions(botConfiguration.Token);
             var client = httpClientFactory?.Invoke(provider);
-            return new TelegramBotClient(options, client);
+            return new TelegramBotClientAccessor(new TelegramBotClient(options, client));
         });
+        services.TryAddSingleton<ITelegramSender, TelegramSender>();
     }
 }

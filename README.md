@@ -33,7 +33,7 @@ and it participates.
 
 | Package | What it gives you |
 | --- | --- |
-| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | `TelegramBotConfiguration` and an `ITelegramBotClient` registration for `IServiceCollection`. |
+| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | `TelegramBotConfiguration`, `ITelegramSender`, and the `IServiceCollection` wiring behind both. |
 | [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | The command model: `ITelegramCommand`, typed base commands, assembly scanning, the parallel executor, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Hosting: a long-polling `BackgroundService` and an ASP.NET Core webhook endpoint that keeps the Telegram webhook registration in sync. |
 
@@ -219,6 +219,35 @@ services.Configure<ParallelCommandExecutionConfiguration>(options => options.Par
 Set `ParallelCount` to `null` to run every command in a single unbounded batch.
 
 To replace dispatch entirely, register your own `ITelegramCommandExecutor` after `AddTelegramReceiving`.
+
+### Scopes
+
+Every update is handled in its own DI scope under both hosting models — webhook updates get the ASP.NET Core
+request scope, and long polling creates one per update. Scoped dependencies therefore behave the way you
+would expect in a controller: a fresh instance per update, disposed once the update finishes.
+
+Commands within a single update share that scope and, by default, run in parallel. If they share a scoped
+dependency that is not thread-safe — an EF Core `DbContext` being the usual one — either set `ParallelCount`
+to `1` so commands run one at a time, or resolve a scope of your own inside the command.
+
+## Sending on your own initiative
+
+A command answering an update already holds the bot client — it arrives on the request, so replying never
+needs anything from the container. Messages the bot starts by itself have no request to draw on: a
+reminder, a nightly digest, an alert raised by a background job. Those go through `ITelegramSender`:
+
+```csharp
+public sealed class LimitAlerts(ITelegramSender sender)
+{
+    public Task WarnAsync(long chatId, string text, CancellationToken token) =>
+        sender.SendAsync(chatId, text, cancellationToken: token);
+}
+```
+
+`ITelegramBotClient` itself is **not** registered in the container, on purpose. Two ways to reach the same
+object invites the wrong one — a command injecting the client instead of using its request, and losing the
+distinction between "the bot replied" and "the bot spoke first". The library builds the client internally and
+hands it to commands on their request; everything else sends through `ITelegramSender`.
 
 ## Error handling
 

@@ -23,12 +23,13 @@ public static class WebhookDependencyInjection
             endpoint,
             async (
                 Update update,
-                ITelegramBotClient client,
+                TelegramBotClientAccessor accessor,
                 IUpdateHandler handler,
                 ILogger<WebhookEndpoints> logger,
                 CancellationToken token
             ) =>
             {
+                var client = accessor.Client;
                 try
                 {
                     logger.LogInformation("Received webhook update: {@Update}", update);
@@ -52,8 +53,7 @@ public static class WebhookDependencyInjection
     )
     {
         services.AddConfiguration<TelegramWebhookConfiguration>(configuration, sectionName);
-        services.AddTelegramBot(configuration, sectionName ?? nameof(TelegramWebhookConfiguration), httpClientFactory);
-        services.AddTelegramWebhookReceivingCore(assemblies);
+        services.AddTelegramWebhookReceivingCore(httpClientFactory, assemblies);
         return services;
     }
 
@@ -64,7 +64,7 @@ public static class WebhookDependencyInjection
     )
     {
         services.AddOptions<TelegramWebhookConfiguration>().Configure(configure);
-        services.AddTelegramWebhookReceivingCore(assemblies);
+        services.AddTelegramWebhookReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -76,7 +76,7 @@ public static class WebhookDependencyInjection
         where TDep1 : class
     {
         services.AddOptions<TelegramWebhookConfiguration>().Configure(configure);
-        services.AddTelegramWebhookReceivingCore(assemblies);
+        services.AddTelegramWebhookReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -89,7 +89,7 @@ public static class WebhookDependencyInjection
         where TDep2 : class
     {
         services.AddOptions<TelegramWebhookConfiguration>().Configure(configure);
-        services.AddTelegramWebhookReceivingCore(assemblies);
+        services.AddTelegramWebhookReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -103,7 +103,7 @@ public static class WebhookDependencyInjection
         where TDep3 : class
     {
         services.AddOptions<TelegramWebhookConfiguration>().Configure(configure);
-        services.AddTelegramWebhookReceivingCore(assemblies);
+        services.AddTelegramWebhookReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -118,7 +118,7 @@ public static class WebhookDependencyInjection
         where TDep4 : class
     {
         services.AddOptions<TelegramWebhookConfiguration>().Configure(configure);
-        services.AddTelegramWebhookReceivingCore(assemblies);
+        services.AddTelegramWebhookReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -134,12 +134,20 @@ public static class WebhookDependencyInjection
         where TDep5 : class
     {
         services.AddOptions<TelegramWebhookConfiguration>().Configure(configure);
-        services.AddTelegramWebhookReceivingCore(assemblies);
+        services.AddTelegramWebhookReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
-    private static void AddTelegramWebhookReceivingCore(this IServiceCollection services, params Assembly[] assemblies)
+    private static void AddTelegramWebhookReceivingCore(
+        this IServiceCollection services,
+        Func<IServiceProvider, HttpClient>? httpClientFactory,
+        params Assembly[] assemblies
+    )
     {
+        services.AddTelegramBot<IOptions<TelegramWebhookConfiguration>>(
+            (bot, webhook) => bot.Token = webhook.Value.Token,
+            httpClientFactory
+        );
         services.AddTelegramReceiving(assemblies);
         services.AddHostedService<TelegramWebhookInitializer>();
     }
