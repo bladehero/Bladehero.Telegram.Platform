@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Bladehero.Configuration.Extensions" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
