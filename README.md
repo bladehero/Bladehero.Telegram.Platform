@@ -203,6 +203,40 @@ public sealed class AuditCommand(ILogger<AuditCommand> logger) : ITelegramComman
 
 `CommandRequest` exposes `Update` and `Client` and deconstructs into both.
 
+### Bot commands
+
+`IsCommand` recognises a slash command in every form Telegram sends it — bare, `@`-qualified, and with
+arguments — so `CanHandleAsync` stays a one-liner:
+
+```csharp
+protected override bool Matches(Message message) => message.IsCommand("/last");
+```
+
+`ArgumentsOf("/last")` returns whatever followed the command, or `null` when there was nothing.
+
+### Commands for known users only
+
+Most bots serve people they already know about. `KnownUserCommand<TUser>` resolves the chat through your
+`ITelegramUserResolver<TUser>` and runs only when that succeeds, handing the resolved user to `HandleAsync`:
+
+```csharp
+internal sealed class LastExpensesCommand(ITelegramUserResolver<User> users, IExpenseQueries expenses)
+    : KnownUserCommand<User>(users)
+{
+    protected override bool Matches(Message message) => message.IsCommand("/last");
+
+    protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+    {
+        var recent = await expenses.RecentAsync(User.Id, token);   // User is already resolved
+        await request.Client.SendMessage(request.Payload.Chat, Render(recent), cancellationToken: token);
+    }
+}
+```
+
+An unresolved chat makes the command decline the update rather than throw, so a stranger messaging the bot
+is ignored instead of raising an error for every message. The resolver is keyed on the chat id rather than
+the message, so the same implementation serves callback queries later.
+
 ## Execution model
 
 For each update the executor asks every command whether it can handle it, then runs all commands that said
