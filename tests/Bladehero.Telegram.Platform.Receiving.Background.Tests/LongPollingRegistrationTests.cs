@@ -21,6 +21,16 @@ public sealed class LongPollingRegistrationTests
     }
 
     [Fact]
+    public void TheWebhookIsClearedBeforeThePollingLoopStarts()
+    {
+        using var provider = Build(FromConfiguration());
+
+        var hosted = provider.GetServices<IHostedService>();
+
+        Assert.Single(hosted.OfType<TelegramLongPollingInitializer>());
+    }
+
+    [Fact]
     public void TheLongPollingHostedServiceResolves()
     {
         using var provider = Build(FromConfiguration());
