@@ -2,6 +2,7 @@ using System.Reflection;
 using Bladehero.Configuration.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 
@@ -16,8 +17,7 @@ public static class LongPollingDependencyInjection
     )
     {
         services.AddConfiguration<TelegramReceiverConfiguration>(configuration, sectionName);
-        services.AddTelegramBot(configuration, sectionName ?? nameof(TelegramReceiverConfiguration), httpClientFactory);
-        services.AddTelegramLongPollingReceivingCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(httpClientFactory, assemblies);
         return services;
     }
 
@@ -28,7 +28,7 @@ public static class LongPollingDependencyInjection
     )
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramLongPollingReceivingCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -40,7 +40,7 @@ public static class LongPollingDependencyInjection
         where TDep1 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramLongPollingReceivingCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -53,7 +53,7 @@ public static class LongPollingDependencyInjection
         where TDep2 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramLongPollingReceivingCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -67,7 +67,7 @@ public static class LongPollingDependencyInjection
         where TDep3 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramLongPollingReceivingCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -82,7 +82,7 @@ public static class LongPollingDependencyInjection
         where TDep4 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramLongPollingReceivingCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
@@ -98,16 +98,22 @@ public static class LongPollingDependencyInjection
         where TDep5 : class
     {
         services.AddOptions<TelegramReceiverConfiguration>().Configure(configure);
-        services.AddTelegramLongPollingReceivingCore(assemblies);
+        services.AddTelegramLongPollingReceivingCore(httpClientFactory: null, assemblies);
         return services;
     }
 
     private static void AddTelegramLongPollingReceivingCore(
         this IServiceCollection services,
+        Func<IServiceProvider, HttpClient>? httpClientFactory,
         params Assembly[] assemblies
     )
     {
+        services.AddTelegramBot<IOptions<TelegramReceiverConfiguration>>(
+            (bot, receiver) => bot.Token = receiver.Value.Token,
+            httpClientFactory
+        );
         services.AddTelegramReceiving(assemblies);
+        services.AddSingleton<ScopedUpdateHandler>();
         services.AddHostedService<TelegramLongPollingBackgroundService>();
     }
 }

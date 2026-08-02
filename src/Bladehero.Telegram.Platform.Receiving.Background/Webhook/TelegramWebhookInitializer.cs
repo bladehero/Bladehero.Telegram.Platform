@@ -6,13 +6,14 @@ using Telegram.Bot;
 namespace Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 
 internal sealed class TelegramWebhookInitializer(
-    ITelegramBotClient client,
+    TelegramBotClientAccessor accessor,
     IOptions<TelegramWebhookConfiguration> options,
     ILogger<TelegramWebhookInitializer> logger
 ) : IHostedLifecycleService
 {
     public async Task StartingAsync(CancellationToken cancellationToken)
     {
+        var client = accessor.Client;
         var configuration = options.Value;
         try
         {
