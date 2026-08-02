@@ -75,6 +75,11 @@ await host.RunAsync();
 }
 ```
 
+Telegram serves a bot through `getUpdates` **or** a webhook, never both — polling a bot that still has one
+registered fails with HTTP 409 on every attempt. On startup the host checks for a webhook and deletes one
+if it finds it, logging the URL it removed. Worth knowing if the bot you are polling locally is the same
+bot serving a deployed webhook: starting long polling will unregister it.
+
 ## Quick start — webhook
 
 Best for production. Telegram pushes updates to an endpoint you expose.
