@@ -5,14 +5,8 @@ using Telegram.Bot;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 
-/// <summary>
-/// Clears an active webhook before the polling loop starts.
-/// </summary>
-/// <remarks>
-/// Telegram serves a bot through <c>getUpdates</c> or a webhook, never both — polling a bot that still
-/// has one registered fails with HTTP 409 on every attempt. Asking for long polling settles which of
-/// the two the bot is using, so a leftover registration is removed rather than left to break startup.
-/// </remarks>
+// Telegram serves a bot through getUpdates or a webhook, never both: polling one that still has a
+// webhook registered fails with 409 on every attempt.
 internal sealed class TelegramLongPollingInitializer(
     TelegramBotClientAccessor accessor,
     IOptions<TelegramReceiverConfiguration> options,
@@ -30,8 +24,7 @@ internal sealed class TelegramLongPollingInitializer(
             }
 
             logger.LogWarning(
-                "Deleting the webhook registered at {Url} so long polling can start. Anything still "
-                    + "delivering updates to that address will stop receiving them.",
+                "Deleting the webhook at {Url} so long polling can start - it will stop receiving updates.",
                 webhook.Url
             );
 
