@@ -1,0 +1,209 @@
+using System.Net;
+using System.Text;
+using System.Text.Json.Nodes;
+using Telegram.Bot;
+
+namespace Bladehero.Telegram.Platform.Testing;
+
+/// <summary>
+/// An in-memory stand-in for the Telegram Bot API. The client from <see cref="CreateClient"/> is a real
+/// <see cref="TelegramBotClient"/> that sends real HTTP requests and JSON, so the bot's requests are serialized exactly
+/// as in production — they just never leave the process.
+/// </summary>
+/// <remarks>
+/// Every request is recorded in <see cref="Calls"/> and answered the way Telegram would, including Telegram's own
+/// errors: editing a message that was deleted, or editing one without changing it. A method the fake does not know
+/// yet fails with an error naming it, so an unsupported call fails the test instead of passing silently.
+/// </remarks>
+public sealed class FakeBotApi
+{
+    internal const string Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
+
+    private const long BotId = 1234567;
+
+    private readonly object _gate = new();
+    private readonly List<BotApiCall> _calls = [];
+    private readonly Dictionary<long, ChatHistory> _chats = [];
+
+    public IReadOnlyList<BotApiCall> Calls
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _calls];
+            }
+        }
+    }
+
+    public ITelegramBotClient CreateClient() =>
+        new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));
+
+    private JsonNode Answer(string method, JsonObject parameters) =>
+        method switch
+        {
+            "getMe" => Bot(),
+            "sendMessage" => Send(parameters),
+            "editMessageText" => Edit(parameters, parameters["text"]?.GetValue<string>()),
+            "editMessageReplyMarkup" => Edit(parameters, text: null),
+            "deleteMessage" => Delete(parameters),
+            "answerCallbackQuery" => true,
+            _ => throw new BotApiError(404, $"Not Found: FakeBotApi does not answer {method} yet"),
+        };
+
+    private static JsonObject Bot() =>
+        new()
+        {
+            ["id"] = BotId,
+            ["is_bot"] = true,
+            ["first_name"] = "Test Bot",
+            ["username"] = "test_bot",
+        };
+
+    private JsonObject Send(JsonObject parameters)
+    {
+        var chat = ChatOf(parameters);
+        var message = new JsonObject
+        {
+            ["message_id"] = chat.NextMessageId(),
+            ["date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            ["chat"] = new JsonObject { ["id"] = chat.Id, ["type"] = chat.Id > 0 ? "private" : "supergroup" },
+            ["from"] = Bot(),
+            ["text"] = parameters["text"]?.DeepClone(),
+        };
+
+        if (parameters["reply_markup"] is { } markup)
+        {
+            message["reply_markup"] = markup.DeepClone();
+        }
+
+        chat.Add(message);
+        return message.DeepClone().AsObject();
+    }
+
+    // Telegram removes the inline keyboard from an edited message unless the edit passes one again.
+    private JsonObject Edit(JsonObject parameters, string? text)
+    {
+        var message =
+            ChatOf(parameters).Find(MessageIdOf(parameters))
+            ?? throw new BotApiError(400, "Bad Request: message to edit not found");
+
+        var newText = text ?? message["text"]?.GetValue<string>();
+        var newMarkup = parameters["reply_markup"];
+
+        if (newText == message["text"]?.GetValue<string>() && JsonNode.DeepEquals(newMarkup, message["reply_markup"]))
+        {
+            throw new BotApiError(
+                400,
+                "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
+            );
+        }
+
+        message["text"] = newText;
+        message["reply_markup"] = newMarkup?.DeepClone();
+        message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        if (message["reply_markup"] is null)
+        {
+            message.Remove("reply_markup");
+        }
+
+        return message.DeepClone().AsObject();
+    }
+
+    private JsonNode Delete(JsonObject parameters)
+    {
+        if (!ChatOf(parameters).Remove(MessageIdOf(parameters)))
+        {
+            throw new BotApiError(400, "Bad Request: message to delete not found");
+        }
+
+        return true;
+    }
+
+    private ChatHistory ChatOf(JsonObject parameters)
+    {
+        if (parameters["chat_id"] is not JsonValue value || !value.TryGetValue<long>(out var chatId))
+        {
+            throw new BotApiError(400, "Bad Request: chat not found");
+        }
+
+        if (!_chats.TryGetValue(chatId, out var chat))
+        {
+            chat = new ChatHistory(chatId);
+            _chats[chatId] = chat;
+        }
+
+        return chat;
+    }
+
+    private static int MessageIdOf(JsonObject parameters) =>
+        parameters["message_id"] is JsonValue value && value.TryGetValue<int>(out var messageId)
+            ? messageId
+            : throw new BotApiError(400, "Bad Request: message identifier is not specified");
+
+    private async Task<HttpResponseMessage> HandleAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        var method = request.RequestUri!.Segments[^1];
+        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(token);
+        var parameters = string.IsNullOrWhiteSpace(body) ? [] : JsonNode.Parse(body)!.AsObject();
+
+        JsonNode result;
+        lock (_gate)
+        {
+            _calls.Add(new BotApiCall(method, parameters.DeepClone().AsObject()));
+
+            try
+            {
+                result = Answer(method, parameters);
+            }
+            catch (BotApiError error)
+            {
+                return Respond(
+                    (HttpStatusCode)error.Code,
+                    new JsonObject
+                    {
+                        ["ok"] = false,
+                        ["error_code"] = error.Code,
+                        ["description"] = error.Message,
+                    }
+                );
+            }
+        }
+
+        return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = result });
+    }
+
+    private static HttpResponseMessage Respond(HttpStatusCode status, JsonObject body) =>
+        new(status) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+
+    private sealed class Transport(FakeBotApi api) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken
+        ) => api.HandleAsync(request, cancellationToken);
+    }
+
+    private sealed class BotApiError(int code, string message) : Exception(message)
+    {
+        public int Code { get; } = code;
+    }
+
+    private sealed class ChatHistory(long id)
+    {
+        private readonly List<JsonObject> _messages = [];
+        private int _lastMessageId;
+
+        public long Id { get; } = id;
+
+        public int NextMessageId() => ++_lastMessageId;
+
+        public void Add(JsonObject message) => _messages.Add(message);
+
+        public JsonObject? Find(int messageId) =>
+            _messages.FirstOrDefault(message => message["message_id"]!.GetValue<int>() == messageId);
+
+        public bool Remove(int messageId) => Find(messageId) is { } message && _messages.Remove(message);
+    }
+}
