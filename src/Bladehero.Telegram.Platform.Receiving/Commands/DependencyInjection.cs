@@ -1,4 +1,5 @@
 using System.Reflection;
+using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
@@ -70,6 +71,15 @@ internal static class DependencyInjection
         services.AddScoped(provider => new CommandPriorityAccessor([
             .. catalog.Regular.Select(x => x.Resolve(provider)),
         ]));
+
+        services.AddSingleton<IBotCommandMenu>(
+            new BotCommandMenu(
+                commands
+                    .Select(x => (x.Type, Entry: x.Type.GetCustomAttribute<BotCommandAttribute>()))
+                    .Where(x => x.Entry is not null)
+                    .Select(x => (x.Type, x.Entry!))
+            )
+        );
     }
 
     private static void AddTelegramCommand(IServiceCollection services, Type type)

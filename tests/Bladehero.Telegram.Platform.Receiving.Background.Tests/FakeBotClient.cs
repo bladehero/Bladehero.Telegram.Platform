@@ -8,13 +8,18 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Receiving.Background.Tests;
 
 /// <summary>
-/// Answers the two requests the long-polling initializer makes and records what it was asked.
+/// Answers the requests the startup initializers make and records what it was asked.
 /// </summary>
-internal sealed class FakeBotClient(string? webhookUrl = null, bool unreachable = false) : ITelegramBotClient
+internal sealed class FakeBotClient(string? webhookUrl = null, bool unreachable = false, BotCommand[]? menu = null)
+    : ITelegramBotClient
 {
     public List<string> Requests { get; } = [];
 
     public bool? DroppedPendingUpdates { get; private set; }
+
+    public List<BotCommandScope?> MenuScopes { get; } = [];
+
+    public BotCommand[]? SentMenu { get; private set; }
 
     public Task<TResponse> SendRequest<TResponse>(
         IRequest<TResponse> request,
@@ -28,15 +33,26 @@ internal sealed class FakeBotClient(string? webhookUrl = null, bool unreachable 
 
         Requests.Add(request.MethodName);
 
-        if (request is DeleteWebhookRequest delete)
+        switch (request)
         {
-            DroppedPendingUpdates = delete.DropPendingUpdates;
+            case DeleteWebhookRequest delete:
+                DroppedPendingUpdates = delete.DropPendingUpdates;
+                break;
+            case GetMyCommandsRequest get:
+                MenuScopes.Add(get.Scope);
+                break;
+            case SetMyCommandsRequest set:
+                MenuScopes.Add(set.Scope);
+                SentMenu = [.. set.Commands];
+                break;
         }
 
         object response = request switch
         {
             GetWebhookInfoRequest => new WebhookInfo { Url = webhookUrl ?? string.Empty },
             DeleteWebhookRequest => true,
+            GetMyCommandsRequest => menu ?? [],
+            SetMyCommandsRequest => true,
             _ => throw new InvalidOperationException($"Unexpected request: {request.MethodName}"),
         };
 

@@ -101,7 +101,9 @@ public sealed class ParallelTelegramCommandExecutorTests
             AssertRunsRightAfter(log.OffsetOf("C2:start"), log.OffsetOf("C1:end"));
 
             // Two fully sequential rounds should take roughly 2x a single command's delay.
-            log.OffsetOf("C2:end").Should().BeCloseTo(Delay * 2, Precision);
+            (log.OffsetOf("C2:end") - log.OffsetOf("C1:start"))
+                .Should()
+                .BeCloseTo(Delay * 2, Precision);
         }
     }
 
@@ -162,7 +164,9 @@ public sealed class ParallelTelegramCommandExecutorTests
             AssertRunsRightAfter(secondChunkStart, firstChunkEnd);
 
             // Two sequential rounds should take roughly 2x a single command's delay.
-            secondChunkEnd.Should().BeCloseTo(Delay * 2, Precision);
+            (secondChunkEnd - firstChunkStart)
+                .Should()
+                .BeCloseTo(Delay * 2, Precision);
         }
     }
 
@@ -304,7 +308,7 @@ public sealed class ParallelTelegramCommandExecutorTests
 
             // A cap of exactly 1 (bounded) must serialize commands, unlike an unconfigured (unbounded) cap.
             AssertRunsRightAfter(log.OffsetOf("L2:start"), log.OffsetOf("L1:end"));
-            log.OffsetOf("L2:end").Should().BeCloseTo(Delay * 2, Precision);
+            (log.OffsetOf("L2:end") - log.OffsetOf("L1:start")).Should().BeCloseTo(Delay * 2, Precision);
         }
     }
 

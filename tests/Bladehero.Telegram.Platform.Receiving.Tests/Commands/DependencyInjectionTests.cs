@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
@@ -45,6 +46,23 @@ public sealed class DependencyInjectionTests
 
         // Assert
         command.HasResolver.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AddTelegramCommands_ShouldExposeTheCommandMenuDeclaredInTheScannedAssembly()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramCommands([typeof(DependencyInjectionTests).Assembly]);
+
+        // Act
+        var menu = services.BuildServiceProvider().GetRequiredService<IBotCommandMenu>();
+
+        // Assert
+        menu.Commands.Should()
+            .ContainSingle(x => x.Command == "di_menu")
+            .Which.Description.Should()
+            .Be("From the scan");
     }
 
     [Fact]
@@ -121,6 +139,16 @@ public sealed class DependencyInjectionTests
         protected override int? Parse(string data) => null;
 
         protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
+            Task.CompletedTask;
+    }
+
+    [BotCommand("di_menu", "From the scan")]
+    private sealed class DiMenuCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(false);
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
             Task.CompletedTask;
     }
 

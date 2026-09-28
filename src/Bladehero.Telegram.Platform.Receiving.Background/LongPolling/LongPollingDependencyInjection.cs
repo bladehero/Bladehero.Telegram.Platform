@@ -115,6 +115,7 @@ public static class LongPollingDependencyInjection
         services.AddTelegramReceiving(assemblies);
         services.AddSingleton<ScopedUpdateHandler>();
         services.AddHostedService<TelegramLongPollingInitializer>();
+        services.AddHostedService<TelegramCommandMenuInitializer<TelegramReceiverConfiguration>>();
         services.AddHostedService<TelegramLongPollingBackgroundService>();
     }
 }

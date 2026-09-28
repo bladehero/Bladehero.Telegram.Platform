@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>Bladehero.Telegram.Platform.Receiving.Background</PackageId>
     <Title>Bladehero.Telegram.Platform.Receiving.Background</Title>
-    <Description>Hosting for Bladehero.Telegram.Platform.Receiving: a long-polling BackgroundService and an ASP.NET Core webhook endpoint that registers and keeps the Telegram webhook in sync.</Description>
+    <Description>Hosting for Bladehero.Telegram.Platform.Receiving: a long-polling BackgroundService and an ASP.NET Core webhook endpoint that registers and keeps the Telegram webhook in sync, and a startup sync of the bot's command menu.</Description>
     <UserSecretsId>b5888a66-416e-4dd8-a75f-16666046d1a2</UserSecretsId>
   </PropertyGroup>
 

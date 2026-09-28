@@ -34,8 +34,8 @@ and it participates.
 | Package | What it gives you |
 | --- | --- |
 | [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | `TelegramBotConfiguration`, `ITelegramSender`, and the `IServiceCollection` wiring behind both. |
-| [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | The command model: `ITelegramCommand`, typed base commands, assembly scanning, the parallel executor, multi-step conversations, error handling. |
-| [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Hosting: a long-polling `BackgroundService` and an ASP.NET Core webhook endpoint that keeps the Telegram webhook registration in sync. |
+| [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | The command model: `ITelegramCommand`, typed base commands, assembly scanning, the parallel executor, multi-step conversations, the command menu, error handling. |
+| [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Hosting: a long-polling `BackgroundService` and an ASP.NET Core webhook endpoint that keeps the Telegram webhook registration in sync, plus the startup sync of the command menu. |
 
 Referencing `.Receiving.Background` pulls in the other two. Target framework is **.NET 10**.
 
@@ -137,6 +137,8 @@ services.AddTelegramLongPollingReceiving(
 | `DropPendingUpdates` | both | Discard updates that queued up while the bot was down. |
 | `Offset` | long polling | Update id to resume from. |
 | `Limit` | long polling | Max updates per poll. |
+| `SyncCommandMenu` | both | Send the [command menu](#the-command-menu) to Telegram on startup. Defaults to `true`. |
+| `CommandMenuScope` | both | Chats the command menu is published to. Defaults to `Default` — every chat. |
 | `BaseUrl` | webhook | Public origin Telegram will call, e.g. `https://bot.example.com`. **Required.** |
 | `UpdateEndpoint` | webhook | Path the update endpoint is mapped on, e.g. `telegram/updates`. **Required.** |
 
@@ -218,6 +220,47 @@ protected override bool Matches(Message message) => message.IsCommand("/last");
 ```
 
 `ArgumentsOf("/last")` returns whatever followed the command, or `null` when there was nothing.
+
+### The command menu
+
+Telegram offers a bot's commands in a menu when the user types `/`. Mark a command with `[BotCommand]` and it is
+listed there:
+
+```csharp
+[BotCommand("start", "Start over", Order = 1)]
+public sealed class StartCommand : MessageCommand { /* … */ }
+
+[BotCommand("help", "What I can do")]
+public sealed class HelpCommand(IBotCommandMenu menu) : MessageCommand
+{
+    protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+        Task.FromResult(request.Payload.IsCommand("/help"));
+
+    protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+        request.Client.SendMessage(
+            request.Payload.Chat,
+            string.Join('\n', menu.Commands.Select(command => $"/{command.Command} - {command.Description}")),
+            cancellationToken: token
+        );
+}
+```
+
+On startup the menu Telegram shows is compared with the declared one and replaced only when they differ, so a
+restart costs a single read. `IBotCommandMenu` holds the same list in the same order — the `/help` reply above can
+never drift from the menu.
+
+- **Order.** Commands with an `Order` come first, lowest first, which is how `/start` leads above; the commands
+  without one follow, alphabetically. An order you set must be unique.
+- **Validated on startup.** Names must be 1–32 lowercase letters, digits or underscores without the slash;
+  descriptions at most 256 characters; a name or an order declared twice, or more than 100 commands, fails the host
+  before it talks to Telegram.
+- **Nothing declared, nothing touched.** Without a single `[BotCommand]` the menu Telegram shows is never read or
+  written, so a menu kept in BotFather is safe.
+- **Configuration.** `SyncCommandMenu: false` leaves the menu alone — set it where a host shares its token with
+  another environment, such as a development machine running against the production bot. `CommandMenuScope` picks
+  the chats it goes to: `Default` (every chat without a menu of its own), `AllPrivateChats`, `AllGroupChats` or
+  `AllChatAdministrators`. Telegram keeps a separate menu per scope, so switching scopes leaves the old menu in
+  place.
 
 ### Commands for known users only
 
@@ -431,8 +474,8 @@ services.AddTelegramLongPollingReceiving(
 Two runnable projects live in this repository:
 
 - [`src/Bladehero.Telegram.Platform.Sandbox`](src/Bladehero.Telegram.Platform.Sandbox) — long-polling console
-  host with a command that logs `MyChatMember` updates, and a `/coffee` [conversation](#conversations) that
-  exercises every routing rule: text and button steps, a Cancel button at any step, `/cancel` falling through
+  host with a command that logs `MyChatMember` updates, and a `/coffee` [conversation](#conversations), listed in the
+  bot's [command menu](#the-command-menu), that exercises every routing rule: text and button steps, a Cancel button at any step, `/cancel` falling through
   mid-flow, and stale buttons answered after the order closes.
 - [`src/Bladehero.Telegram.Platform.Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook) —
   ASP.NET Core webhook host with a command that echoes messages back.
