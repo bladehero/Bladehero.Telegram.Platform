@@ -10,14 +10,32 @@ internal sealed class FileStore
 
     private readonly List<StoredFile> _files = [];
 
-    public StoredFile Add(byte[] content, string folder, string extension)
+    // Details are what a message says about the file beyond its id and size: a photo's dimensions, a document's name
+    // and MIME type, a voice message's duration.
+    public StoredFile Add(FileKind kind, byte[] content, JsonObject details, string? url = null)
     {
         var number = _files.Count + 1;
+        var extension = kind switch
+        {
+            FileKind.Photo => ".jpg",
+            FileKind.Voice => ".oga",
+            _ => PathExtension(Path.GetExtension(details["file_name"]?.GetValue<string>() ?? "")),
+        };
+        var folder = kind switch
+        {
+            FileKind.Photo => "photos",
+            FileKind.Voice => "voice",
+            _ => "documents",
+        };
+
         var file = new StoredFile(
             $"file_{number}",
             $"unique_{number}",
-            $"{folder}/file_{number}{PathExtension(extension)}",
-            [.. content]
+            kind,
+            $"{folder}/file_{number}{extension}",
+            [.. content],
+            details.DeepClone().AsObject(),
+            url
         );
 
         _files.Add(file);
@@ -38,25 +56,62 @@ internal sealed class FileStore
     }
 }
 
-internal sealed class StoredFile(string id, string uniqueId, string path, byte[] content)
+internal enum FileKind
+{
+    Photo,
+    Voice,
+    Document,
+}
+
+internal sealed class StoredFile(
+    string id,
+    string uniqueId,
+    FileKind kind,
+    string path,
+    byte[] content,
+    JsonObject details,
+    string? url
+)
 {
     public string Id { get; } = id;
 
-    public string UniqueId { get; } = uniqueId;
+    public FileKind Kind { get; } = kind;
 
     public string Path { get; } = path;
 
     public byte[] Content { get; } = content;
 
+    // Set when the bot sent the file by URL: Telegram would fetch it, but the fake never goes online, so it has no
+    // content.
+    public string? Url { get; } = url;
+
     // Whether getFile has handed out the path, which is what makes the file downloadable.
     public bool PathGiven { get; set; }
 
     // How a message refers to the file; the path is only handed out by getFile.
-    public JsonObject Describe() =>
-        new()
+    public JsonObject Describe()
+    {
+        var described = new JsonObject { ["file_id"] = Id, ["file_unique_id"] = uniqueId };
+
+        if (Url is null)
         {
-            ["file_id"] = Id,
-            ["file_unique_id"] = UniqueId,
-            ["file_size"] = Content.Length,
+            described["file_size"] = Content.Length;
+        }
+
+        foreach (var (key, value) in details)
+        {
+            described[key] = value?.DeepClone();
+        }
+
+        return described;
+    }
+
+    // The part of a message that carries the file: a photo comes as its sizes, the rest as one object.
+    public JsonObject ToMessageContent() =>
+        Kind switch
+        {
+            FileKind.Photo => new JsonObject { ["photo"] = new JsonArray(Describe()) },
+            FileKind.Voice => new JsonObject { ["voice"] = Describe() },
+            _ => new JsonObject { ["document"] = Describe() },
         };
 }

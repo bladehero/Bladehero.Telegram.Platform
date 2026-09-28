@@ -13,10 +13,12 @@ namespace Bladehero.Telegram.Platform.Testing;
 public sealed class TestMessage
 {
     private readonly JsonObject _json;
+    private readonly FakeBotApi _api;
 
-    internal TestMessage(JsonObject json)
+    internal TestMessage(JsonObject json, FakeBotApi api)
     {
         _json = json;
+        _api = api;
         Message = json.Deserialize<Message>(JsonBotAPI.Options)!;
     }
 
@@ -26,6 +28,15 @@ public sealed class TestMessage
 
     /// <summary>The text under a photo or file.</summary>
     public string? Caption => Message.Caption;
+
+    /// <summary>The photo the message carries, or <c>null</c>.</summary>
+    public TestFile? Photo => Message.Photo is [.., var largest] ? _api.File(largest.FileId) : null;
+
+    /// <summary>The document the message carries, or <c>null</c>.</summary>
+    public TestFile? Document => Message.Document is { } document ? _api.File(document.FileId) : null;
+
+    /// <summary>The voice message the message carries, or <c>null</c>.</summary>
+    public TestFile? Voice => Message.Voice is { } voice ? _api.File(voice.FileId) : null;
 
     public bool IsFromBot => Message.From?.IsBot is true;
 

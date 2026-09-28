@@ -337,8 +337,7 @@ public sealed class FakeBotApiTests
         // Arrange
         var api = new FakeBotApi();
         var client = api.CreateClient();
-        var stored = api.StoreFile("hello"u8.ToArray(), "documents", ".txt");
-        var file = await client.GetFile(stored["file_id"]!.GetValue<string>());
+        var file = await client.GetFile(StoreDocument(api, "hello"u8.ToArray(), "hello.txt"));
         using var content = new MemoryStream();
 
         // Act
@@ -354,8 +353,7 @@ public sealed class FakeBotApiTests
         // Arrange
         var api = new FakeBotApi();
         var client = api.CreateClient();
-        var stored = api.StoreFile("hello"u8.ToArray(), "documents", ".txt");
-        await client.GetFile(stored["file_id"]!.GetValue<string>());
+        await client.GetFile(StoreDocument(api, "hello"u8.ToArray(), "hello.txt"));
         using var content = new MemoryStream();
 
         // Act
@@ -391,7 +389,7 @@ public sealed class FakeBotApiTests
         // Arrange
         var api = new FakeBotApi();
         var client = api.CreateClient();
-        api.StoreFile("hello"u8.ToArray(), "documents", ".txt");
+        StoreDocument(api, "hello"u8.ToArray(), "hello.txt");
 
         // Act
         var act = () => client.DownloadFile("documents/file_1.txt", Stream.Null);
@@ -408,10 +406,10 @@ public sealed class FakeBotApiTests
         // Arrange
         var api = new FakeBotApi();
         var client = api.CreateClient();
-        var stored = api.StoreFile(new byte[20 * 1024 * 1024], "documents", ".zip");
+        var fileId = StoreDocument(api, new byte[20 * 1024 * 1024], "big.zip");
 
         // Act
-        var file = await client.GetFile(stored["file_id"]!.GetValue<string>());
+        var file = await client.GetFile(fileId);
 
         // Assert
         file.FilePath.Should().Be("documents/file_1.zip");
@@ -438,15 +436,152 @@ public sealed class FakeBotApiTests
         // Arrange
         var api = new FakeBotApi();
         var client = api.CreateClient();
-        var stored = api.StoreFile(new byte[20 * 1024 * 1024 + 1], "documents", ".zip");
+        var fileId = StoreDocument(api, new byte[20 * 1024 * 1024 + 1], "big.zip");
 
         // Act
-        var act = () => client.GetFile(stored["file_id"]!.GetValue<string>());
+        var act = () => client.GetFile(fileId);
 
         // Assert
         (await act.Should().ThrowAsync<ApiRequestException>())
             .Which.Message.Should()
             .Contain("file is too big");
+    }
+
+    [Fact]
+    public async Task SendPhoto_Uploaded_ShouldKeepTheBytesAndReadTheFormFields()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        var sent = await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray()), "cat.jpg"),
+            caption: "123",
+            replyMarkup: YesNo
+        );
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Caption.Should().Be("123");
+            sent.ReplyMarkup!.InlineKeyboard.SelectMany(row => row).Select(x => x.Text).Should().Equal("Yes", "No");
+            api.File(sent.Photo![^1].FileId).Content.Should().Equal("jpeg"u8.ToArray());
+        }
+    }
+
+    [Fact]
+    public async Task SendPhoto_WithAnEmptyUpload_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var act = () => client.SendPhoto(Chat, InputFile.FromStream(new MemoryStream(), "cat.jpg"));
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("file must be non-empty");
+    }
+
+    [Fact]
+    public async Task SendDocument_ByAFileIdTelegramDoesNotHave_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var act = () => client.SendDocument(Chat, InputFile.FromFileId("unknown"));
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("wrong file identifier/HTTP URL specified");
+    }
+
+    [Fact]
+    public async Task SendPhoto_WithADocumentsFileId_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        var fileId = StoreDocument(api, "a,b"u8.ToArray(), "report.csv");
+
+        // Act
+        var act = () => client.SendPhoto(Chat, InputFile.FromFileId(fileId));
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("type of file mismatch");
+    }
+
+    [Fact]
+    public async Task EditMessageText_OnAPhoto_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendPhoto(Chat, InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())));
+
+        // Act
+        var act = () => client.EditMessageText(Chat, sent.Id, "A cat");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("there is no text in the message to edit");
+    }
+
+    [Fact]
+    public async Task EditMessageCaption_OnATextMessage_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendMessage(Chat, "Continue?");
+
+        // Act
+        var act = () => client.EditMessageCaption(Chat, sent.Id, "A cat");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("there is no caption in the message to edit");
+    }
+
+    [Fact]
+    public async Task EditMessageCaption_WithoutACaption_ShouldRemoveIt()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
+            caption: "A cat"
+        );
+
+        // Act
+        var edited = await client.EditMessageCaption(Chat, sent.Id, caption: null);
+
+        // Assert
+        edited.Caption.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetFile_OfAFileSentByUrl_ShouldSayTheFakeNeverFetchedIt()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendPhoto(Chat, InputFile.FromUri("https://example.com/cat.jpg"));
+
+        // Act
+        var act = () => client.GetFile(sent.Photo![^1].FileId);
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("https://example.com/cat.jpg");
     }
 
     [Fact]
@@ -483,4 +618,9 @@ public sealed class FakeBotApiTests
             failure.Which.Message.Should().Contain("sendDice");
         }
     }
+
+    private static string StoreDocument(FakeBotApi api, byte[] content, string fileName) =>
+        api.StoreFile(FileKind.Document, content, new JsonObject { ["file_name"] = fileName })["document"]![
+            "file_id"
+        ]!.GetValue<string>();
 }
