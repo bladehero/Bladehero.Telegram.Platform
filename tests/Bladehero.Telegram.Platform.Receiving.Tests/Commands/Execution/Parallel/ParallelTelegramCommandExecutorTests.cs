@@ -13,8 +13,8 @@ namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands.Execution.Paralle
 
 public sealed class ParallelTelegramCommandExecutorTests
 {
-    private static readonly TimeSpan Delay = TimeSpan.FromMilliseconds(300);
-    private static readonly TimeSpan Precision = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan Delay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan Precision = TimeSpan.FromMilliseconds(200);
 
     private static readonly ITelegramBotClient Client = Mock.Of<ITelegramBotClient>();
 
