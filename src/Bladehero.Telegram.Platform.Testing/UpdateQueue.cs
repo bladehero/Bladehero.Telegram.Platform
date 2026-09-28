@@ -1,7 +1,4 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
-using Telegram.Bot;
-using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
@@ -18,9 +15,9 @@ internal sealed class UpdateQueue
     private TaskCompletionSource _arrived = NewSignal();
     private int _lastId;
 
-    public int Add(Update update)
+    public int Add(JsonObject update)
     {
-        var json = JsonSerializer.SerializeToNode(update, JsonBotAPI.Options)!.AsObject();
+        var json = update.DeepClone().AsObject();
 
         lock (_gate)
         {
