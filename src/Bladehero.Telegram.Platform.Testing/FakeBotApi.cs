@@ -16,7 +16,8 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// Every Bot API call is recorded in <see cref="Calls"/> — except <c>getUpdates</c>, the polling loop's own traffic —
 /// and answered the way Telegram would, including Telegram's own errors: editing a message that was deleted, one the
 /// bot did not send, or one without changing it, answering a button tap twice, or asking for a file over the 20 MB
-/// bots may download. Files users send are served from memory, like the rest. A method the fake does not know yet
+/// bots may download. Files users send are served from memory, like the rest; a download is not a Bot API call, so it
+/// is neither recorded nor can be made to <see cref="Fail"/>. A method the fake does not know yet
 /// fails with an error naming it, so an unsupported call fails the test instead of passing silently. To see how the
 /// bot copes when Telegram refuses a call, <see cref="Fail"/> it.
 /// </remarks>

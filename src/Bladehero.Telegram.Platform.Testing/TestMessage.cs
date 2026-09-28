@@ -42,10 +42,13 @@ public sealed class TestMessage
 
     internal JsonObject ToJson() => _json.DeepClone().AsObject();
 
+    // What the message shows, without its sender or buttons: "(photo) Lunch", "What size?".
+    internal string Content => string.Join(" ", new[] { Attachment, Text ?? Caption }.OfType<string>());
+
     // Reads like the chat: "Nick: (photo) Lunch", "Bot: What size? [Small] [Large]".
     public override string ToString() =>
         $"{(IsFromBot ? "Bot" : Message.From?.FirstName)}:"
-        + string.Concat(new[] { Attachment, Text ?? Caption }.OfType<string>().Select(part => $" {part}"))
+        + (Content.Length == 0 ? "" : $" {Content}")
         + string.Concat(Buttons.Select(button => $" [{button}]"));
 
     private string? Attachment =>

@@ -10,6 +10,10 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// </summary>
 public sealed class TestUser
 {
+    // What the smaller size of a photo downloads as: not the photo, so a bot that takes the first size instead of the
+    // last gets the wrong bytes, as it would get a thumbnail from Telegram.
+    private static readonly byte[] Thumbnail = "thumbnail"u8.ToArray();
+
     private readonly TelegramTestHost _host;
     private readonly JsonObject _person;
 
@@ -33,28 +37,34 @@ public sealed class TestUser
     /// <inheritdoc cref="TestChat.LastMessage"/>
     public TestMessage LastMessage => Chat.LastMessage;
 
-    /// <summary>Sends <paramref name="text"/> to the chat.</summary>
+    /// <summary>Sends <paramref name="text"/> to the chat, trimmed as Telegram trims it.</summary>
+    /// <exception cref="ArgumentException"><paramref name="text"/> is blank, which the app never sends.</exception>
     public Task SendsAsync(string text, CancellationToken token = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(text);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
-        return DeliverAsync(_host.Api.Receive(Chat.Id, _person, text), token);
+        return DeliverAsync(_host.Api.Receive(Chat.Id, _person, text.Trim()), token);
     }
 
     /// <summary>
-    /// Sends a photo. The bot can download <paramref name="photo"/> back byte for byte, but the fake does not look
-    /// inside it, so any bytes will do and the dimensions Telegram reports are nominal.
+    /// Sends a photo. Like Telegram, the message carries it in two sizes, smallest first: a thumbnail, then
+    /// <paramref name="photo"/> itself, which the bot can download back byte for byte from the last, largest size.
+    /// The fake does not look inside the bytes, so any will do and the dimensions it reports are nominal.
     /// </summary>
     /// <exception cref="ArgumentException"><paramref name="photo"/> is empty, which the app never sends.</exception>
     public Task SendsPhotoAsync(byte[] photo, string? caption = null, CancellationToken token = default)
     {
         ThrowIfEmpty(photo);
 
+        var thumbnail = _host.Api.StoreFile(Thumbnail, "photos", ".jpg");
+        thumbnail["width"] = 90;
+        thumbnail["height"] = 68;
+
         var size = _host.Api.StoreFile(photo, "photos", ".jpg");
         size["width"] = 1280;
         size["height"] = 960;
 
-        return SendsFileAsync(new JsonObject { ["photo"] = new JsonArray(size) }, caption, token);
+        return SendsFileAsync(new JsonObject { ["photo"] = new JsonArray(thumbnail, size) }, caption, token);
     }
 
     /// <summary>Sends a voice message, recorded for <paramref name="duration"/> — a second when not given.</summary>
@@ -78,7 +88,9 @@ public sealed class TestUser
     /// known — PDF, text, CSV, JSON, XML, ZIP, JPEG, PNG, DOCX and XLSX — and any other is sent as
     /// <c>application/octet-stream</c>.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="document"/> is empty, which the app never sends.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="document"/> is empty, which the app never sends, or <paramref name="fileName"/> is blank.
+    /// </exception>
     public Task SendsDocumentAsync(
         byte[] document,
         string fileName,
@@ -92,7 +104,7 @@ public sealed class TestUser
 
         var file = _host.Api.StoreFile(document, "documents", Path.GetExtension(fileName));
         file["file_name"] = fileName;
-        file["mime_type"] = mimeType ?? MimeTypeOf(fileName);
+        file["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypeOf(fileName) : mimeType;
 
         return SendsFileAsync(new JsonObject { ["document"] = file }, caption, token);
     }
@@ -133,10 +145,11 @@ public sealed class TestUser
 
     public override string ToString() => FirstName;
 
-    // Telegram drops an empty caption, and marks a bot command at its start as it does in a text.
+    // Telegram trims a caption and drops an empty one, and marks a bot command at its start as it does in a text.
     private Task SendsFileAsync(JsonObject content, string? caption, CancellationToken token)
     {
-        if (!string.IsNullOrWhiteSpace(caption))
+        caption = caption?.Trim();
+        if (!string.IsNullOrEmpty(caption))
         {
             content["caption"] = caption;
 
@@ -162,8 +175,7 @@ public sealed class TestUser
         }
     }
 
-    // A message is quoted by its text, or by how it reads in the chat when it has none.
-    private static string Quote(TestMessage message) => $"\"{message.Text ?? message.Caption ?? message.ToString()}\"";
+    private static string Quote(TestMessage message) => $"\"{message.Content}\"";
 
     private static string MimeTypeOf(string fileName) =>
         Path.GetExtension(fileName).ToLowerInvariant() switch

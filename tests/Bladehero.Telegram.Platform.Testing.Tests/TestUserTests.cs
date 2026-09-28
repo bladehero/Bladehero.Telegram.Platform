@@ -201,6 +201,62 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task SendsAsync_ShouldTrimTheTextAsTelegramDoes()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("  hello \n");
+
+        // Assert
+        nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: hello", "Bot: hello");
+    }
+
+    [Fact]
+    public async Task SendsPhotoAsync_ShouldCarryAThumbnailFirstAndThePhotoLast()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsPhotoAsync("lunch"u8.ToArray());
+
+        // Assert
+        nick.Messages[0].Message.Photo!.Select(x => x.Width).Should().BeInAscendingOrder().And.HaveCount(2);
+    }
+
+    [Fact]
+    public async Task SendsPhotoAsync_ShouldTrimTheCaptionAsTelegramDoes()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsPhotoAsync("..."u8.ToArray(), caption: " Lunch ");
+
+        // Assert
+        nick.Messages[0].ToString().Should().Be("Nick: (photo) Lunch");
+    }
+
+    [Fact]
+    public async Task SendsDocumentAsync_WithABlankMimeType_ShouldWorkOutTheTypeFromTheFileName()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsDocumentAsync("a,b"u8.ToArray(), "notes.csv", mimeType: " ");
+
+        // Assert
+        nick.LastMessage.Text.Should().Be("Got notes.csv as text/csv: a,b");
+    }
+
+    [Fact]
     public async Task SendsPhotoAsync_WithAnEmptyCaption_ShouldSendNone()
     {
         // Arrange
@@ -415,6 +471,6 @@ public sealed class TestUserTests
         // Assert
         await act.Should()
             .ThrowAsync<InvalidOperationException>()
-            .WithMessage("Nick sees no \"A\" button on \"Nick: (photo)\"*");
+            .WithMessage("Nick sees no \"A\" button on \"(photo)\"*");
     }
 }

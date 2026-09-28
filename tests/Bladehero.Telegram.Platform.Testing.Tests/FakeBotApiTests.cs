@@ -349,6 +349,23 @@ public sealed class FakeBotApiTests
     }
 
     [Fact]
+    public async Task DownloadFile_WithAnEscapedPath_ShouldServeTheFile()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        var stored = api.StoreFile("hello"u8.ToArray(), "documents", ".txt");
+        await client.GetFile(stored["file_id"]!.GetValue<string>());
+        using var content = new MemoryStream();
+
+        // Act
+        await client.DownloadFile("documents/file%5F1.txt", content);
+
+        // Assert
+        content.ToArray().Should().Equal("hello"u8.ToArray());
+    }
+
+    [Fact]
     public async Task DownloadFile_WithAPathTelegramNeverGave_ShouldFailLikeTelegram()
     {
         // Arrange
