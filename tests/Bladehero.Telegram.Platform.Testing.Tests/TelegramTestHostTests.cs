@@ -1,10 +1,6 @@
 using System.Diagnostics;
 using Bladehero.Telegram.Platform.Receiving;
-using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
-using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
-using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using FluentAssertions;
-using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -16,7 +12,7 @@ public sealed class TelegramTestHostTests
     public async Task SendAsync_ShouldRunTheUpdateThroughTheRealPollingLoop()
     {
         // Arrange
-        await using var bot = await StartBotAsync();
+        await using var bot = await TestBot.StartAsync();
 
         // Act
         await bot.SendAsync(Text("hello"));
@@ -32,7 +28,7 @@ public sealed class TelegramTestHostTests
     public async Task SendAsync_ShouldReturnOnlyOnceTheBotHasFinishedTheUpdate()
     {
         // Arrange
-        await using var bot = await StartBotAsync();
+        await using var bot = await TestBot.StartAsync();
 
         // Act
         await bot.SendAsync(Text("/slow"));
@@ -45,7 +41,7 @@ public sealed class TelegramTestHostTests
     public async Task SendAsync_WhenACommandThrows_ShouldRethrowItsException()
     {
         // Arrange
-        await using var bot = await StartBotAsync();
+        await using var bot = await TestBot.StartAsync();
 
         // Act
         var act = () => bot.SendAsync(Text("/boom"));
@@ -58,7 +54,7 @@ public sealed class TelegramTestHostTests
     public async Task SendAsync_AfterACommandThrew_ShouldKeepHandlingUpdates()
     {
         // Arrange
-        await using var bot = await StartBotAsync();
+        await using var bot = await TestBot.StartAsync();
         await ((Func<Task>)(() => bot.SendAsync(Text("/boom")))).Should().ThrowAsync<InvalidOperationException>();
 
         // Act
@@ -72,7 +68,7 @@ public sealed class TelegramTestHostTests
     public async Task ForLongPollingAsync_ShouldRunTheHostsStartupAgainstTheFake()
     {
         // Act
-        await using var bot = await StartBotAsync();
+        await using var bot = await TestBot.StartAsync();
 
         // Assert
         bot.Api.Calls.Select(x => x.Method).Should().Contain("getWebhookInfo");
@@ -83,7 +79,7 @@ public sealed class TelegramTestHostTests
     {
         // Arrange
         await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
-            services.AddTelegramReceiving(typeof(TelegramTestHostTests).Assembly)
+            services.AddTelegramReceiving(typeof(TestBot).Assembly)
         );
         bot.UpdateTimeout = TimeSpan.FromSeconds(1);
 
@@ -98,7 +94,7 @@ public sealed class TelegramTestHostTests
     public async Task DisposeAsync_ShouldStopThePollingLoopWithoutWaitingOutItsLongPoll()
     {
         // Arrange
-        var bot = await StartBotAsync();
+        var bot = await TestBot.StartAsync();
         var stopwatch = Stopwatch.StartNew();
 
         // Act
@@ -107,14 +103,6 @@ public sealed class TelegramTestHostTests
         // Assert
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
     }
-
-    private static Task<TelegramTestHost> StartBotAsync() =>
-        TelegramTestHost.ForLongPollingAsync(services =>
-            services.AddTelegramLongPollingReceiving(
-                receiver => receiver.Token = "unused",
-                typeof(TelegramTestHostTests).Assembly
-            )
-        );
 
     private static Update Text(string text) =>
         new()
@@ -128,34 +116,4 @@ public sealed class TelegramTestHostTests
                 From = new User { Id = 42, FirstName = "Nick" },
             },
         };
-
-    private sealed class EchoCommand : MessageCommand
-    {
-        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-            Task.FromResult(request.Payload.Text?.StartsWith('/') is false);
-
-        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-            request.Client.SendMessage(request.Payload.Chat, request.Payload.Text!, cancellationToken: token);
-    }
-
-    private sealed class SlowCommand : MessageCommand
-    {
-        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-            Task.FromResult(request.Payload.IsCommand("/slow"));
-
-        protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(300), token);
-            await request.Client.SendMessage(request.Payload.Chat, "done", cancellationToken: token);
-        }
-    }
-
-    private sealed class BoomCommand : MessageCommand
-    {
-        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-            Task.FromResult(request.Payload.IsCommand("/boom"));
-
-        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-            throw new InvalidOperationException("boom");
-    }
 }

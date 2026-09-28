@@ -1,8 +1,11 @@
 using System.Runtime.ExceptionServices;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Telegram.Bot;
 using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Testing;
@@ -71,11 +74,45 @@ public sealed class TelegramTestHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// <paramref name="firstName"/>, talking to the bot in a private chat. Asking for the same name again gives the
+    /// same person and chat.
+    /// </summary>
+    /// <remarks>
+    /// A name is a person throughout the test: the same name as a <see cref="TestChat.Member"/> of a group is the
+    /// same Telegram user, so the bot sees one id in both chats.
+    /// </remarks>
+    public TestUser PrivateChat(string firstName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
+
+        var person = Api.Person(firstName);
+        var chat = new TestChat(this, Api.PrivateChatWith(person), firstName, isGroup: false);
+        return new TestUser(this, person, chat);
+    }
+
+    /// <summary>
+    /// The group called <paramref name="title"/>, with the bot in it. Asking for the same title again gives the same
+    /// group; add people to it with <see cref="TestChat.Member"/>.
+    /// </summary>
+    public TestChat GroupChat(string title)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        return new TestChat(this, Api.Group(title), title, isGroup: true);
+    }
+
+    /// <summary>
     /// Delivers <paramref name="update"/> to the bot and returns once the bot has finished handling it, rethrowing
     /// whatever a command threw so a crash fails the test.
     /// </summary>
+    /// <remarks>
+    /// For updates the test chats do not cover. A message sent this way is not added to any <see cref="TestChat"/>.
+    /// </remarks>
     /// <exception cref="TimeoutException">The bot never picked the update up.</exception>
-    public async Task SendAsync(Update update, CancellationToken token = default)
+    public Task SendAsync(Update update, CancellationToken token = default) =>
+        DeliverAsync(JsonSerializer.SerializeToNode(update, JsonBotAPI.Options)!.AsObject(), token);
+
+    internal async Task DeliverAsync(JsonObject update, CancellationToken token)
     {
         var updateId = Api.Enqueue(update);
 

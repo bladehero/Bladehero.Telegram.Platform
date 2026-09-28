@@ -37,6 +37,19 @@ public sealed class FakeBotApiTests
     }
 
     [Fact]
+    public async Task SendMessage_WithAReplyKeyboard_ShouldNotAttachItToTheMessage()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var sent = await client.SendMessage(Chat, "Continue?", replyMarkup: new ReplyKeyboardMarkup("Yes"));
+
+        // Assert
+        sent.ReplyMarkup.Should().BeNull();
+    }
+
+    [Fact]
     public async Task SendMessage_ShouldNumberMessagesPerChat()
     {
         // Arrange
@@ -121,6 +134,25 @@ public sealed class FakeBotApiTests
         (await act.Should().ThrowAsync<ApiRequestException>())
             .Which.Message.Should()
             .Contain("message is not modified");
+    }
+
+    [Fact]
+    public async Task EditMessageText_OnAMessageTheBotDidNotSend_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        var nick = api.Person("Nick");
+        var chat = api.PrivateChatWith(nick);
+        var received = api.Receive(chat, nick, "hello");
+
+        // Act
+        var act = () => client.EditMessageText(chat, received["message_id"]!.GetValue<int>(), "bye");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("message can't be edited");
     }
 
     [Fact]
