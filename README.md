@@ -34,7 +34,7 @@ and it participates.
 | Package | What it gives you |
 | --- | --- |
 | [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | `TelegramBotConfiguration`, `ITelegramSender`, and the `IServiceCollection` wiring behind both. |
-| [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | The command model: `ITelegramCommand`, typed base commands, assembly scanning, the parallel executor, error handling. |
+| [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | The command model: `ITelegramCommand`, typed base commands, assembly scanning, the parallel executor, multi-step conversations, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Hosting: a long-polling `BackgroundService` and an ASP.NET Core webhook endpoint that keeps the Telegram webhook registration in sync. |
 
 Referencing `.Receiving.Background` pulls in the other two. Target framework is **.NET 10**.
@@ -257,7 +257,8 @@ services.Configure<ParallelCommandExecutionConfiguration>(options => options.Par
 
 Set `ParallelCount` to `null` to run every command in a single unbounded batch.
 
-To replace dispatch entirely, register your own `ITelegramCommandExecutor` after `AddTelegramReceiving`.
+To replace dispatch entirely, register your own `ITelegramCommandExecutor` after `AddTelegramReceiving` — it then
+owns [conversation](#conversations) routing too.
 
 ### Scopes
 
@@ -268,6 +269,85 @@ would expect in a controller: a fresh instance per update, disposed once the upd
 Commands within a single update share that scope and, by default, run in parallel. If they share a scoped
 dependency that is not thread-safe — an EF Core `DbContext` being the usual one — either set `ParallelCount`
 to `1` so commands run one at a time, or resolve a scope of your own inside the command.
+
+## Conversations
+
+Some exchanges take more than one message: a sign-up asking for a name and then a city, a form with a button per
+field, a confirmation before something irreversible. Between those messages the bot has to remember where the user
+is. A **conversation** is that memory — the flow it runs, the step it waits at, and the data gathered so far — and a
+**step** is an ordinary command that only runs while the sender's conversation is at it:
+
+```csharp
+public sealed record Signup(string Name);
+
+public sealed class SignupCommand(IConversation conversation) : MessageCommand
+{
+    protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+        Task.FromResult(request.Payload.IsCommand("/signup"));
+
+    protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+    {
+        await conversation.StartAsync("signup", "name", token);
+        await request.Client.SendMessage(request.Payload.Chat, "What's your name?", cancellationToken: token);
+    }
+}
+
+[ConversationStep("signup", "name")]
+public sealed class SignupNameStep(IConversation conversation) : MessageCommand
+{
+    protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+        Task.FromResult(request.Payload.Text?.StartsWith('/') is false);
+
+    protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+    {
+        await conversation.MoveToAsync("city", new Signup(Name: request.Payload.Text!), token);
+        await request.Client.SendMessage(request.Payload.Chat, "Which city?", cancellationToken: token);
+    }
+}
+
+[ConversationStep("signup", "city")]
+public sealed class SignupCityStep(IConversation conversation, IUserRepository users) : MessageCommand
+{
+    protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+        Task.FromResult(request.Payload.Text?.StartsWith('/') is false);
+
+    protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+    {
+        var signup = await conversation.GetDataAsync<Signup>(token);
+        await users.RegisterAsync(signup!.Name, request.Payload.Text!, token);
+        await conversation.EndAsync(token);
+        await request.Client.SendMessage(request.Payload.Chat, "Welcome aboard 👋", cancellationToken: token);
+    }
+}
+```
+
+Steps are found by the same assembly scan as every other command and keep everything a command has — typed
+payloads, `KnownUserCommand<TUser>`, priorities, constructor injection. How an update is routed:
+
+- **While a conversation is active, its steps go first.** Commands marked with the conversation's flow and step —
+  or with the flow alone, `[ConversationStep("signup")]`, to run at any step — see the update before any regular
+  command, and when one handles it the regular commands are skipped. The flow owns the update.
+- **When every step declines, the update falls through** to the regular commands. That is how `/cancel` and `/help`
+  keep working mid-flow, and why a step taking free text should decline bot commands, as above — otherwise it
+  swallows the `/cancel` meant to end it.
+- **Without a conversation, steps never run.**
+- **Changes steer the next update.** Starting, moving or ending a conversation while handling an update affects
+  where the following update goes; the current one keeps the routing it started with.
+
+A conversation belongs to one user in one chat, so in a group every member runs their own and one member's button
+press never advances another's flow. `IConversation` is scoped to the update and carries typed data as JSON through
+`StartAsync`, `MoveToAsync` and `GetDataAsync<T>`.
+
+Conversations live in memory by default and a restart forgets the ones in progress. Register an
+`IConversationStore` to persist them — it replaces the built-in store whichever order you register it in. The store
+is also the way to open a conversation outside of an update, when a background job finishes, say:
+
+```csharp
+await store.SaveAsync(new ConversationKey(chatId, userId), new ConversationState("import", "describe"), token);
+```
+
+Bots without a single step never touch the store: the feature costs nothing until a command carries
+`[ConversationStep]`.
 
 ## Sending on your own initiative
 
@@ -318,7 +398,9 @@ services.AddTelegramLongPollingReceiving(
 Two runnable projects live in this repository:
 
 - [`src/Bladehero.Telegram.Platform.Sandbox`](src/Bladehero.Telegram.Platform.Sandbox) — long-polling console
-  host with a command that logs `MyChatMember` updates.
+  host with a command that logs `MyChatMember` updates, and a `/coffee` [conversation](#conversations) that
+  exercises every routing rule: text and button steps, a Cancel button at any step, `/cancel` falling through
+  mid-flow, and stale buttons answered after the order closes.
 - [`src/Bladehero.Telegram.Platform.Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook) —
   ASP.NET Core webhook host with a command that echoes messages back.
 

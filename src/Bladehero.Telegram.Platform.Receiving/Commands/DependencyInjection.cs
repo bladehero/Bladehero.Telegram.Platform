@@ -1,5 +1,6 @@
 using System.Reflection;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Bladehero.Telegram.Platform.Receiving.Commands;
@@ -43,30 +44,32 @@ internal static class DependencyInjection
 
     internal static void AddTelegramCommands(this IServiceCollection services, IEnumerable<Assembly> assemblies)
     {
-        var commandTypes = assemblies
+        var commands = assemblies
             .SelectMany(x => x.DefinedTypes)
             .Where(x => x is { IsClass: true, IsAbstract: false, IsGenericType: false })
             .Where(x => x.ImplementedInterfaces.Contains(TelegramCommandMarker))
-            .Select(type => (Priority: type.GetCommandPriority(), Type: type))
+            .Select(type => new CatalogedCommand(
+                type,
+                type.GetCommandPriority(),
+                type.GetCustomAttribute<ConversationStepAttribute>()
+            ))
             .OrderBy(x => x.Priority, CommandPriority.Comparer)
             .ToArray();
 
-        foreach (var (_, type) in commandTypes)
+        foreach (var command in commands)
         {
-            AddTelegramCommand(services, type);
-            services.AddScoped(TelegramCommandMarker, provider => provider.GetRequiredService(type));
+            AddTelegramCommand(services, command.Type);
+            services.AddScoped(TelegramCommandMarker, provider => provider.GetRequiredService(command.Type));
         }
 
-        services.AddScoped(provider =>
-        {
-            var commands = commandTypes
-                .Select(x => (x.Priority, (ITelegramCommand)provider.GetRequiredService(x.Type)))
-                .ToArray();
-            return new CommandPriorityAccessor(commands);
-        });
+        var catalog = new CommandCatalog(commands);
+        services.AddSingleton(catalog);
+        services.AddScoped(provider => new CommandPriorityAccessor([
+            .. catalog.Regular.Select(x => x.Resolve(provider)),
+        ]));
     }
 
-    private static void AddTelegramCommand(IServiceCollection services, TypeInfo type)
+    private static void AddTelegramCommand(IServiceCollection services, Type type)
     {
         var strategy = InjectionStrategies.FirstOrDefault(x => x.Predicate(type));
         if (strategy is null)
