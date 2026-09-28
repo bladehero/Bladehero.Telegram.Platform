@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Bladehero.Telegram.Platform.Testing</PackageId>
+    <Title>Bladehero.Telegram.Platform.Testing</Title>
+    <Description>Component tests for Telegram bots built on Bladehero.Telegram.Platform: an in-memory Bot API that answers and records every request, so a bot runs end to end without reaching Telegram.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Testing.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Telegram.Bot" />
+  </ItemGroup>
+</Project>
