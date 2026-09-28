@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Bladehero.Telegram.Platform.Receiving.Background\Bladehero.Telegram.Platform.Receiving.Background.csproj" />
     <ProjectReference Include="..\..\src\Bladehero.Telegram.Platform.Testing\Bladehero.Telegram.Platform.Testing.csproj" />
   </ItemGroup>
 </Project>

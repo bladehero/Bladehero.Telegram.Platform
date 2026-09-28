@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
@@ -11,9 +12,10 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// as in production — they just never leave the process.
 /// </summary>
 /// <remarks>
-/// Every request is recorded in <see cref="Calls"/> and answered the way Telegram would, including Telegram's own
-/// errors: editing a message that was deleted, or editing one without changing it. A method the fake does not know
-/// yet fails with an error naming it, so an unsupported call fails the test instead of passing silently.
+/// Every request is recorded in <see cref="Calls"/> — except <c>getUpdates</c>, the polling loop's own traffic — and
+/// answered the way Telegram would, including Telegram's own errors: editing a message that was deleted, or editing
+/// one without changing it. A method the fake does not know yet fails with an error naming it, so an unsupported
+/// call fails the test instead of passing silently.
 /// </remarks>
 public sealed class FakeBotApi
 {
@@ -24,6 +26,8 @@ public sealed class FakeBotApi
     private readonly object _gate = new();
     private readonly List<BotApiCall> _calls = [];
     private readonly Dictionary<long, ChatHistory> _chats = [];
+    private readonly UpdateQueue _updates = new();
+    private JsonArray _commandMenu = [];
 
     public IReadOnlyList<BotApiCall> Calls
     {
@@ -39,6 +43,10 @@ public sealed class FakeBotApi
     public ITelegramBotClient CreateClient() =>
         new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));
 
+    internal int Enqueue(Update update) => _updates.Add(update);
+
+    internal Task HandledAsync(int updateId) => _updates.HandledAsync(updateId);
+
     private JsonNode Answer(string method, JsonObject parameters) =>
         method switch
         {
@@ -48,8 +56,23 @@ public sealed class FakeBotApi
             "editMessageReplyMarkup" => Edit(parameters, text: null),
             "deleteMessage" => Delete(parameters),
             "answerCallbackQuery" => true,
+            "getWebhookInfo" => new JsonObject
+            {
+                ["url"] = "",
+                ["has_custom_certificate"] = false,
+                ["pending_update_count"] = 0,
+            },
+            "deleteWebhook" => true,
+            "getMyCommands" => _commandMenu.DeepClone(),
+            "setMyCommands" => SetCommandMenu(parameters),
             _ => throw new BotApiError(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
+
+    private JsonNode SetCommandMenu(JsonObject parameters)
+    {
+        _commandMenu = parameters["commands"]?.DeepClone().AsArray() ?? [];
+        return true;
+    }
 
     private static JsonObject Bot() =>
         new()
@@ -147,6 +170,12 @@ public sealed class FakeBotApi
         var method = request.RequestUri!.Segments[^1];
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(token);
         var parameters = string.IsNullOrWhiteSpace(body) ? [] : JsonNode.Parse(body)!.AsObject();
+
+        if (method == "getUpdates")
+        {
+            var updates = await _updates.TakeAsync(parameters, token);
+            return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = updates });
+        }
 
         JsonNode result;
         lock (_gate)

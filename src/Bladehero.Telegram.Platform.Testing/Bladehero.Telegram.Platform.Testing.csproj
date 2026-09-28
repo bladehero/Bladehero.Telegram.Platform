@@ -10,6 +10,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Telegram.Bot" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bladehero.Telegram.Platform.Receiving\Bladehero.Telegram.Platform.Receiving.csproj" />
+    <ProjectReference Include="..\Bladehero.Telegram.Platform\Bladehero.Telegram.Platform.csproj" />
   </ItemGroup>
 </Project>
