@@ -11,5 +11,9 @@ internal sealed class ExpiredButtonCommand : CallbackQueryCommand
         Task.FromResult(request.Payload.Data?.StartsWith(CoffeeFlow.Buttons) is true);
 
     protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
-        request.Client.AnswerCallbackQuery(request.Payload.Id, "This order is closed.", cancellationToken: token);
+        request.Client.AnswerCallbackQuery(
+            request.Payload.Id,
+            "That button is no longer active.",
+            cancellationToken: token
+        );
 }
