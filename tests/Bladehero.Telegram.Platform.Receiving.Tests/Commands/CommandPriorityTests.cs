@@ -53,7 +53,6 @@ public sealed class CommandPriorityTests
                 new { Global = 3, Group = (int?)1 },
                 new { Global = 3, Group = (int?)null },
                 new { Global = 3, Group = (int?)null },
-                null,
             ]);
     }
 }
