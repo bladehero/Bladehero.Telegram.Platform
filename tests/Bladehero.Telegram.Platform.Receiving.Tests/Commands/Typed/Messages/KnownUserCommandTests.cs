@@ -82,7 +82,7 @@ public sealed class KnownUserCommandTests
         {
             UserResolver = users;
         }
-        
+
         public TestUser? ResolvedUser { get; private set; }
 
         protected override bool Matches(Message message) => message.IsCommand("/probe");
