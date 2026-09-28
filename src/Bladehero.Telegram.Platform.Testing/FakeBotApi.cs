@@ -205,20 +205,26 @@ public sealed class FakeBotApi
     {
         var content = new JsonObject { ["text"] = text };
 
-        if (BotCommandLength(text) is > 1 and var length)
+        if (BotCommandEntities(text) is { } entities)
         {
-            content["entities"] = new JsonArray(
+            content["entities"] = entities;
+        }
+
+        return Receive(chatId, from, content);
+    }
+
+    // How Telegram marks a bot command that starts a text or caption, or null when it starts with none.
+    internal static JsonArray? BotCommandEntities(string text) =>
+        BotCommandLength(text) is > 1 and var length
+            ? new JsonArray(
                 new JsonObject
                 {
                     ["type"] = "bot_command",
                     ["offset"] = 0,
                     ["length"] = length,
                 }
-            );
-        }
-
-        return Receive(chatId, from, content);
-    }
+            )
+            : null;
 
     internal JsonObject Receive(long chatId, JsonObject from, JsonObject content)
     {
@@ -288,17 +294,20 @@ public sealed class FakeBotApi
             throw Refuse(400, "Bad Request: file is too big");
         }
 
+        file.PathGiven = true;
+
         var info = file.Describe();
         info["file_path"] = file.Path;
         return info;
     }
 
+    // Only a path getFile handed out can be downloaded; any other is not found, as on Telegram's file server.
     private HttpResponseMessage Download(string path)
     {
         StoredFile? file;
         lock (_gate)
         {
-            file = _files.AtPath(Uri.UnescapeDataString(path));
+            file = _files.AtPath(Uri.UnescapeDataString(path)) is { PathGiven: true } given ? given : null;
         }
 
         return file is null

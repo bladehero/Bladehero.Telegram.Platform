@@ -145,6 +145,103 @@ public sealed class TestUserTests
         nick.LastMessage.Text.Should().Be("Got budget as application/json: {}");
     }
 
+    [Theory]
+    [InlineData("звіт за травень.pdf")]
+    [InlineData("report.final version")]
+    [InlineData("v1.0#final")]
+    [InlineData("q.a?b")]
+    [InlineData("x.%41")]
+    public async Task SendsDocumentAsync_WhateverTheFileIsNamed_ShouldLetTheBotDownloadIt(string fileName)
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsDocumentAsync("x"u8.ToArray(), fileName, mimeType: "text/plain");
+
+        // Assert
+        nick.LastMessage.Text.Should().Be($"Got {fileName} as text/plain: x");
+    }
+
+    [Fact]
+    public async Task SendsDocumentAsync_ByAGroupMember_ShouldReachTheBotInTheGroup()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var family = bot.GroupChat("Family");
+
+        // Act
+        await family.Member("Anna").SendsDocumentAsync("a,b"u8.ToArray(), "budget.csv");
+
+        // Assert
+        family
+            .Messages.Select(x => x.ToString())
+            .Should()
+            .Equal("Anna: (document budget.csv)", "Bot: Got budget.csv as text/csv: a,b");
+    }
+
+    [Fact]
+    public async Task SendsPhotoAsync_WithABotCommandInTheCaption_ShouldMarkItTheWayTelegramDoes()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsPhotoAsync("..."u8.ToArray(), caption: "/receipt lunch");
+
+        // Assert
+        var entity = nick.Messages[0].Message.CaptionEntities.Should().ContainSingle().Which;
+        using (new AssertionScope())
+        {
+            entity.Type.Should().Be(MessageEntityType.BotCommand);
+            entity.Length.Should().Be("/receipt".Length);
+        }
+    }
+
+    [Fact]
+    public async Task SendsPhotoAsync_WithAnEmptyCaption_ShouldSendNone()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsPhotoAsync("..."u8.ToArray(), caption: " ");
+
+        // Assert
+        nick.Messages[0].Caption.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SendsPhotoAsync_WithNoBytes_ShouldSayTheAppNeverSendsAnEmptyFile()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsPhotoAsync([]);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentException>().WithMessage("*never sends an empty file*");
+    }
+
+    [Fact]
+    public async Task SendsVoiceAsync_WithANegativeDuration_ShouldRefuseIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsVoiceAsync("hello"u8.ToArray(), TimeSpan.FromSeconds(-5));
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
     [Fact]
     public async Task SendsAsync_WhenTelegramRefusesTheBotsReply_ShouldRethrowTheError()
     {
@@ -302,5 +399,22 @@ public sealed class TestUserTests
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*\"Pick one\" is no longer in*");
+    }
+
+    [Fact]
+    public async Task TapsAsync_OnAMessageWithoutText_ShouldQuoteItAsTheChatShowsIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsPhotoAsync("..."u8.ToArray());
+
+        // Act
+        var act = () => nick.TapsAsync("A", on: nick.Messages[0]);
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("Nick sees no \"A\" button on \"Nick: (photo)\"*");
     }
 }

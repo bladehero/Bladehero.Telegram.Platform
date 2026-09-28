@@ -352,15 +352,52 @@ public sealed class FakeBotApiTests
     public async Task DownloadFile_WithAPathTelegramNeverGave_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
 
         // Act
         var act = () => client.DownloadFile("documents/missing.txt", Stream.Null);
 
         // Assert
+        var failure = await act.Should().ThrowAsync<ApiRequestException>();
+        using (new AssertionScope())
+        {
+            failure.Which.ErrorCode.Should().Be(404);
+            failure.Which.Message.Should().Be("Not Found");
+            api.Calls.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task DownloadFile_BeforeGetFileGaveThePath_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        api.StoreFile("hello"u8.ToArray(), "documents", ".txt");
+
+        // Act
+        var act = () => client.DownloadFile("documents/file_1.txt", Stream.Null);
+
+        // Assert
         (await act.Should().ThrowAsync<ApiRequestException>())
             .Which.ErrorCode.Should()
             .Be(404);
+    }
+
+    [Fact]
+    public async Task GetFile_OfExactlyTwentyMegabytes_ShouldHandOutAPath()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        var stored = api.StoreFile(new byte[20 * 1024 * 1024], "documents", ".zip");
+
+        // Act
+        var file = await client.GetFile(stored["file_id"]!.GetValue<string>());
+
+        // Assert
+        file.FilePath.Should().Be("documents/file_1.zip");
     }
 
     [Fact]
