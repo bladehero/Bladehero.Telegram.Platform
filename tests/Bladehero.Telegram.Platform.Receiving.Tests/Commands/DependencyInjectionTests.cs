@@ -1,5 +1,6 @@
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using FluentAssertions;
@@ -24,6 +25,23 @@ public sealed class DependencyInjectionTests
 
         // Act
         var command = provider.GetRequiredService<DiProbeCommand>();
+
+        // Assert
+        command.HasResolver.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AddTelegramCommands_WhenCommandDerivesFromKnownUserCallbackQueryCommand_ShouldInjectTheMatchingUserResolver()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddSingleton<ITelegramUserResolver<DiTestUser>>(new DiTestResolver());
+        services.AddTelegramCommands([typeof(DependencyInjectionTests).Assembly]);
+
+        var provider = services.BuildServiceProvider();
+
+        // Act
+        var command = provider.GetRequiredService<DiButtonCommand>();
 
         // Assert
         command.HasResolver.Should().BeTrue();
@@ -93,6 +111,16 @@ public sealed class DependencyInjectionTests
         protected override bool Matches(Message message) => false;
 
         protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class DiButtonCommand : KnownUserCallbackQueryCommand<DiTestUser, int>
+    {
+        public bool HasResolver => UserResolver is not null;
+
+        protected override int? Parse(string data) => null;
+
+        protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
             Task.CompletedTask;
     }
 

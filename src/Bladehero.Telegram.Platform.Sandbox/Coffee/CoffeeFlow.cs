@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
@@ -30,6 +31,21 @@ internal static class CoffeeFlow
             InlineKeyboardButton.WithCallbackData("Cancel", CancelButton),
         ],
     ]);
+
+    public static CoffeeSize? ParseSize(string data) =>
+        data.StartsWith(SizeButton)
+        && Enum.TryParse<CoffeeSize>(data[SizeButton.Length..], ignoreCase: true, out var size)
+        && Enum.IsDefined(size)
+            ? size
+            : null;
 }
 
-internal sealed record CoffeeOrder(string? Size = null, string? CupName = null);
+[JsonConverter(typeof(JsonStringEnumConverter<CoffeeSize>))]
+internal enum CoffeeSize
+{
+    Small,
+    Medium,
+    Large,
+}
+
+internal sealed record CoffeeOrder(CoffeeSize? Size = null, string? CupName = null);

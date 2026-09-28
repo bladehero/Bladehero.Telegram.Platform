@@ -225,8 +225,7 @@ Most bots serve people they already know about. `KnownUserCommand<TUser>` resolv
 `ITelegramUserResolver<TUser>` and runs only when that succeeds, handing the resolved user to `HandleAsync`:
 
 ```csharp
-internal sealed class LastExpensesCommand(ITelegramUserResolver<User> users, IExpenseQueries expenses)
-    : KnownUserCommand<User>(users)
+internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserCommand<User>
 {
     protected override bool Matches(Message message) => message.IsCommand("/last");
 
@@ -238,9 +237,43 @@ internal sealed class LastExpensesCommand(ITelegramUserResolver<User> users, IEx
 }
 ```
 
+Register the resolver once — `services.AddScoped<ITelegramUserResolver<User>, UserResolver>()` — and every
+known-user command receives it; the constructor stays free for the command's own dependencies.
+
 An unresolved chat makes the command decline the update rather than throw, so a stranger messaging the bot
 is ignored instead of raising an error for every message. The resolver is keyed on the chat id rather than
-the message, so the same implementation serves callback queries later.
+the message, so the same implementation serves the buttons below.
+
+### Buttons with typed data
+
+A button press arrives as a callback query carrying up to 64 bytes of data — usually a tiny vocabulary such as
+`page:2` or `open:<id>`. `CallbackQueryCommand<TData>` turns it into a typed value once, while deciding whether to
+handle the update: `Parse` returns the value, or `null` for a button that belongs to another command, and
+`HandleAsync` reads it from `Parsed`. A tuple carries several fields:
+
+```csharp
+internal sealed class ExpenseButtonCommand(IExpenses expenses) : KnownUserCallbackQueryCommand<User, (string Action, Guid Id)>
+{
+    protected override (string Action, Guid Id)? Parse(string data) =>
+        data.Split(':') is [var action, var id] && action is "edit" or "delete" && Guid.TryParse(id, out var expenseId)
+            ? (action, expenseId)
+            : null;
+
+    protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+    {
+        await request.Client.AnswerCallbackQuery(request.Payload.Id, cancellationToken: token);
+
+        if (Parsed.Action == "delete")
+        {
+            await expenses.DeleteAsync(User.Id, Parsed.Id, token);
+        }
+    }
+}
+```
+
+`KnownUserCallbackQueryCommand<TUser, TData>` is the known-user flavour: it parses first, so a button meant for
+another command never costs a lookup, and then resolves the chat the button sits in. `CallbackQueryCommand<TData>`
+is the same without a user.
 
 ## Execution model
 
@@ -322,7 +355,7 @@ public sealed class SignupCityStep(IConversation conversation, IUserRepository u
 ```
 
 Steps are found by the same assembly scan as every other command and keep everything a command has — typed
-payloads, `KnownUserCommand<TUser>`, priorities, constructor injection. How an update is routed:
+payloads and button data, `KnownUserCommand<TUser>`, priorities, constructor injection. How an update is routed:
 
 - **While a conversation is active, its steps go first.** Commands marked with the conversation's flow and step —
   or with the flow alone, `[ConversationStep("signup")]`, to run at any step — see the update before any regular

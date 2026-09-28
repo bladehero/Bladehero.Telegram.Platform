@@ -1,4 +1,5 @@
 using System.Reflection;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,10 +10,16 @@ internal static class DependencyInjection
 {
     private static readonly Type TelegramCommandMarker = typeof(ITelegramCommand);
 
+    private static readonly Type[] KnownUserCommands =
+    [
+        typeof(KnownUserCommand<>),
+        typeof(KnownUserCallbackQueryCommand<,>),
+    ];
+
     private static readonly CommandInjectionStrategy[] InjectionStrategies =
     [
         new(
-            type => type.DerivesFromOpenGeneric(typeof(KnownUserCommand<>)),
+            type => KnownUserCommands.Any(type.DerivesFromOpenGeneric),
             (type, provider) =>
             {
                 var constructors = type.GetConstructors();
@@ -27,15 +34,11 @@ internal static class DependencyInjection
                     parameters.Select(p => provider.GetService(p.ParameterType)).ToArray()
                 );
 
-                var userType = type.GetGenericArgumentOf(typeof(KnownUserCommand<>));
-                var resolverType = typeof(ITelegramUserResolver<>).MakeGenericType(userType);
-                var resolver = provider.GetRequiredService(resolverType);
-
-                var userResolverProperty = type.GetProperty(
+                var userResolver = type.GetProperty(
                     nameof(KnownUserCommand<>.UserResolver),
                     BindingFlags.NonPublic | BindingFlags.Instance
                 )!;
-                userResolverProperty.SetValue(instance, resolver);
+                userResolver.SetValue(instance, provider.GetRequiredService(userResolver.PropertyType));
 
                 return instance;
             }
@@ -97,19 +100,6 @@ internal static class DependencyInjection
         }
 
         return false;
-    }
-
-    private static Type GetGenericArgumentOf(this Type type, Type openGenericBase)
-    {
-        for (var current = type.BaseType; current is not null; current = current.BaseType)
-        {
-            if (current.IsGenericType && current.GetGenericTypeDefinition() == openGenericBase)
-            {
-                return current.GetGenericArguments()[0];
-            }
-        }
-
-        throw new InvalidOperationException($"The type {type} does not derive from {openGenericBase}.");
     }
 
     private sealed record CommandInjectionStrategy(
