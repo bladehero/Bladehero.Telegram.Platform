@@ -31,6 +31,40 @@ public sealed class LongPollingRegistrationTests
     }
 
     [Fact]
+    public void TheCommandMenuIsSyncedWhenPollingStarts()
+    {
+        using var provider = Build(FromConfiguration());
+
+        var hosted = provider.GetServices<IHostedService>();
+
+        Assert.Single(hosted.OfType<TelegramCommandMenuInitializer<TelegramReceiverConfiguration>>());
+    }
+
+    [Fact]
+    public void TheCommandMenuIsSyncedWhenTheWebhookStarts()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(new ScopeLog());
+        services.AddScoped<ScopedDependency>();
+        services.AddTelegramWebhookReceiving(
+            configuration =>
+            {
+                configuration.Token = Token;
+                configuration.BaseUrl = "https://bot.example.com";
+                configuration.UpdateEndpoint = "telegram/updates";
+            },
+            typeof(ProbeCommand).Assembly
+        );
+
+        using var provider = Build(services);
+
+        var hosted = provider.GetServices<IHostedService>();
+
+        Assert.Single(hosted.OfType<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>());
+    }
+
+    [Fact]
     public void TheLongPollingHostedServiceResolves()
     {
         using var provider = Build(FromConfiguration());

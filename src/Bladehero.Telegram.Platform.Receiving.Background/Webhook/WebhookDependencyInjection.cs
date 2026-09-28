@@ -150,6 +150,7 @@ public static class WebhookDependencyInjection
         );
         services.AddTelegramReceiving(assemblies);
         services.AddHostedService<TelegramWebhookInitializer>();
+        services.AddHostedService<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>();
     }
 
     public static string NormalizeEndpointPath(this string? path)
