@@ -10,9 +10,11 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 /// An unresolved chat makes the command decline the update rather than throw, so a stranger messaging
 /// the bot is simply ignored instead of raising an error per message.
 /// </remarks>
-public abstract class KnownUserCommand<TUser>(ITelegramUserResolver<TUser> users) : MessageCommand
+public abstract class KnownUserCommand<TUser> : MessageCommand
     where TUser : class
 {
+    internal ITelegramUserResolver<TUser> UserResolver { get; init; }
+
     protected TUser User { get; private set; } = null!;
 
     protected sealed override async Task<bool> CanHandleAsync(
@@ -25,7 +27,7 @@ public abstract class KnownUserCommand<TUser>(ITelegramUserResolver<TUser> users
             return false;
         }
 
-        var user = await users.ResolveAsync(request.Payload.Chat.Id, token);
+        var user = await UserResolver.ResolveAsync(request.Payload.Chat.Id, token);
         if (user is null)
         {
             return false;

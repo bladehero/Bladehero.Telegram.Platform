@@ -31,14 +31,31 @@ public static class DependencyInjection
 
     private static void AddTelegramCommands(this IServiceCollection services, IEnumerable<Assembly> assemblies)
     {
-        var types = assemblies
+        var commandTypes = assemblies
             .SelectMany(x => x.DefinedTypes)
             .Where(x => x is { IsClass: true, IsAbstract: false, IsGenericType: false })
-            .Where(x => x.ImplementedInterfaces.Contains(TelegramCommandMarker));
+            .Where(x => x.ImplementedInterfaces.Contains(TelegramCommandMarker))
+            .Select(type => (Priority: type.GetCommandPriority(), Type: type))
+            .OrderBy(x => x.Priority, CommandPriority.Comparer)
+            .ToArray();
 
-        foreach (var type in types)
+        foreach (var (_, type) in commandTypes)
         {
-            services.AddScoped(TelegramCommandMarker, type);
+            services.AddScoped(type);
+            services.AddScoped(TelegramCommandMarker, provider => provider.GetRequiredService(type));
         }
+
+        services.AddScoped(provider =>
+        {
+            var commands = commandTypes
+                .Select(x => (x.Priority, (ITelegramCommand)provider.GetRequiredService(x.Type)))
+                .ToArray();
+            return new CommandPriorityAccessor(commands);
+        });
+    }
+
+    private static CommandPriority GetCommandPriority(this TypeInfo type)
+    {
+        return type.GetCustomAttribute<CommandPriorityAttribute>()?.Priority ?? CommandPriority.Default;
     }
 }

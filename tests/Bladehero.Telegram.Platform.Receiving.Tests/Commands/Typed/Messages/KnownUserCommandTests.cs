@@ -4,7 +4,7 @@ using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
-namespace Bladehero.Telegram.Platform.Receiving.Tests;
+namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands.Typed.Messages;
 
 public sealed class KnownUserCommandTests
 {
@@ -76,8 +76,13 @@ public sealed class KnownUserCommandTests
         }
     }
 
-    private sealed class ProbeCommand(ITelegramUserResolver<TestUser> users) : KnownUserCommand<TestUser>(users)
+    private sealed class ProbeCommand : KnownUserCommand<TestUser>
     {
+        public ProbeCommand(ITelegramUserResolver<TestUser> users)
+        {
+            UserResolver = users;
+        }
+        
         public TestUser? ResolvedUser { get; private set; }
 
         protected override bool Matches(Message message) => message.IsCommand("/probe");
