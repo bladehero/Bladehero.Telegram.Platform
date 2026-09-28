@@ -2,11 +2,25 @@ using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Sandbox.Coffee;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
+using FluentAssertions.Execution;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Tests.Coffee;
 
 public sealed class OrderCoffeeTests
 {
+    [Fact]
+    public async Task CommandMenu_ShouldOfferCoffeeFirst()
+    {
+        // Act
+        await using var bot = await StartBotAsync();
+
+        // Assert
+        bot.Api.CommandMenu()
+            .Select(x => $"/{x.Command} {x.Description}")
+            .Should()
+            .Equal("/coffee Order a coffee", "/cancel Cancel the current order");
+    }
+
     [Fact]
     public async Task Coffee_ShouldAskForTheSize()
     {
@@ -91,11 +105,14 @@ public sealed class OrderCoffeeTests
         var before = nick.Messages.Select(x => x.ToString()).ToArray();
 
         // Act
-        await nick.TapsAsync("Small");
+        var answer = await nick.TapsAsync("Small");
 
         // Assert
-        nick.Messages.Select(x => x.ToString()).Should().Equal(before);
-        bot.Api.Calls.Last().Parameters["text"]!.GetValue<string>().Should().Be("That button is no longer active.");
+        using (new AssertionScope())
+        {
+            answer.ToString().Should().Be("Notification: That button is no longer active.");
+            nick.Messages.Select(x => x.ToString()).Should().Equal(before);
+        }
     }
 
     [Fact]

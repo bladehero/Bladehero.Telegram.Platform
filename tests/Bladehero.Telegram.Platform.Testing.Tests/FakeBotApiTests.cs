@@ -1,7 +1,9 @@
+using System.Text.Json.Nodes;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
+using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
@@ -74,13 +76,13 @@ public sealed class FakeBotApiTests
         var client = api.CreateClient();
 
         // Act
-        await client.SendMessage(Chat, "Continue?");
-        await client.AnswerCallbackQuery("query", "Done");
+        var sent = await client.SendMessage(Chat, "Continue?");
+        await client.EditMessageText(Chat, sent.Id, "Done");
 
         // Assert
         using (new AssertionScope())
         {
-            api.Calls.Select(x => x.Method).Should().Equal("sendMessage", "answerCallbackQuery");
+            api.Calls.Select(x => x.Method).Should().Equal("sendMessage", "editMessageText");
             api.Calls[0].Parameters["text"]!.GetValue<string>().Should().Be("Continue?");
             api.Calls[1].Parameters["text"]!.GetValue<string>().Should().Be("Done");
         }
@@ -203,6 +205,130 @@ public sealed class FakeBotApiTests
         (await act.Should().ThrowAsync<ApiRequestException>())
             .Which.Message.Should()
             .Contain("message to delete not found");
+    }
+
+    [Fact]
+    public async Task AnswerCallbackQuery_ForAQueryTelegramNeverSent_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var act = () => client.AnswerCallbackQuery("unknown");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("query ID is invalid");
+    }
+
+    [Fact]
+    public async Task AnswerCallbackQuery_Twice_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        api.Enqueue(new JsonObject { ["callback_query"] = new JsonObject { ["id"] = "7" } });
+        await client.AnswerCallbackQuery("7");
+
+        // Act
+        var act = () => client.AnswerCallbackQuery("7");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("query ID is invalid");
+    }
+
+    [Fact]
+    public async Task SetMyCommands_ShouldKeepAMenuPerScope()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        var privateChats = new BotCommandScopeAllPrivateChats();
+
+        // Act
+        await client.SetMyCommands([new BotCommand("start", "Start")]);
+        await client.SetMyCommands([new BotCommand("help", "Help")], privateChats);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            api.CommandMenu().Select(x => x.Command).Should().Equal("start");
+            api.CommandMenu(privateChats).Select(x => x.Command).Should().Equal("help");
+            (await client.GetMyCommands(privateChats)).Select(x => x.Command).Should().Equal("help");
+        }
+    }
+
+    [Fact]
+    public async Task Fail_ShouldRefuseTheMethodWithTheErrorAndChangeNothing()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        api.Fail("sendMessage", BotApiError.BotBlocked);
+
+        // Act
+        var act = () => client.SendMessage(Chat, "Continue?");
+
+        // Assert
+        var failure = await act.Should().ThrowAsync<ApiRequestException>();
+        using (new AssertionScope())
+        {
+            failure.Which.ErrorCode.Should().Be(403);
+            failure.Which.Message.Should().Be("Forbidden: bot was blocked by the user");
+            api.Calls.Should().ContainSingle(x => x.Method == "sendMessage");
+            api.MessagesIn(Chat).Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task Fail_ForSomeTimes_ShouldAnswerAgainOnceTheyRunOut()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        api.Fail("sendMessage", BotApiError.ChatNotFound, times: 1);
+        await ((Func<Task>)(() => client.SendMessage(Chat, "one"))).Should().ThrowAsync<ApiRequestException>();
+
+        // Act
+        var sent = await client.SendMessage(Chat, "two");
+
+        // Assert
+        sent.Text.Should().Be("two");
+    }
+
+    [Fact]
+    public async Task Fail_WithTooManyRequests_ShouldLetTheClientWaitAndRetry()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        api.Fail("sendMessage", BotApiError.TooManyRequests(retryAfter: 1), times: 1);
+
+        // Act
+        var sent = await client.SendMessage(Chat, "Continue?");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Text.Should().Be("Continue?");
+            api.Calls.Where(x => x.Method == "sendMessage").Should().HaveCount(2);
+        }
+    }
+
+    [Fact]
+    public void Fail_OnGetUpdates_ShouldSayTheHostOwnsIt()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+
+        // Act
+        var act = () => api.Fail("getUpdates", BotApiError.ChatNotFound);
+
+        // Assert
+        act.Should().Throw<ArgumentException>().WithMessage("*test host*");
     }
 
     [Fact]

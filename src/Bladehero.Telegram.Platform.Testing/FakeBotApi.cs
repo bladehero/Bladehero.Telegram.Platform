@@ -1,7 +1,9 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
@@ -13,8 +15,9 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// <remarks>
 /// Every request is recorded in <see cref="Calls"/> — except <c>getUpdates</c>, the polling loop's own traffic — and
 /// answered the way Telegram would, including Telegram's own errors: editing a message that was deleted, one the bot
-/// did not send, or one without changing it. A method the fake does not know yet fails with an error naming it, so an
-/// unsupported call fails the test instead of passing silently.
+/// did not send, or one without changing it, and answering a button tap twice. A method the fake does not know yet
+/// fails with an error naming it, so an unsupported call fails the test instead of passing silently. To see how the
+/// bot copes when Telegram refuses a call, <see cref="Fail"/> it.
 /// </remarks>
 public sealed class FakeBotApi
 {
@@ -23,14 +26,17 @@ public sealed class FakeBotApi
     private const long BotId = 1234567;
     private const long FirstPersonId = 1001;
     private const long FirstGroupId = -1000000000001;
+    private const string DefaultScope = """{"type":"default"}""";
 
     private readonly object _gate = new();
     private readonly List<BotApiCall> _calls = [];
+    private readonly List<Failure> _failures = [];
     private readonly Dictionary<long, ChatHistory> _chats = [];
     private readonly Dictionary<string, JsonObject> _people = [];
     private readonly Dictionary<string, long> _groups = [];
+    private readonly Dictionary<string, JsonArray> _commandMenus = [];
+    private readonly Dictionary<string, JsonObject?> _callbackAnswers = [];
     private readonly UpdateQueue _updates = new();
-    private JsonArray _commandMenu = [];
     private long _lastCallbackQueryId;
 
     public IReadOnlyList<BotApiCall> Calls
@@ -47,7 +53,81 @@ public sealed class FakeBotApi
     public ITelegramBotClient CreateClient() =>
         new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));
 
-    internal int Enqueue(JsonObject update) => _updates.Add(update);
+    /// <summary>
+    /// The command menu Telegram shows for <paramref name="scope"/> — the default scope when none is given — as the
+    /// bot last set it.
+    /// </summary>
+    public IReadOnlyList<BotCommand> CommandMenu(BotCommandScope? scope = null, string? languageCode = null)
+    {
+        var key = MenuKey(
+            scope is null ? null : JsonSerializer.SerializeToNode(scope, JsonBotAPI.Options),
+            languageCode
+        );
+
+        lock (_gate)
+        {
+            return _commandMenus.TryGetValue(key, out var menu)
+                ? menu.Deserialize<BotCommand[]>(JsonBotAPI.Options)!
+                : [];
+        }
+    }
+
+    /// <summary>
+    /// Makes Telegram refuse <paramref name="method"/> with <paramref name="error"/> — every call from now on, or only
+    /// the next <paramref name="times"/> calls. A refused call is still recorded in <see cref="Calls"/>, and changes
+    /// nothing.
+    /// </summary>
+    /// <param name="method">The Bot API method as Telegram names it, such as <c>sendMessage</c>.</param>
+    /// <param name="error">What Telegram answers with; <see cref="BotApiError"/> has the common ones.</param>
+    /// <param name="times">How many calls to refuse before answering again, or <c>null</c> to refuse them all.</param>
+    /// <remarks>
+    /// To fail a call the bot makes as it starts, set the failure up on a fake before handing it to
+    /// <see cref="TelegramTestHost"/>.
+    /// </remarks>
+    public void Fail(string method, BotApiError error, int? times = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        ArgumentNullException.ThrowIfNull(error);
+
+        if (times <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(times), times, "A failure has to happen at least once.");
+        }
+
+        if (method.Equals("getUpdates", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "getUpdates is how the test host delivers updates, so it cannot fail. Fail the calls the bot makes instead.",
+                nameof(method)
+            );
+        }
+
+        lock (_gate)
+        {
+            _failures.Add(new Failure(method, error, times));
+        }
+    }
+
+    internal int Enqueue(JsonObject update)
+    {
+        if (update["callback_query"]?["id"]?.GetValue<string>() is { } queryId)
+        {
+            lock (_gate)
+            {
+                _callbackAnswers.TryAdd(queryId, null);
+            }
+        }
+
+        return _updates.Add(update);
+    }
+
+    internal JsonObject? CallbackAnswer(string queryId)
+    {
+        lock (_gate)
+        {
+            return _callbackAnswers.GetValueOrDefault(queryId)?.DeepClone().AsObject();
+        }
+    }
 
     internal Task HandledAsync(int updateId) => _updates.HandledAsync(updateId);
 
@@ -164,7 +244,7 @@ public sealed class FakeBotApi
             "editMessageText" => Edit(parameters, parameters["text"]?.GetValue<string>()),
             "editMessageReplyMarkup" => Edit(parameters, text: null),
             "deleteMessage" => Delete(parameters),
-            "answerCallbackQuery" => true,
+            "answerCallbackQuery" => AnswerCallbackQuery(parameters),
             "getWebhookInfo" => new JsonObject
             {
                 ["url"] = "",
@@ -172,14 +252,36 @@ public sealed class FakeBotApi
                 ["pending_update_count"] = 0,
             },
             "deleteWebhook" => true,
-            "getMyCommands" => _commandMenu.DeepClone(),
+            "getMyCommands" => GetCommandMenu(parameters),
             "setMyCommands" => SetCommandMenu(parameters),
-            _ => throw new BotApiError(404, $"Not Found: FakeBotApi does not answer {method} yet"),
+            _ => throw Refuse(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
+
+    private JsonNode GetCommandMenu(JsonObject parameters) =>
+        _commandMenus.GetValueOrDefault(MenuKey(parameters["scope"], parameters["language_code"]))?.DeepClone()
+        ?? new JsonArray();
 
     private JsonNode SetCommandMenu(JsonObject parameters)
     {
-        _commandMenu = parameters["commands"]?.DeepClone().AsArray() ?? [];
+        _commandMenus[MenuKey(parameters["scope"], parameters["language_code"])] =
+            parameters["commands"]?.DeepClone().AsArray() ?? [];
+        return true;
+    }
+
+    // Telegram keeps a menu per scope and language, and a request without a scope means the default one.
+    private static string MenuKey(JsonNode? scope, JsonNode? languageCode) =>
+        $"{scope?.ToJsonString() ?? DefaultScope}|{languageCode?.GetValue<string>()}";
+
+    // Telegram takes one answer per callback query: a second one, or one to a query it never sent, is refused.
+    private JsonNode AnswerCallbackQuery(JsonObject parameters)
+    {
+        var queryId = parameters["callback_query_id"]?.GetValue<string>();
+        if (queryId is null || !_callbackAnswers.TryGetValue(queryId, out var answer) || answer is not null)
+        {
+            throw Refuse(400, "Bad Request: query is too old and response timeout expired or query ID is invalid");
+        }
+
+        _callbackAnswers[queryId] = parameters.DeepClone().AsObject();
         return true;
     }
 
@@ -209,11 +311,11 @@ public sealed class FakeBotApi
     {
         var message =
             ChatOf(parameters).Find(MessageIdOf(parameters))
-            ?? throw new BotApiError(400, "Bad Request: message to edit not found");
+            ?? throw Refuse(400, "Bad Request: message to edit not found");
 
         if (message["from"]?["id"]?.GetValue<long>() != BotId)
         {
-            throw new BotApiError(400, "Bad Request: message can't be edited");
+            throw Refuse(400, "Bad Request: message can't be edited");
         }
 
         var newText = text ?? message["text"]?.GetValue<string>();
@@ -221,7 +323,7 @@ public sealed class FakeBotApi
 
         if (newText == message["text"]?.GetValue<string>() && JsonNode.DeepEquals(newMarkup, message["reply_markup"]))
         {
-            throw new BotApiError(
+            throw Refuse(
                 400,
                 "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
             );
@@ -250,7 +352,7 @@ public sealed class FakeBotApi
     {
         if (!ChatOf(parameters).Remove(MessageIdOf(parameters)))
         {
-            throw new BotApiError(400, "Bad Request: message to delete not found");
+            throw Refuse(400, "Bad Request: message to delete not found");
         }
 
         return true;
@@ -260,7 +362,7 @@ public sealed class FakeBotApi
     {
         if (parameters["chat_id"] is not JsonValue value || !value.TryGetValue<long>(out var chatId))
         {
-            throw new BotApiError(400, "Bad Request: chat not found");
+            throw Refuse(400, "Bad Request: chat not found");
         }
 
         if (!_chats.TryGetValue(chatId, out var chat))
@@ -277,7 +379,7 @@ public sealed class FakeBotApi
     private static int MessageIdOf(JsonObject parameters) =>
         parameters["message_id"] is JsonValue value && value.TryGetValue<int>(out var messageId)
             ? messageId
-            : throw new BotApiError(400, "Bad Request: message identifier is not specified");
+            : throw Refuse(400, "Bad Request: message identifier is not specified");
 
     private async Task<HttpResponseMessage> HandleAsync(HttpRequestMessage request, CancellationToken token)
     {
@@ -296,25 +398,56 @@ public sealed class FakeBotApi
         {
             _calls.Add(new BotApiCall(method, parameters.DeepClone().AsObject()));
 
+            if (TakeFailure(method) is { } failure)
+            {
+                return Respond(failure);
+            }
+
             try
             {
                 result = Answer(method, parameters);
             }
-            catch (BotApiError error)
+            catch (Refusal refusal)
             {
-                return Respond(
-                    (HttpStatusCode)error.Code,
-                    new JsonObject
-                    {
-                        ["ok"] = false,
-                        ["error_code"] = error.Code,
-                        ["description"] = error.Message,
-                    }
-                );
+                return Respond(refusal.Error);
             }
         }
 
         return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = result });
+    }
+
+    private BotApiError? TakeFailure(string method)
+    {
+        var failure = _failures.FirstOrDefault(x => x.Matches(method));
+        if (failure is null)
+        {
+            return null;
+        }
+
+        failure.Happen();
+        if (failure.Exhausted)
+        {
+            _failures.Remove(failure);
+        }
+
+        return failure.Error;
+    }
+
+    private static HttpResponseMessage Respond(BotApiError error)
+    {
+        var body = new JsonObject
+        {
+            ["ok"] = false,
+            ["error_code"] = error.ErrorCode,
+            ["description"] = error.Description,
+        };
+
+        if (error.RetryAfter is { } retryAfter)
+        {
+            body["parameters"] = new JsonObject { ["retry_after"] = retryAfter };
+        }
+
+        return Respond((HttpStatusCode)error.ErrorCode, body);
     }
 
     private static HttpResponseMessage Respond(HttpStatusCode status, JsonObject body) =>
@@ -328,8 +461,27 @@ public sealed class FakeBotApi
         ) => api.HandleAsync(request, cancellationToken);
     }
 
-    private sealed class BotApiError(int code, string message) : Exception(message)
+    private static Refusal Refuse(int errorCode, string description) => new(new BotApiError(errorCode, description));
+
+    private sealed class Refusal(BotApiError error) : Exception(error.Description)
     {
-        public int Code { get; } = code;
+        public BotApiError Error { get; } = error;
+    }
+
+    private sealed class Failure(string method, BotApiError error, int? times)
+    {
+        public BotApiError Error { get; } = error;
+
+        public bool Exhausted => times is 0;
+
+        public bool Matches(string requested) => requested.Equals(method, StringComparison.OrdinalIgnoreCase);
+
+        public void Happen()
+        {
+            if (times is not null)
+            {
+                times--;
+            }
+        }
     }
 }

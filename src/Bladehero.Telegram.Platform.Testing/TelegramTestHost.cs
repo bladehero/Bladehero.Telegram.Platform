@@ -39,17 +39,26 @@ public sealed class TelegramTestHost : IAsyncDisposable
     /// application as its own composition root does — including <c>AddTelegramLongPollingReceiving</c> — and the
     /// started host's real polling loop pulls updates from the fake.
     /// </summary>
+    /// <param name="configureServices">Registers the bot, as its composition root does.</param>
+    /// <param name="api">
+    /// The fake to run against, already arranged — to fail a call the bot makes as it starts, say. A new one when
+    /// <c>null</c>.
+    /// </param>
+    /// <param name="token">Stops waiting for the bot to start.</param>
     /// <remarks>
     /// Only the bot client is swapped, for one talking to <see cref="Api"/>, so the token in your configuration is
-    /// never used. Every hosted service starts, as in production. The container is validated on build, so a
-    /// registration that cannot be resolved fails here rather than in the middle of a test.
+    /// never used. Every hosted service starts, as in production, and the host has finished starting when this
+    /// returns — so what the bot does as it starts, such as publishing its command menu, can be checked straight
+    /// away. The container is validated on build, so a registration that cannot be resolved fails here rather than in
+    /// the middle of a test.
     /// </remarks>
     public static async Task<TelegramTestHost> ForLongPollingAsync(
         Action<IServiceCollection> configureServices,
+        FakeBotApi? api = null,
         CancellationToken token = default
     )
     {
-        var api = new FakeBotApi();
+        api ??= new FakeBotApi();
         var errors = new ErrorLog();
 
         var builder = Host.CreateEmptyApplicationBuilder(
