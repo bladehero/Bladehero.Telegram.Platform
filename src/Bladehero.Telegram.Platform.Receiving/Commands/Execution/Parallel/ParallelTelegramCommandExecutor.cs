@@ -7,27 +7,38 @@ internal sealed class ParallelTelegramCommandExecutor(
     IOptionsMonitor<ParallelCommandExecutionConfiguration> options
 ) : ITelegramCommandExecutor
 {
-    public async Task ExecuteAsync(CommandRequest request, CancellationToken token = default)
+    public Task ExecuteAsync(CommandRequest request, CancellationToken token = default) =>
+        ExecuteAsync(commandAccessor, request, token);
+
+    internal async Task<bool> ExecuteAsync(
+        CommandPriorityAccessor commands,
+        CommandRequest request,
+        CancellationToken token
+    )
     {
-        var configuration = options.CurrentValue;
-        var chunks = ChunkCommands(configuration.ParallelCount);
-        foreach (var chunk in chunks)
+        var handled = false;
+        foreach (var chunk in ChunkCommands(commands, options.CurrentValue.ParallelCount))
         {
             var executables = await GetExecutableCommands(chunk, request, token);
-            var tasks = executables.Select(x => x.HandleAsync(request, token));
-            await Task.WhenAll(tasks);
+            handled |= executables.Length > 0;
+            await Task.WhenAll(executables.Select(x => x.HandleAsync(request, token)));
         }
+
+        return handled;
     }
 
-    private IEnumerable<IEnumerable<ITelegramCommand>> ChunkCommands(int? chunkSize)
+    private static IEnumerable<IEnumerable<ITelegramCommand>> ChunkCommands(
+        CommandPriorityAccessor commands,
+        int? chunkSize
+    )
     {
-        var groups = commandAccessor.GetGroups();
+        var groups = commands.GetGroups();
         return chunkSize.HasValue
             ? groups.Values.Select(x => x.Chunk(chunkSize.Value)).SelectMany(x => x)
             : groups.Values;
     }
 
-    private static async Task<IEnumerable<ITelegramCommand>> GetExecutableCommands(
+    private static async Task<ITelegramCommand[]> GetExecutableCommands(
         IEnumerable<ITelegramCommand> chunk,
         CommandRequest request,
         CancellationToken token
@@ -37,6 +48,6 @@ internal sealed class ParallelTelegramCommandExecutor(
             .Select(command => new { CanHandleTask = command.CanHandleAsync(request, token), Command = command })
             .ToArray();
         await Task.WhenAll(items.Select(x => x.CanHandleTask));
-        return items.Where(x => x.CanHandleTask.Result).Select(x => x.Command);
+        return [.. items.Where(x => x.CanHandleTask.Result).Select(x => x.Command)];
     }
 }

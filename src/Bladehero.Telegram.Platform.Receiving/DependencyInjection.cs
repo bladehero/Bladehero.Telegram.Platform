@@ -2,6 +2,7 @@ using System.Reflection;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution.Parallel;
+using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot.Polling;
@@ -21,8 +22,10 @@ public static class DependencyInjection
         }
 
         services.AddScoped<ITelegramErrorHandler, LoggingTelegramErrorHandler>();
-        services.AddScoped<ITelegramCommandExecutor, ParallelTelegramCommandExecutor>();
+        services.AddScoped<ParallelTelegramCommandExecutor>();
+        services.AddScoped<ITelegramCommandExecutor, ConversationAwareCommandExecutor>();
         services.AddScoped<IUpdateHandler, ReceivingUpdateHandler>();
+        services.AddTelegramConversations();
         services.AddTelegramCommands(assemblies);
         return services;
     }

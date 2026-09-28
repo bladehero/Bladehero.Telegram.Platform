@@ -1,4 +1,5 @@
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
+using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
@@ -8,11 +9,13 @@ namespace Bladehero.Telegram.Platform.Receiving;
 
 internal sealed class ReceivingUpdateHandler(
     ITelegramCommandExecutor telegramCommandExecutor,
-    ITelegramErrorHandler telegramErrorHandler
+    ITelegramErrorHandler telegramErrorHandler,
+    Conversation conversation
 ) : IUpdateHandler
 {
     public Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
     {
+        conversation.Bind(update);
         var request = new CommandRequest(update, botClient);
         return telegramCommandExecutor.ExecuteAsync(request, cancellationToken);
     }
