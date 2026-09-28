@@ -10,8 +10,6 @@ namespace Bladehero.Telegram.Platform.Receiving;
 
 public static class DependencyInjection
 {
-    private static readonly Type TelegramCommandMarker = typeof(ITelegramCommand);
-
     public static IServiceCollection AddTelegramReceiving(
         this IServiceCollection services,
         params Assembly[] assemblies
@@ -27,35 +25,5 @@ public static class DependencyInjection
         services.AddScoped<IUpdateHandler, ReceivingUpdateHandler>();
         services.AddTelegramCommands(assemblies);
         return services;
-    }
-
-    private static void AddTelegramCommands(this IServiceCollection services, IEnumerable<Assembly> assemblies)
-    {
-        var commandTypes = assemblies
-            .SelectMany(x => x.DefinedTypes)
-            .Where(x => x is { IsClass: true, IsAbstract: false, IsGenericType: false })
-            .Where(x => x.ImplementedInterfaces.Contains(TelegramCommandMarker))
-            .Select(type => (Priority: type.GetCommandPriority(), Type: type))
-            .OrderBy(x => x.Priority, CommandPriority.Comparer)
-            .ToArray();
-
-        foreach (var (_, type) in commandTypes)
-        {
-            services.AddScoped(type);
-            services.AddScoped(TelegramCommandMarker, provider => provider.GetRequiredService(type));
-        }
-
-        services.AddScoped(provider =>
-        {
-            var commands = commandTypes
-                .Select(x => (x.Priority, (ITelegramCommand)provider.GetRequiredService(x.Type)))
-                .ToArray();
-            return new CommandPriorityAccessor(commands);
-        });
-    }
-
-    private static CommandPriority GetCommandPriority(this TypeInfo type)
-    {
-        return type.GetCustomAttribute<CommandPriorityAttribute>()?.Priority ?? CommandPriority.Default;
     }
 }
