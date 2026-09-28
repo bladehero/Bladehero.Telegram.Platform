@@ -1,3 +1,4 @@
+using System.Text;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
@@ -65,6 +66,32 @@ internal static class TestBot
                 $"You are {request.Payload.From!.FirstName}",
                 cancellationToken: token
             );
+    }
+
+    // Downloads whatever file a user sends and says what it got, reading the content as text.
+    private sealed class FileCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload is { Photo: [_, ..] } or { Voice: not null } or { Document: not null });
+
+        protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (_, message, client) = request;
+            (FileBase File, string What) received = message switch
+            {
+                { Photo: [.., var largest] } => (largest, "a photo"),
+                { Voice: { } voice } => (voice, $"{voice.Duration}s of voice"),
+                _ => (message.Document!, $"{message.Document!.FileName} as {message.Document.MimeType}"),
+            };
+
+            using var content = new MemoryStream();
+            await client.GetInfoAndDownloadFile(received.File, content, token);
+            await client.SendMessage(
+                message.Chat,
+                $"Got {received.What}: {Encoding.UTF8.GetString(content.ToArray())}",
+                cancellationToken: token
+            );
+        }
     }
 
     // Deletes the command itself, as a bot keeping its chat tidy would.

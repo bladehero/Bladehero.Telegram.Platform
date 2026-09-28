@@ -1,13 +1,19 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
 /// <summary>
-/// A person in a <see cref="TestChat"/>, doing what a user does in the Telegram app: typing messages and tapping the
-/// bot's buttons. Each action returns once the bot has finished handling it, and rethrows whatever a command threw.
+/// A person in a <see cref="TestChat"/>, doing what a user does in the Telegram app: typing messages, sending files and
+/// tapping the bot's buttons. Each action returns once the bot has finished handling it, and rethrows whatever a
+/// command threw.
 /// </summary>
 public sealed class TestUser
 {
+    // What the smaller size of a photo downloads as: not the photo, so a bot that takes the first size instead of the
+    // last gets the wrong bytes, as it would get a thumbnail from Telegram.
+    private static readonly byte[] Thumbnail = "thumbnail"u8.ToArray();
+
     private readonly TelegramTestHost _host;
     private readonly JsonObject _person;
 
@@ -31,13 +37,76 @@ public sealed class TestUser
     /// <inheritdoc cref="TestChat.LastMessage"/>
     public TestMessage LastMessage => Chat.LastMessage;
 
-    /// <summary>Sends <paramref name="text"/> to the chat.</summary>
+    /// <summary>Sends <paramref name="text"/> to the chat, trimmed as Telegram trims it.</summary>
+    /// <exception cref="ArgumentException"><paramref name="text"/> is blank, which the app never sends.</exception>
     public Task SendsAsync(string text, CancellationToken token = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(text);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
-        var message = _host.Api.Receive(Chat.Id, _person, text);
-        return _host.DeliverAsync(new JsonObject { ["message"] = message }, token);
+        return DeliverAsync(_host.Api.Receive(Chat.Id, _person, text.Trim()), token);
+    }
+
+    /// <summary>
+    /// Sends a photo. Like Telegram, the message carries it in two sizes, smallest first: a thumbnail, then
+    /// <paramref name="photo"/> itself, which the bot can download back byte for byte from the last, largest size.
+    /// The fake does not look inside the bytes, so any will do and the dimensions it reports are nominal.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="photo"/> is empty, which the app never sends.</exception>
+    public Task SendsPhotoAsync(byte[] photo, string? caption = null, CancellationToken token = default)
+    {
+        ThrowIfEmpty(photo);
+
+        var thumbnail = _host.Api.StoreFile(Thumbnail, "photos", ".jpg");
+        thumbnail["width"] = 90;
+        thumbnail["height"] = 68;
+
+        var size = _host.Api.StoreFile(photo, "photos", ".jpg");
+        size["width"] = 1280;
+        size["height"] = 960;
+
+        return SendsFileAsync(new JsonObject { ["photo"] = new JsonArray(thumbnail, size) }, caption, token);
+    }
+
+    /// <summary>Sends a voice message, recorded for <paramref name="duration"/> — a second when not given.</summary>
+    /// <exception cref="ArgumentException"><paramref name="voice"/> is empty, which the app never sends.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="duration"/> is negative.</exception>
+    public Task SendsVoiceAsync(byte[] voice, TimeSpan? duration = null, CancellationToken token = default)
+    {
+        ThrowIfEmpty(voice);
+        ArgumentOutOfRangeException.ThrowIfLessThan(duration ?? TimeSpan.Zero, TimeSpan.Zero, nameof(duration));
+
+        var file = _host.Api.StoreFile(voice, "voice", ".oga");
+        file["duration"] = (int)Math.Ceiling((duration ?? TimeSpan.FromSeconds(1)).TotalSeconds);
+        file["mime_type"] = "audio/ogg";
+
+        return SendsFileAsync(new JsonObject { ["voice"] = file }, caption: null, token);
+    }
+
+    /// <summary>
+    /// Sends <paramref name="document"/> as a file named <paramref name="fileName"/>. Its MIME type is worked out from
+    /// the name's extension, as the app does, unless <paramref name="mimeType"/> is given. Only common extensions are
+    /// known — PDF, text, CSV, JSON, XML, ZIP, JPEG, PNG, DOCX and XLSX — and any other is sent as
+    /// <c>application/octet-stream</c>.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="document"/> is empty, which the app never sends, or <paramref name="fileName"/> is blank.
+    /// </exception>
+    public Task SendsDocumentAsync(
+        byte[] document,
+        string fileName,
+        string? caption = null,
+        string? mimeType = null,
+        CancellationToken token = default
+    )
+    {
+        ThrowIfEmpty(document);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+
+        var file = _host.Api.StoreFile(document, "documents", Path.GetExtension(fileName));
+        file["file_name"] = fileName;
+        file["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypeOf(fileName) : mimeType;
+
+        return SendsFileAsync(new JsonObject { ["document"] = file }, caption, token);
     }
 
     /// <summary>
@@ -76,6 +145,54 @@ public sealed class TestUser
 
     public override string ToString() => FirstName;
 
+    // Telegram trims a caption and drops an empty one, and marks a bot command at its start as it does in a text.
+    private Task SendsFileAsync(JsonObject content, string? caption, CancellationToken token)
+    {
+        caption = caption?.Trim();
+        if (!string.IsNullOrEmpty(caption))
+        {
+            content["caption"] = caption;
+
+            if (FakeBotApi.BotCommandEntities(caption) is { } entities)
+            {
+                content["caption_entities"] = entities;
+            }
+        }
+
+        return DeliverAsync(_host.Api.Receive(Chat.Id, _person, content), token);
+    }
+
+    private Task DeliverAsync(JsonObject message, CancellationToken token) =>
+        _host.DeliverAsync(new JsonObject { ["message"] = message }, token);
+
+    private static void ThrowIfEmpty(byte[] content, [CallerArgumentExpression(nameof(content))] string? name = null)
+    {
+        ArgumentNullException.ThrowIfNull(content, name);
+
+        if (content.Length == 0)
+        {
+            throw new ArgumentException("The Telegram app never sends an empty file.", name);
+        }
+    }
+
+    private static string Quote(TestMessage message) => $"\"{message.Content}\"";
+
+    private static string MimeTypeOf(string fileName) =>
+        Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".txt" => "text/plain",
+            ".csv" => "text/csv",
+            ".json" => "application/json",
+            ".xml" => "application/xml",
+            ".zip" => "application/zip",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            _ => "application/octet-stream",
+        };
+
     private (TestMessage Message, string Data) Find(string button, TestMessage? on)
     {
         var messages = Messages;
@@ -96,14 +213,14 @@ public sealed class TestUser
                     );
                 default:
                     throw new InvalidOperationException(
-                        $"\"{message.Text}\" shows more than one \"{button}\" button, so which one {FirstName} taps "
+                        $"{Quote(message)} shows more than one \"{button}\" button, so which one {FirstName} taps "
                             + "is ambiguous."
                     );
             }
         }
 
         var shown = candidates.SelectMany(message => message.Buttons).Distinct().ToArray();
-        var where = on is null ? $"in {Chat.Description}" : $"on \"{on.Text}\"";
+        var where = on is null ? $"in {Chat.Description}" : $"on {Quote(on)}";
         throw new InvalidOperationException(
             $"{FirstName} sees no \"{button}\" button {where}. "
                 + (shown.Length == 0 ? "There are no buttons." : $"The buttons are \"{string.Join("\", \"", shown)}\".")
@@ -114,10 +231,10 @@ public sealed class TestUser
     {
         if (on.Message.Chat.Id != Chat.Id)
         {
-            throw new InvalidOperationException($"\"{on.Text}\" is not in {Chat.Description}.");
+            throw new InvalidOperationException($"{Quote(on)} is not in {Chat.Description}.");
         }
 
         return messages.FirstOrDefault(message => message.Id == on.Id)
-            ?? throw new InvalidOperationException($"\"{on.Text}\" is no longer in {Chat.Description}.");
+            ?? throw new InvalidOperationException($"{Quote(on)} is no longer in {Chat.Description}.");
     }
 }
