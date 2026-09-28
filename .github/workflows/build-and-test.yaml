@@ -1,9 +1,10 @@
 name: .NET
 on:
   push:
-    branches: ["master"]
+    branches: ["master", "feature/**"]
+  # Every pull request, whatever it targets: slices land on a feature/** branch, and a slice stacked on another
+  # targets that slice's branch until it merges.
   pull_request:
-    branches: ["master"]
 jobs:
   build_and_test:
     name: Build & Test
