@@ -13,7 +13,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 public abstract class KnownUserCommand<TUser> : MessageCommand
     where TUser : class
 {
-    internal ITelegramUserResolver<TUser> UserResolver { get; init; }
+    internal ITelegramUserResolver<TUser> UserResolver { get; init; } = null!;
 
     protected TUser User { get; private set; } = null!;
 
