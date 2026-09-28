@@ -7,7 +7,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 
-[BotCommand("cancel", "Cancel the current order", Order = 1)]
+[BotCommand("cancel", "Cancel the current order")]
 internal sealed class CancelCommand(IConversation conversation) : MessageCommand
 {
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>

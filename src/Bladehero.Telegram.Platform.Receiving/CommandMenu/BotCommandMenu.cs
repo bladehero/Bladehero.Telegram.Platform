@@ -20,11 +20,13 @@ internal sealed class BotCommandMenu : IBotCommandMenu
             );
         }
 
+        var ordered = entries.Where(x => x.Entry.HasOrder).OrderBy(x => x.Entry.Order);
+        var unordered = entries.Where(x => !x.Entry.HasOrder).OrderBy(x => x.Entry.Command, StringComparer.Ordinal);
+
         Commands =
         [
-            .. entries
-                .OrderBy(x => x.Entry.Order)
-                .ThenBy(x => x.Entry.Command, StringComparer.Ordinal)
+            .. ordered
+                .Concat(unordered)
                 .Select(x => new BotCommand { Command = x.Entry.Command, Description = x.Entry.Description }),
         ];
     }

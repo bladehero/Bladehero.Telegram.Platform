@@ -4,8 +4,8 @@ namespace Bladehero.Telegram.Platform.Receiving.CommandMenu;
 /// Lists the command in the bot's menu — the list Telegram offers when the user types <c>/</c>.
 /// </summary>
 /// <remarks>
-/// The menu is sorted by <see cref="Order"/>, then alphabetically. An order that is set must be unique, so two
-/// commands cannot silently fight over one position; commands without one count as <c>0</c>. Every rule Telegram
+/// Commands with an <see cref="Order"/> come first, lowest first; the commands without one follow, alphabetically.
+/// An order that is set must be unique, so two commands cannot silently fight over one position. Every rule Telegram
 /// enforces is checked when the commands are registered, so a bad entry fails the host on startup rather than the
 /// call to Telegram later.
 /// </remarks>
@@ -49,11 +49,12 @@ public sealed class BotCommandAttribute : Attribute
     public string Description { get; }
 
     /// <summary>
-    /// Where the command sits in the menu, lowest first.
+    /// Where the command sits in the menu, lowest first. Left unset, the command follows every ordered one, and reads
+    /// as <see cref="int.MaxValue"/>.
     /// </summary>
     public int Order
     {
-        get => _order ?? 0;
+        get => _order ?? int.MaxValue;
         set => _order = value;
     }
 

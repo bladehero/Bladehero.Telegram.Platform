@@ -6,7 +6,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Tests.CommandMenu;
 public sealed class BotCommandMenuTests
 {
     [Fact]
-    public void Commands_ShouldBeSortedByOrderThenAlphabetically()
+    public void Commands_ShouldListOrderedCommandsFirstThenTheRestAlphabetically()
     {
         // Arrange
         var sut = new BotCommandMenu([
@@ -20,7 +20,20 @@ public sealed class BotCommandMenuTests
         var commands = sut.Commands.Select(x => x.Command);
 
         // Assert
-        commands.Should().Equal("start", "about", "help", "cancel");
+        commands.Should().Equal("start", "cancel", "about", "help");
+    }
+
+    [Fact]
+    public void Commands_WhenACommandHasNoOrder_ShouldFollowEvenTheHighestOrder()
+    {
+        // Arrange
+        var sut = new BotCommandMenu([Declare<AboutCommand>("about"), Declare<HelpCommand>("help", int.MaxValue)]);
+
+        // Act
+        var commands = sut.Commands.Select(x => x.Command);
+
+        // Assert
+        commands.Should().Equal("help", "about");
     }
 
     [Fact]
@@ -45,21 +58,6 @@ public sealed class BotCommandMenuTests
 
         // Assert
         act.Should().Throw<InvalidOperationException>().WithMessage("*order 1*StartCommand*HelpCommand*");
-    }
-
-    [Fact]
-    public void Constructor_WhenOneCommandSetsOrderZero_ShouldNotClashWithCommandsThatSetNone()
-    {
-        // Act
-        var act = () =>
-            new BotCommandMenu([
-                Declare<StartCommand>("start", order: 0),
-                Declare<HelpCommand>("help"),
-                Declare<AboutCommand>("about"),
-            ]);
-
-        // Assert
-        act.Should().NotThrow();
     }
 
     [Fact]

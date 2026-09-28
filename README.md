@@ -227,7 +227,7 @@ Telegram offers a bot's commands in a menu when the user types `/`. Mark a comma
 listed there:
 
 ```csharp
-[BotCommand("start", "Start over", Order = -1)]
+[BotCommand("start", "Start over", Order = 1)]
 public sealed class StartCommand : MessageCommand { /* … */ }
 
 [BotCommand("help", "What I can do")]
@@ -249,8 +249,8 @@ On startup the menu Telegram shows is compared with the declared one and replace
 restart costs a single read. `IBotCommandMenu` holds the same list in the same order — the `/help` reply above can
 never drift from the menu.
 
-- **Order.** The menu is sorted by `Order`, then alphabetically; commands without one count as `0`, which is why
-  `-1` pins `/start` first. An order you set must be unique.
+- **Order.** Commands with an `Order` come first, lowest first, which is how `/start` leads above; the commands
+  without one follow, alphabetically. An order you set must be unique.
 - **Validated on startup.** Names must be 1–32 lowercase letters, digits or underscores without the slash;
   descriptions at most 256 characters; a name or an order declared twice, or more than 100 commands, fails the host
   before it talks to Telegram.
