@@ -47,24 +47,31 @@ public sealed class TestUser
     /// <param name="button">The button's text, exactly as the bot sent it.</param>
     /// <param name="on">The message to tap the button on, when an older message shows the same button.</param>
     /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>How the bot answered the tap: the notification or alert the user sees, if any.</returns>
     /// <exception cref="InvalidOperationException">
     /// No message shows the button, the message shows it twice, or the button sends the bot nothing — a link, say.
     /// </exception>
-    public Task TapsAsync(string button, TestMessage? on = null, CancellationToken token = default)
+    public async Task<TestCallbackAnswer> TapsAsync(
+        string button,
+        TestMessage? on = null,
+        CancellationToken token = default
+    )
     {
         ArgumentException.ThrowIfNullOrEmpty(button);
 
         var (message, data) = Find(button, on);
+        var queryId = _host.Api.NextCallbackQueryId();
         var query = new JsonObject
         {
-            ["id"] = _host.Api.NextCallbackQueryId(),
+            ["id"] = queryId,
             ["from"] = _person.DeepClone(),
             ["message"] = message.ToJson(),
             ["chat_instance"] = Chat.Id.ToString(),
             ["data"] = data,
         };
 
-        return _host.DeliverAsync(new JsonObject { ["callback_query"] = query }, token);
+        await _host.DeliverAsync(new JsonObject { ["callback_query"] = query }, token);
+        return new TestCallbackAnswer(_host.Api.CallbackAnswer(queryId));
     }
 
     public override string ToString() => FirstName;

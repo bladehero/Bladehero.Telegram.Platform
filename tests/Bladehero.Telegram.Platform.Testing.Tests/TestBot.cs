@@ -1,4 +1,5 @@
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
+using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
@@ -12,9 +13,14 @@ namespace Bladehero.Telegram.Platform.Testing.Tests;
 // answers only its own command or button — apart from the echo, which answers any text that is not a command.
 internal static class TestBot
 {
-    public static Task<TelegramTestHost> StartAsync() =>
-        TelegramTestHost.ForLongPollingAsync(services =>
-            services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(TestBot).Assembly)
+    public static Task<TelegramTestHost> StartAsync(FakeBotApi? api = null) =>
+        TelegramTestHost.ForLongPollingAsync(
+            services =>
+                services.AddTelegramLongPollingReceiving(
+                    receiver => receiver.Token = "unused",
+                    typeof(TestBot).Assembly
+                ),
+            api
         );
 
     private sealed class EchoCommand : MessageCommand
@@ -47,6 +53,7 @@ internal static class TestBot
             throw new InvalidOperationException("boom");
     }
 
+    [BotCommand("whoami", "Say who you are")]
     private sealed class WhoAmICommand : MessageCommand
     {
         protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
@@ -70,6 +77,8 @@ internal static class TestBot
             request.Client.DeleteMessage(request.Payload.Chat, request.Payload.Id, cancellationToken: token);
     }
 
+    // Ignore is a button no command handles, so its tap goes unanswered.
+    [BotCommand("menu", "Show the menu")]
     private sealed class MenuCommand : MessageCommand
     {
         private static readonly InlineKeyboardMarkup Menu = new([
@@ -77,7 +86,10 @@ internal static class TestBot
                 InlineKeyboardButton.WithCallbackData("A", "pick:A"),
                 InlineKeyboardButton.WithCallbackData("B", "pick:B"),
             ],
-            [InlineKeyboardButton.WithCallbackData("Dismiss", "dismiss")],
+            [
+                InlineKeyboardButton.WithCallbackData("Dismiss", "dismiss"),
+                InlineKeyboardButton.WithCallbackData("Ignore", "ignore"),
+            ],
             [InlineKeyboardButton.WithUrl("Docs", "https://example.com")],
         ]);
 
@@ -88,7 +100,7 @@ internal static class TestBot
             request.Client.SendMessage(request.Payload.Chat, "Pick one", replyMarkup: Menu, cancellationToken: token);
     }
 
-    // Edits the menu into the pick, which takes its keyboard away.
+    // Edits the menu into the pick, which takes its keyboard away. B is answered with an alert, A with a notification.
     private sealed class PickCommand : CallbackQueryCommand
     {
         protected override Task<bool> CanHandleAsync(
@@ -99,12 +111,18 @@ internal static class TestBot
         protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
         {
             var (_, query, client) = request;
+            var pick = query.Data!["pick:".Length..];
 
-            await client.AnswerCallbackQuery(query.Id, cancellationToken: token);
+            await client.AnswerCallbackQuery(
+                query.Id,
+                $"You picked {pick}",
+                showAlert: pick == "B",
+                cancellationToken: token
+            );
             await client.EditMessageText(
                 query.Message!.Chat,
                 query.Message.Id,
-                $"{query.From.FirstName} picked {query.Data!["pick:".Length..]}",
+                $"{query.From.FirstName} picked {pick}",
                 cancellationToken: token
             );
         }

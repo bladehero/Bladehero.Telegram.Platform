@@ -1,5 +1,6 @@
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types.Enums;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
@@ -69,6 +70,68 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task SendsAsync_WhenTelegramRefusesTheBotsReply_ShouldRethrowTheError()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        bot.Api.Fail("sendMessage", BotApiError.BotBlocked);
+
+        // Act
+        var act = () => nick.SendsAsync("/whoami");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.ErrorCode.Should()
+            .Be(403);
+    }
+
+    [Fact]
+    public async Task TapsAsync_ShouldReturnTheNotificationTheBotAnsweredWith()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/menu");
+
+        // Act
+        var answer = await nick.TapsAsync("A");
+
+        // Assert
+        answer.ToString().Should().Be("Notification: You picked A");
+    }
+
+    [Fact]
+    public async Task TapsAsync_WhenTheBotAnswersWithAnAlert_ShouldSaySo()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/menu");
+
+        // Act
+        var answer = await nick.TapsAsync("B");
+
+        // Assert
+        answer.IsAlert.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task TapsAsync_WhenTheBotNeverAnswers_ShouldSaySo()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/menu");
+
+        // Act
+        var answer = await nick.TapsAsync("Ignore");
+
+        // Assert
+        answer.IsAnswered.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task TapsAsync_ShouldPressTheButtonTheBotSent()
     {
         // Arrange
@@ -130,7 +193,7 @@ public sealed class TestUserTests
         // Assert
         await act.Should()
             .ThrowAsync<InvalidOperationException>()
-            .WithMessage("Nick sees no \"C\" button*The buttons are \"A\", \"B\", \"Dismiss\", \"Docs\".");
+            .WithMessage("Nick sees no \"C\" button*The buttons are \"A\", \"B\", \"Dismiss\", \"Ignore\", \"Docs\".");
     }
 
     [Fact]
