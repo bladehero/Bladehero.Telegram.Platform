@@ -3,14 +3,14 @@ using Microsoft.Extensions.Options;
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Execution.Parallel;
 
 internal sealed class ParallelTelegramCommandExecutor(
-    IEnumerable<ITelegramCommand> commands,
+    CommandPriorityAccessor commandAccessor,
     IOptionsMonitor<ParallelCommandExecutionConfiguration> options
 ) : ITelegramCommandExecutor
 {
     public async Task ExecuteAsync(CommandRequest request, CancellationToken token = default)
     {
         var configuration = options.CurrentValue;
-        var chunks = ChunkCommands(configuration);
+        var chunks = ChunkCommands(configuration.ParallelCount);
         foreach (var chunk in chunks)
         {
             var executables = await GetExecutableCommands(chunk, request, token);
@@ -19,16 +19,12 @@ internal sealed class ParallelTelegramCommandExecutor(
         }
     }
 
-    private IEnumerable<IEnumerable<ITelegramCommand>> ChunkCommands(
-        ParallelCommandExecutionConfiguration configuration
-    )
+    private IEnumerable<IEnumerable<ITelegramCommand>> ChunkCommands(int? chunkSize)
     {
-        if (configuration.ParallelCount.HasValue)
-        {
-            return commands.Chunk(configuration.ParallelCount.Value);
-        }
-
-        return [commands];
+        var groups = commandAccessor.GetGroups();
+        return chunkSize.HasValue
+            ? groups.Values.Select(x => x.Chunk(chunkSize.Value)).SelectMany(x => x)
+            : groups.Values;
     }
 
     private static async Task<IEnumerable<ITelegramCommand>> GetExecutableCommands(

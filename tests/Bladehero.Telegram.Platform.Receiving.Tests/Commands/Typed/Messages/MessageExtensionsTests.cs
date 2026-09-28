@@ -1,7 +1,7 @@
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Telegram.Bot.Types;
 
-namespace Bladehero.Telegram.Platform.Receiving.Tests;
+namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands.Typed.Messages;
 
 public sealed class MessageExtensionsTests
 {

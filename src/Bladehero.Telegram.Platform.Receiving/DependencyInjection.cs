@@ -10,8 +10,6 @@ namespace Bladehero.Telegram.Platform.Receiving;
 
 public static class DependencyInjection
 {
-    private static readonly Type TelegramCommandMarker = typeof(ITelegramCommand);
-
     public static IServiceCollection AddTelegramReceiving(
         this IServiceCollection services,
         params Assembly[] assemblies
@@ -27,18 +25,5 @@ public static class DependencyInjection
         services.AddScoped<IUpdateHandler, ReceivingUpdateHandler>();
         services.AddTelegramCommands(assemblies);
         return services;
-    }
-
-    private static void AddTelegramCommands(this IServiceCollection services, IEnumerable<Assembly> assemblies)
-    {
-        var types = assemblies
-            .SelectMany(x => x.DefinedTypes)
-            .Where(x => x is { IsClass: true, IsAbstract: false, IsGenericType: false })
-            .Where(x => x.ImplementedInterfaces.Contains(TelegramCommandMarker));
-
-        foreach (var type in types)
-        {
-            services.AddScoped(TelegramCommandMarker, type);
-        }
     }
 }
