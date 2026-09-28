@@ -332,6 +332,70 @@ public sealed class FakeBotApiTests
     }
 
     [Fact]
+    public async Task DownloadFile_ShouldServeTheBytesTheUserSent()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        var stored = api.StoreFile("hello"u8.ToArray(), "documents", ".txt");
+        var file = await client.GetFile(stored["file_id"]!.GetValue<string>());
+        using var content = new MemoryStream();
+
+        // Act
+        await client.DownloadFile(file, content);
+
+        // Assert
+        content.ToArray().Should().Equal("hello"u8.ToArray());
+    }
+
+    [Fact]
+    public async Task DownloadFile_WithAPathTelegramNeverGave_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var act = () => client.DownloadFile("documents/missing.txt", Stream.Null);
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.ErrorCode.Should()
+            .Be(404);
+    }
+
+    [Fact]
+    public async Task GetFile_ForAFileTelegramDoesNotHave_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var act = () => client.GetFile("unknown");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("invalid file_id");
+    }
+
+    [Fact]
+    public async Task GetFile_OverTheTwentyMegabytesBotsMayDownload_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        var stored = api.StoreFile(new byte[20 * 1024 * 1024 + 1], "documents", ".zip");
+
+        // Act
+        var act = () => client.GetFile(stored["file_id"]!.GetValue<string>());
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("file is too big");
+    }
+
+    [Fact]
     public async Task GetMe_ShouldAnswerWithTheBot()
     {
         // Arrange

@@ -24,6 +24,9 @@ public sealed class TestMessage
 
     public string? Text => Message.Text;
 
+    /// <summary>The text under a photo or file.</summary>
+    public string? Caption => Message.Caption;
+
     public bool IsFromBot => Message.From?.IsBot is true;
 
     public bool IsEdited => Message.EditDate is not null;
@@ -39,7 +42,18 @@ public sealed class TestMessage
 
     internal JsonObject ToJson() => _json.DeepClone().AsObject();
 
+    // Reads like the chat: "Nick: (photo) Lunch", "Bot: What size? [Small] [Large]".
     public override string ToString() =>
-        $"{(IsFromBot ? "Bot" : Message.From?.FirstName)}: {Text}"
+        $"{(IsFromBot ? "Bot" : Message.From?.FirstName)}:"
+        + string.Concat(new[] { Attachment, Text ?? Caption }.OfType<string>().Select(part => $" {part}"))
         + string.Concat(Buttons.Select(button => $" [{button}]"));
+
+    private string? Attachment =>
+        Message switch
+        {
+            { Photo: [_, ..] } => "(photo)",
+            { Voice: { } voice } => $"(voice {voice.Duration}s)",
+            { Document: { } document } => $"(document {document.FileName})",
+            _ => null,
+        };
 }

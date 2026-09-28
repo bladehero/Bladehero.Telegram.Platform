@@ -3,8 +3,9 @@ using System.Text.Json.Nodes;
 namespace Bladehero.Telegram.Platform.Testing;
 
 /// <summary>
-/// A person in a <see cref="TestChat"/>, doing what a user does in the Telegram app: typing messages and tapping the
-/// bot's buttons. Each action returns once the bot has finished handling it, and rethrows whatever a command threw.
+/// A person in a <see cref="TestChat"/>, doing what a user does in the Telegram app: typing messages, sending files and
+/// tapping the bot's buttons. Each action returns once the bot has finished handling it, and rethrows whatever a
+/// command threw.
 /// </summary>
 public sealed class TestUser
 {
@@ -36,8 +37,56 @@ public sealed class TestUser
     {
         ArgumentException.ThrowIfNullOrEmpty(text);
 
-        var message = _host.Api.Receive(Chat.Id, _person, text);
-        return _host.DeliverAsync(new JsonObject { ["message"] = message }, token);
+        return DeliverAsync(_host.Api.Receive(Chat.Id, _person, text), token);
+    }
+
+    /// <summary>
+    /// Sends a photo. The bot can download <paramref name="photo"/> back byte for byte, but the fake does not look
+    /// inside it, so any bytes will do and the size Telegram reports is nominal.
+    /// </summary>
+    public Task SendsPhotoAsync(byte[] photo, string? caption = null, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(photo);
+
+        var size = _host.Api.StoreFile(photo, "photos", ".jpg");
+        size["width"] = 1280;
+        size["height"] = 960;
+
+        return SendsFileAsync(new JsonObject { ["photo"] = new JsonArray(size) }, caption, token);
+    }
+
+    /// <summary>Sends a voice message, recorded for <paramref name="duration"/> — a second when not given.</summary>
+    public Task SendsVoiceAsync(byte[] voice, TimeSpan? duration = null, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(voice);
+
+        var file = _host.Api.StoreFile(voice, "voice", ".oga");
+        file["duration"] = (int)Math.Ceiling((duration ?? TimeSpan.FromSeconds(1)).TotalSeconds);
+        file["mime_type"] = "audio/ogg";
+
+        return SendsFileAsync(new JsonObject { ["voice"] = file }, caption: null, token);
+    }
+
+    /// <summary>
+    /// Sends <paramref name="document"/> as a file named <paramref name="fileName"/>. Its MIME type is worked out from
+    /// the name's extension, as the app does, unless <paramref name="mimeType"/> is given.
+    /// </summary>
+    public Task SendsDocumentAsync(
+        byte[] document,
+        string fileName,
+        string? caption = null,
+        string? mimeType = null,
+        CancellationToken token = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+
+        var file = _host.Api.StoreFile(document, "documents", Path.GetExtension(fileName));
+        file["file_name"] = fileName;
+        file["mime_type"] = mimeType ?? MimeTypeOf(fileName);
+
+        return SendsFileAsync(new JsonObject { ["document"] = file }, caption, token);
     }
 
     /// <summary>
@@ -75,6 +124,35 @@ public sealed class TestUser
     }
 
     public override string ToString() => FirstName;
+
+    private Task SendsFileAsync(JsonObject content, string? caption, CancellationToken token)
+    {
+        if (caption is not null)
+        {
+            content["caption"] = caption;
+        }
+
+        return DeliverAsync(_host.Api.Receive(Chat.Id, _person, content), token);
+    }
+
+    private Task DeliverAsync(JsonObject message, CancellationToken token) =>
+        _host.DeliverAsync(new JsonObject { ["message"] = message }, token);
+
+    private static string MimeTypeOf(string fileName) =>
+        Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".txt" => "text/plain",
+            ".csv" => "text/csv",
+            ".json" => "application/json",
+            ".xml" => "application/xml",
+            ".zip" => "application/zip",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            _ => "application/octet-stream",
+        };
 
     private (TestMessage Message, string Data) Find(string button, TestMessage? on)
     {

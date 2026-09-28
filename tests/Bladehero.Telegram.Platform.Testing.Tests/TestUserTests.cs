@@ -70,6 +70,82 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task SendsPhotoAsync_ShouldLetTheBotDownloadThePhoto()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsPhotoAsync("not really a jpeg"u8.ToArray());
+
+        // Assert
+        nick.LastMessage.Text.Should().Be("Got a photo: not really a jpeg");
+    }
+
+    [Fact]
+    public async Task SendsPhotoAsync_WithACaption_ShouldShowItUnderThePhoto()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsPhotoAsync("..."u8.ToArray(), caption: "Lunch");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            nick.Messages[0].Caption.Should().Be("Lunch");
+            nick.Messages[0].ToString().Should().Be("Nick: (photo) Lunch");
+        }
+    }
+
+    [Fact]
+    public async Task SendsVoiceAsync_ShouldLetTheBotDownloadTheRecording()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsVoiceAsync("hello"u8.ToArray(), TimeSpan.FromSeconds(3));
+
+        // Assert
+        nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: (voice 3s)", "Bot: Got 3s of voice: hello");
+    }
+
+    [Fact]
+    public async Task SendsDocumentAsync_ShouldWorkOutTheTypeFromTheFileName()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsDocumentAsync("a,b"u8.ToArray(), "notes.csv");
+
+        // Assert
+        nick.Messages.Select(x => x.ToString())
+            .Should()
+            .Equal("Nick: (document notes.csv)", "Bot: Got notes.csv as text/csv: a,b");
+    }
+
+    [Fact]
+    public async Task SendsDocumentAsync_WithAMimeType_ShouldSendThatType()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsDocumentAsync("{}"u8.ToArray(), "budget", mimeType: "application/json");
+
+        // Assert
+        nick.LastMessage.Text.Should().Be("Got budget as application/json: {}");
+    }
+
+    [Fact]
     public async Task SendsAsync_WhenTelegramRefusesTheBotsReply_ShouldRethrowTheError()
     {
         // Arrange

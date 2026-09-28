@@ -13,9 +13,10 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// as in production — they just never leave the process.
 /// </summary>
 /// <remarks>
-/// Every request is recorded in <see cref="Calls"/> — except <c>getUpdates</c>, the polling loop's own traffic — and
-/// answered the way Telegram would, including Telegram's own errors: editing a message that was deleted, one the bot
-/// did not send, or one without changing it, and answering a button tap twice. A method the fake does not know yet
+/// Every Bot API call is recorded in <see cref="Calls"/> — except <c>getUpdates</c>, the polling loop's own traffic —
+/// and answered the way Telegram would, including Telegram's own errors: editing a message that was deleted, one the
+/// bot did not send, or one without changing it, answering a button tap twice, or asking for a file over the 20 MB
+/// bots may download. Files users send are served from memory, like the rest. A method the fake does not know yet
 /// fails with an error naming it, so an unsupported call fails the test instead of passing silently. To see how the
 /// bot copes when Telegram refuses a call, <see cref="Fail"/> it.
 /// </remarks>
@@ -27,6 +28,8 @@ public sealed class FakeBotApi
     private const long FirstPersonId = 1001;
     private const long FirstGroupId = -1000000000001;
     private const string DefaultScope = """{"type":"default"}""";
+    private const string FilePathPrefix = $"/file/bot{Token}/";
+    private const int DownloadLimit = 20 * 1024 * 1024;
 
     private readonly object _gate = new();
     private readonly List<BotApiCall> _calls = [];
@@ -36,6 +39,7 @@ public sealed class FakeBotApi
     private readonly Dictionary<string, long> _groups = [];
     private readonly Dictionary<string, JsonArray> _commandMenus = [];
     private readonly Dictionary<string, JsonObject?> _callbackAnswers = [];
+    private readonly FileStore _files = new();
     private readonly UpdateQueue _updates = new();
     private long _lastCallbackQueryId;
 
@@ -213,9 +217,23 @@ public sealed class FakeBotApi
             );
         }
 
+        return Receive(chatId, from, content);
+    }
+
+    internal JsonObject Receive(long chatId, JsonObject from, JsonObject content)
+    {
         lock (_gate)
         {
             return _chats[chatId].Post(from, content).DeepClone().AsObject();
+        }
+    }
+
+    // Keeps a file a person sends, returning how their message refers to it.
+    internal JsonObject StoreFile(byte[] content, string folder, string extension)
+    {
+        lock (_gate)
+        {
+            return _files.Add(content, folder, extension).Describe();
         }
     }
 
@@ -254,8 +272,39 @@ public sealed class FakeBotApi
             "deleteWebhook" => true,
             "getMyCommands" => GetCommandMenu(parameters),
             "setMyCommands" => SetCommandMenu(parameters),
+            "getFile" => GetFile(parameters),
             _ => throw Refuse(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
+
+    // Bots can only download files of up to 20 MB; Telegram refuses to hand out a path to a bigger one.
+    private JsonObject GetFile(JsonObject parameters)
+    {
+        var file =
+            (parameters["file_id"]?.GetValue<string>() is { } fileId ? _files.Find(fileId) : null)
+            ?? throw Refuse(400, "Bad Request: invalid file_id");
+
+        if (file.Content.Length > DownloadLimit)
+        {
+            throw Refuse(400, "Bad Request: file is too big");
+        }
+
+        var info = file.Describe();
+        info["file_path"] = file.Path;
+        return info;
+    }
+
+    private HttpResponseMessage Download(string path)
+    {
+        StoredFile? file;
+        lock (_gate)
+        {
+            file = _files.AtPath(Uri.UnescapeDataString(path));
+        }
+
+        return file is null
+            ? Respond(new BotApiError(404, "Not Found"))
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(file.Content) };
+    }
 
     private JsonNode GetCommandMenu(JsonObject parameters) =>
         _commandMenus.GetValueOrDefault(MenuKey(parameters["scope"], parameters["language_code"]))?.DeepClone()
@@ -383,7 +432,12 @@ public sealed class FakeBotApi
 
     private async Task<HttpResponseMessage> HandleAsync(HttpRequestMessage request, CancellationToken token)
     {
-        var method = request.RequestUri!.Segments[^1];
+        if (request.RequestUri!.AbsolutePath.StartsWith(FilePathPrefix, StringComparison.Ordinal))
+        {
+            return Download(request.RequestUri.AbsolutePath[FilePathPrefix.Length..]);
+        }
+
+        var method = request.RequestUri.Segments[^1];
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(token);
         var parameters = string.IsNullOrWhiteSpace(body) ? [] : JsonNode.Parse(body)!.AsObject();
 
