@@ -958,6 +958,40 @@ public sealed class FakeBotApiTests
         api.WebhookUrl.Should().Be(url);
     }
 
+    [Theory]
+    [InlineData("my secret!")]
+    [InlineData("line\nbreak")]
+    [InlineData("")]
+    public async Task SetWebhook_WithASecretTokenTelegramWouldRefuse_ShouldFailLikeTelegram(string secretToken)
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        var act = () => client.SetWebhook("https://bot.example.com/updates", secretToken: secretToken);
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("secret token contains unallowed characters");
+        api.WebhookUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SetWebhook_WithTheLongestSecretToken_ShouldBeAccepted()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        await client.SetWebhook("https://bot.example.com/updates", secretToken: new string('a', 255) + "_");
+
+        // Assert
+        api.WebhookUrl.Should().NotBeNull();
+    }
+
     [Fact]
     public async Task SetWebhook_WithAnEmptyUrl_ShouldRemoveTheWebhook()
     {

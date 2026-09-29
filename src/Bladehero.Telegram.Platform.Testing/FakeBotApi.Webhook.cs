@@ -5,10 +5,13 @@ namespace Bladehero.Telegram.Platform.Testing;
 // The webhook the bot registers: where Telegram delivers its updates instead of answering getUpdates.
 public sealed partial class FakeBotApi
 {
+    private const int LongestSecretToken = 256;
+
     private static readonly TimeSpan ConflictPause = TimeSpan.FromMilliseconds(100);
 
     private JsonObject? _webhook;
     private long _lastWebhookUpdateId;
+    private int _refusedPolls;
 
     /// <summary>
     /// The address the bot asked Telegram to deliver its updates to, or <c>null</c> when it has none and polls
@@ -24,6 +27,9 @@ public sealed partial class FakeBotApi
             }
         }
     }
+
+    // Whether a polling loop asked for updates while a webhook was set, and was refused.
+    internal bool RefusedPolling => Volatile.Read(ref _refusedPolls) > 0;
 
     internal (string Url, string? SecretToken)? Webhook()
     {
@@ -74,6 +80,18 @@ public sealed partial class FakeBotApi
         if (uri.Port is not (443 or 80 or 88 or 8443))
         {
             throw Refuse(400, "Bad Request: bad webhook: Webhook can be set up only on ports 80, 88, 443 or 8443");
+        }
+
+        // A secret token is 1 to 256 letters, digits, underscores and hyphens.
+        if (
+            parameters["secret_token"]?.GetValue<string>() is { } secretToken
+            && (
+                secretToken.Length is 0 or > LongestSecretToken
+                || !secretToken.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-')
+            )
+        )
+        {
+            throw Refuse(400, "Bad Request: secret token contains unallowed characters");
         }
 
         // Left out, allowed_updates keeps the list the bot gave before, as the Bot API documents.

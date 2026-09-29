@@ -112,6 +112,40 @@ public sealed class WebhookTests
     }
 
     [Fact]
+    public async Task DisposeAsync_ShouldLetAnUpdateTheTestGaveUpOnFinishFirst()
+    {
+        // Arrange
+        var requests = new WebhookRequests { Delay = TimeSpan.FromMilliseconds(500) };
+        var bot = await StartWatchedAsync(requests);
+        using var impatient = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        await ((Func<Task>)(() => bot.PrivateChat("Nick").SendsAsync("slow", impatient.Token)))
+            .Should()
+            .ThrowAsync<OperationCanceledException>();
+
+        // Act
+        await bot.DisposeAsync();
+
+        // Assert
+        requests.FirstFinished.Task.IsCompleted.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Updates_ShouldCarryNoCookieTheAppHandedOut()
+    {
+        // Arrange
+        var requests = new WebhookRequests { SetsCookie = true };
+        await using var bot = await StartWatchedAsync(requests);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("one");
+        await nick.SendsAsync("two");
+
+        // Assert
+        requests.Seen.Select(x => x.HadCookie).Should().Equal(false, false);
+    }
+
+    [Fact]
     public async Task Update_WhenTelegramRefusedTheWebhook_ShouldSayThereIsNowhereToPostIt()
     {
         // Arrange — Telegram only delivers over HTTPS, so it refuses this webhook as the bot starts.
@@ -208,11 +242,17 @@ public sealed class WebhookTests
             web.ConfigureTestServices(services => services.AddSingleton<IStartupFilter>(requests))
         );
 
-    private sealed record SeenRequest(string Host, string Scheme, string? SecretToken, long UpdateId);
+    private sealed record SeenRequest(
+        string Host,
+        string Scheme,
+        string? SecretToken,
+        long UpdateId,
+        bool HadCookie = false
+    );
 
     // Watches every request the app receives, ahead of its own pipeline: what the request carried, and when the app
-    // finished with it. It can also hold a request up, the way a slow app would, or redirect it, the way an app asking
-    // for a login would.
+    // finished with it. It can also hold a request up, the way a slow app would, redirect it, the way an app asking
+    // for a login would, or hand out a cookie, the way an app with sessions would.
     private sealed class WebhookRequests : IStartupFilter
     {
         private readonly List<SeenRequest> _seen = [];
@@ -220,6 +260,8 @@ public sealed class WebhookTests
         public TimeSpan Delay { get; init; }
 
         public string? RedirectTo { get; init; }
+
+        public bool SetsCookie { get; init; }
 
         public TaskCompletionSource FirstFinished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -251,9 +293,15 @@ public sealed class WebhookTests
                                     context.Request.Host.Value!,
                                     context.Request.Scheme,
                                     context.Request.Headers["X-Telegram-Bot-Api-Secret-Token"].FirstOrDefault(),
-                                    update!["update_id"]!.GetValue<long>()
+                                    update!["update_id"]!.GetValue<long>(),
+                                    context.Request.Headers.Cookie.Count > 0
                                 )
                             );
+                        }
+
+                        if (SetsCookie)
+                        {
+                            context.Response.Cookies.Append("session", "1");
                         }
 
                         if (RedirectTo is not null)

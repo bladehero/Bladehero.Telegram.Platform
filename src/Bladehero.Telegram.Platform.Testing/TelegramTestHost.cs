@@ -223,10 +223,11 @@ public sealed class TelegramTestHost : IAsyncDisposable
             }
             catch (TimeoutException)
             {
-                var cause = api.WebhookUrl is { } webhook
-                    ? $"Telegram still has a webhook for the bot, {webhook}, so it refuses every getUpdates with 409. "
-                        + "Did deleting it fail? Api.Calls shows what the bot asked Telegram."
-                    : "Is long polling registered, for example with AddTelegramLongPollingReceiving?";
+                var cause =
+                    api.RefusedPolling && api.WebhookUrl is { } webhook
+                        ? $"Telegram still has a webhook for the bot, {webhook}, so it refuses every getUpdates with 409. "
+                            + "Did deleting it fail? Api.Calls shows what the bot asked Telegram."
+                        : "Is long polling registered, for example with AddTelegramLongPollingReceiving?";
 
                 throw new TimeoutException(
                     $"The bot did not finish update {updateId} within {timeout.TotalSeconds:0} seconds. {cause}"
