@@ -69,6 +69,22 @@ public sealed partial class FakeBotApi
         }
     }
 
+    /// <summary>
+    /// The Telegram user id of the test user named <paramref name="firstName"/>, which is also their private chat's
+    /// id: reserved now for a new name, and the one <c>PrivateChat</c> and <c>Member</c> use later.
+    /// </summary>
+    /// <remarks>
+    /// For seeding an app's users before the host starts. The bot can write to the user only once the test opens
+    /// their chat with <c>PrivateChat</c>, so open it before the bot writes first.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="firstName"/> is blank.</exception>
+    public long UserIdOf(string firstName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
+
+        return Person(firstName)["id"]!.GetValue<long>();
+    }
+
     /// <summary>A real bot client whose requests this fake answers.</summary>
     public ITelegramBotClient CreateClient() =>
         new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));

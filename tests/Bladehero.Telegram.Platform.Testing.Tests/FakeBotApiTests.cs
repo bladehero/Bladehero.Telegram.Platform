@@ -1379,6 +1379,54 @@ public sealed partial class FakeBotApiTests
     }
 
     [Fact]
+    public async Task UserIdOf_ShouldBeTheIdTheTestUserGetsLater()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var id = api.UserIdOf("Nick");
+
+        // Act
+        await using var bot = await TestBot.StartAsync(api);
+        var nick = bot.PrivateChat("Nick");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            nick.Id.Should().Be(id);
+            nick.Chat.Id.Should().Be(id);
+        }
+    }
+
+    [Fact]
+    public void UserIdOf_ForTwoNames_ShouldDiffer()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+
+        // Act
+        var nick = api.UserIdOf("Nick");
+        var anna = api.UserIdOf("Anna");
+
+        // Assert
+        nick.Should().NotBe(anna);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void UserIdOf_WithABlankName_ShouldBeRefused(string firstName)
+    {
+        // Arrange
+        var api = new FakeBotApi();
+
+        // Act
+        var act = () => api.UserIdOf(firstName);
+
+        // Assert
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public async Task SendChatAction_ShouldBeAnsweredAndRecorded()
     {
         // Arrange
