@@ -323,6 +323,8 @@ public sealed partial class FakeBotApi
             throw Refuse(400, "Bad Request: query is too old and response timeout expired or query ID is invalid");
         }
 
+        ThrowIfLongerThan(AnswerTextLimit, parameters["text"]?.GetValue<string>(), "Bad Request: MESSAGE_TOO_LONG");
+
         _callbackAnswers[queryId] = parameters.DeepClone().AsObject();
         return true;
     }
@@ -338,11 +340,20 @@ public sealed partial class FakeBotApi
 
     private JsonObject Send(JsonObject parameters)
     {
-        var content = new JsonObject { ["text"] = parameters["text"]?.DeepClone() };
-
-        if (parameters["entities"] is JsonArray { Count: > 0 } entities)
+        var chat = ChatOf(parameters);
+        var (text, entities) = Trimmed(parameters["text"]?.GetValue<string>(), parameters["entities"]);
+        if (text is null)
         {
-            content["entities"] = entities.DeepClone();
+            throw Refuse(400, "Bad Request: message text is empty");
+        }
+
+        ThrowIfLongerThan(TextLimit, text, "Bad Request: message is too long");
+
+        var content = new JsonObject { ["text"] = text };
+
+        if (entities is not null)
+        {
+            content["entities"] = entities;
         }
 
         if (InlineKeyboardOf(parameters) is { } keyboard)
@@ -350,7 +361,7 @@ public sealed partial class FakeBotApi
             content["reply_markup"] = keyboard;
         }
 
-        return ChatOf(parameters).Post(Bot(), content).DeepClone().AsObject();
+        return chat.Post(Bot(), content).DeepClone().AsObject();
     }
 
     // Edits the text, the caption, or (field null) only the keyboard. As in Telegram, entities go with their text, and
@@ -376,17 +387,23 @@ public sealed partial class FakeBotApi
                 throw Refuse(400, "Bad Request: there is no caption in the message to edit");
         }
 
-        var newValue = field is null ? null : NonBlank(parameters[field]?.GetValue<string>());
-        if (field == "text" && newValue is null)
+        var entitiesField = field == "caption" ? "caption_entities" : "entities";
+        var (newValue, newEntities) = field is null
+            ? (null, null)
+            : Trimmed(parameters[field]?.GetValue<string>(), parameters[entitiesField]);
+
+        switch (field)
         {
-            throw Refuse(400, "Bad Request: message text is empty");
+            case "text" when newValue is null:
+                throw Refuse(400, "Bad Request: message text is empty");
+            case "text":
+                ThrowIfLongerThan(TextLimit, newValue, "Bad Request: MESSAGE_TOO_LONG");
+                break;
+            case "caption":
+                ThrowIfLongerThan(CaptionLimit, newValue, "Bad Request: MESSAGE_CAPTION_TOO_LONG");
+                break;
         }
 
-        var entitiesField = field == "caption" ? "caption_entities" : "entities";
-        var newEntities =
-            newValue is not null && parameters[entitiesField] is JsonArray { Count: > 0 } entities
-                ? entities.DeepClone()
-                : null;
         var newMarkup = InlineKeyboardOf(parameters);
         if (
             (
@@ -414,8 +431,6 @@ public sealed partial class FakeBotApi
         return message.DeepClone().AsObject();
     }
 
-    private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
-
     private static void SetOrRemove(JsonObject message, string field, JsonNode? value)
     {
         if (value is null)
@@ -427,12 +442,6 @@ public sealed partial class FakeBotApi
             message[field] = value;
         }
     }
-
-    // Only an inline keyboard is attached to a message; a reply keyboard lives on the user's side.
-    private static JsonNode? InlineKeyboardOf(JsonObject parameters) =>
-        parameters["reply_markup"] is JsonObject markup && markup.ContainsKey("inline_keyboard")
-            ? markup.DeepClone()
-            : null;
 
     private JsonNode Delete(JsonObject parameters)
     {

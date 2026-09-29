@@ -94,6 +94,49 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task SendsAsync_WithTextOverTelegramsLimit_ShouldSayTheAppSplitsIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsAsync(new string('a', 4097));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should()
+                .ThrowAsync<ArgumentException>()
+                .WithMessage(
+                    "Telegram takes at most 4096 characters in a message, and this text has 4097: the Telegram app "
+                        + "splits longer text into several messages; send them one by one.*"
+                );
+            nick.Messages.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task SendsPhotoAsync_WithACaptionOverTelegramsLimit_ShouldRefuseIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsPhotoAsync("jpeg"u8.ToArray(), caption: new string('a', 1025));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should()
+                .ThrowAsync<ArgumentException>()
+                .WithMessage("Telegram takes at most 1024 characters in a caption, and this one has 1025.*");
+            nick.Messages.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
     public async Task SendsAsync_ShouldAddTheMessageToTheChatBeforeTheBotsReply()
     {
         // Arrange

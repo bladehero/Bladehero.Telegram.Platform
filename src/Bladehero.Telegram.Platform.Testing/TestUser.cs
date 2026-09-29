@@ -40,19 +40,33 @@ public sealed class TestUser
     public TestMessage LastMessage => Chat.LastMessage;
 
     /// <summary>Sends <paramref name="text"/>, trimmed as Telegram does.</summary>
-    /// <exception cref="ArgumentException"><paramref name="text"/> is blank.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="text"/> is blank, or longer than the 4096 characters of a Telegram message.
+    /// </exception>
     public Task SendsAsync(string text, CancellationToken token = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
-        return DeliverAsync(() => _host.Api.Receive(Chat.Id, _person, text.Trim()), token);
+        text = text.Trim();
+        if (text.Length > FakeBotApi.TextLimit)
+        {
+            throw new ArgumentException(
+                $"Telegram takes at most {FakeBotApi.TextLimit} characters in a message, and this text has "
+                    + $"{text.Length}: the Telegram app splits longer text into several messages; send them one by one.",
+                nameof(text)
+            );
+        }
+
+        return DeliverAsync(() => _host.Api.Receive(Chat.Id, _person, text), token);
     }
 
     /// <summary>
     /// Sends a photo in two sizes, smallest first, as Telegram does; the largest downloads as <paramref name="photo"/>.
     /// Any bytes will do; the reported dimensions are nominal.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="photo"/> is empty.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="photo"/> is empty, or <paramref name="caption"/> longer than the 1024 characters of a caption.
+    /// </exception>
     public Task SendsPhotoAsync(byte[] photo, string? caption = null, CancellationToken token = default)
     {
         ThrowIfEmpty(photo);
@@ -109,7 +123,8 @@ public sealed class TestUser
     /// <paramref name="mimeType"/> is given.
     /// </summary>
     /// <exception cref="ArgumentException">
-    /// <paramref name="document"/> is empty or <paramref name="fileName"/> blank.
+    /// <paramref name="document"/> is empty, <paramref name="fileName"/> blank, or <paramref name="caption"/> longer
+    /// than the 1024 characters of a caption.
     /// </exception>
     public Task SendsDocumentAsync(
         byte[] document,
@@ -175,6 +190,14 @@ public sealed class TestUser
     private Task SendsFileAsync(Func<JsonObject> file, string? caption, CancellationToken token)
     {
         caption = caption?.Trim();
+        if (caption?.Length > FakeBotApi.CaptionLimit)
+        {
+            throw new ArgumentException(
+                $"Telegram takes at most {FakeBotApi.CaptionLimit} characters in a caption, and this one has "
+                    + $"{caption.Length}.",
+                nameof(caption)
+            );
+        }
 
         return DeliverAsync(
             () =>

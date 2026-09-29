@@ -10,7 +10,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
-public sealed class FakeBotApiTests
+public sealed partial class FakeBotApiTests
 {
     private const long Chat = 42;
 
