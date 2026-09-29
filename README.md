@@ -33,7 +33,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
   [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) · [waits](#wait-for-later-messages) ·
-  [fake Telegram](#check-and-fail-telegram)
+  [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
 - [Samples](#samples)
 
 ## Packages
@@ -555,6 +555,34 @@ await nick.TapsAsync(b => b.CallbackData == "date:next");
 
 Tapping a button nobody sees fails the test and lists the buttons that are there.
 
+A tap uses the message as it now stands, so a button the bot has since removed can't be tapped again. A double tap is
+two taps at once:
+
+```csharp
+var answers = await Task.WhenAll(nick.TapsAsync("Add", on: card), nick.TapsAsync("Add", on: card));
+```
+
+To act as a client that hasn't seen an edit yet, send the tap as a raw `callback_query` built from a snapshot of the
+message. Its answer isn't returned; read it from `bot.Api.Calls`:
+
+```csharp
+var card = nick.LastMessage;   // a snapshot, buttons and all
+// … the bot edits the card …
+
+await bot.SendAsync(new Update
+{
+    CallbackQuery = new CallbackQuery
+    {
+        Id = "stale-tap",
+        From = new User { Id = nick.Id, FirstName = "Nick" },
+        Message = card.Message,
+        ChatInstance = "1",
+        Data = "size:large",
+    },
+});
+var answer = bot.Api.Calls.Last(x => x.Method == "answerCallbackQuery").Parameters["text"];
+```
+
 ### Send and read files
 
 ```csharp
@@ -605,8 +633,9 @@ time.Advance(TimeSpan.FromMinutes(1));
 var reminder = await nick.WaitForMessageAsync(x => x.Text?.StartsWith("⏰") is true);
 ```
 
-Start the timer while the update is handled, as the `Sandbox` barista's `OrderQueue` does: a background loop that
-starts it later may not have started it yet when the test moves the clock on, and then waits for another move.
+A timer must exist before the test moves the clock: start it while the update is handled (as the `Sandbox` barista's
+`OrderQueue` does) or at startup (e.g. a periodic scan's `new PeriodicTimer(period, timeProvider)` created when the host
+starts). One a background loop creates later may miss the move and wait for the next.
 
 ### Check and fail Telegram
 
@@ -644,8 +673,18 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync(
 );
 ```
 
-A method's first matching failure applies until its `times` run out, then the next one does. The fake answers like
-Telegram, with Telegram's own error texts, and fails the test on a method it doesn't support. It enforces:
+A method's first matching failure applies until its `times` run out, then the next one does.
+
+The fake answers like Telegram, with Telegram's own error texts, and supports:
+
+- `getMe`, `getUpdates` and file downloads;
+- `sendMessage`, `sendPhoto`, `sendDocument`, `sendVoice`, `sendChatAction`;
+- `editMessageText`, `editMessageCaption`, `editMessageReplyMarkup`, `deleteMessage`;
+- `answerCallbackQuery`, `getFile`;
+- `setWebhook`, `getWebhookInfo`, `deleteWebhook`;
+- `getMyCommands`, `setMyCommands`.
+
+Any other method fails the test, naming it. It enforces:
 
 - `allowed_updates`, one list per bot: the types it asked for last, with `getUpdates` or `setWebhook`; an action of
   another type fails before anything changes;
@@ -658,6 +697,34 @@ Telegram, with Telegram's own error texts, and fails the test on a method it doe
 - edits only of the bot's own messages, text edits only of text and caption edits only of files, and edits and
   deletions only of messages still there;
 - downloads up to 20 MB.
+
+It keeps text as the bot sent it, without parsing or checking HTML or Markdown, so `parse_mode` changes nothing: assert
+on the raw text, and try the markup against real Telegram.
+
+### Test a production app
+
+**Heavy hosted services** the tests don't need, such as a model warm-up, a scanner or a poller, are removed by their
+implementation type. Never `RemoveAll<IHostedService>()`: the bot's own polling loop is a hosted service too.
+
+```csharp
+services.Remove(services.Single(x =>
+    x.ServiceType == typeof(IHostedService) && x.ImplementationType == typeof(ModelWarmup)));
+```
+
+For an internal type you can't name, match on `x.ImplementationType?.Name == "ModelWarmup"`.
+
+**In-memory SQLite:** each `:memory:` connection opens its own empty database, so contexts in different scopes would
+not see each other's data. Share one open connection across the bot's scopes:
+
+```csharp
+var connection = new SqliteConnection("Data Source=:memory:");
+connection.Open();   // the database lives as long as this connection
+services.AddDbContext<BudgetContext>(options => options.UseSqlite(connection));
+```
+
+**One command per button:** Telegram takes one answer per tap, and a second fails with its own "query is too old and
+response timeout expired or query ID is invalid". When two commands claim the same button both run, and the second
+answer fails the action, so give each button's data to exactly one command.
 
 ## Samples
 
@@ -672,7 +739,8 @@ Telegram, with Telegram's own error texts, and fails the test on a method it doe
     unsupported files turned down, and `/history` sending a CSV file;
   - a `/coffee` [conversation](#conversations) bound to its card and its customer, which a voice message can start too,
     through a stand-in for a transcriber, and whose cup name the customer can fix by editing their message;
-  - stale, foreign and double-tapped buttons: an earlier order's, another member's card, a receipt taken already;
+  - stale, foreign and double-tapped buttons: an earlier order's, another member's card, a receipt taken already, and
+    a tap from a view that missed an edit;
   - a barista telling each customer when their coffee is ready, [sent on its own](#sending-on-your-own) through
     `ITelegramSender`, on the clock of an injected `TimeProvider`;
   - an [error handler](#errors-and-the-httpclient) that apologises in the chat, even to someone who blocked the bot;
@@ -681,9 +749,14 @@ Telegram, with Telegram's own error texts, and fails the test on a method it doe
     `UserIdOf` before the host starts, Telegram refusing calls to one chat or asking the bot to slow down, and a
     `FakeTimeProvider` moving the barista's clock on. The stand-ins are registered after `AddCoffeeShop`, in place of
     its disabled defaults.
-- [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): an ASP.NET Core echo with an Again button. It
-  receives by webhook when `Telegram:BaseUrl` is set and by long polling otherwise, and its scenarios are tested in both
-  modes.
+- [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): an ASP.NET Core app that receives by webhook
+  when `Telegram:BaseUrl` is set and by long polling otherwise, with every scenario tested in both modes. It shows:
+  - an echo of plain text with an Again button and a [typed](#buttons-with-typed-data) Louder one;
+  - `/translate` through an `ITranslator` that the tests [replace](#configure-the-app-under-test) with
+    `ConfigureTestServices`;
+  - a photo sent back by its file id, without uploading it again;
+  - a `/remember` [conversation](#conversations), with `/recall`;
+  - the [command menu](#command-menu), and a webhook guarded by its secret token.
 
 Their component tests live in `tests/`. To run a sample against Telegram:
 
