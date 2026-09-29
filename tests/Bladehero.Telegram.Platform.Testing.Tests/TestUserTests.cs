@@ -591,6 +591,79 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task TapsAsync_ByPredicate_ShouldPressTheButtonItPicks()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/card");
+
+        // Act
+        var answer = await nick.TapsAsync(b => b.CallbackData == "date:next");
+
+        // Assert
+        answer.ToString().Should().Be("Notification: moved date next");
+    }
+
+    [Fact]
+    public async Task TapsAsync_ByAPredicateMatchingTwoButtons_ShouldSayItIsAmbiguous()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/card");
+
+        // Act
+        var act = () => nick.TapsAsync(b => b.Text == "◀");
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage(
+                "\"Card\" shows more than one button matching the predicate, so which one Nick taps is ambiguous.*"
+            );
+    }
+
+    [Fact]
+    public async Task TapsAsync_ByAPredicateMatchingNothing_ShouldNameTheButtons()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/card");
+
+        // Act
+        var act = () => nick.TapsAsync(b => b.CallbackData == "year:back");
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage(
+                "Nick sees no button matching the predicate in the chat with Nick. The buttons are \"◀\", \"▶\"."
+            );
+    }
+
+    [Fact]
+    public async Task TapsAsync_WithADuplicatedLabel_ShouldPointToThePredicateOverload()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/card");
+
+        // Act
+        var act = () => nick.TapsAsync("◀");
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage(
+                "\"Card\" shows more than one \"◀\" button, so which one Nick taps is ambiguous. Pick one with "
+                    + "TapsAsync(b => b.CallbackData == \"method:back\")."
+            );
+    }
+
+    [Fact]
     public async Task TapsAsync_WhenNoMessageShowsTheButton_ShouldNameTheButtonsThatAre()
     {
         // Arrange

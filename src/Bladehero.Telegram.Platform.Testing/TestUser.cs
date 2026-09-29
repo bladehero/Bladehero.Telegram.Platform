@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
@@ -161,15 +162,38 @@ public sealed class TestUser
     /// <exception cref="InvalidOperationException">
     /// No such button is shown, it is ambiguous, or it is not a callback button.
     /// </exception>
-    public async Task<TestCallbackAnswer> TapsAsync(
-        string button,
+    public Task<TestCallbackAnswer> TapsAsync(string button, TestMessage? on = null, CancellationToken token = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(button);
+
+        return TapAsync(Find(x => x.Text == button, $"\"{button}\" button", on), token);
+    }
+
+    /// <summary>
+    /// Taps the one inline button <paramref name="button"/> picks, e.g. by its callback data where labels repeat, on
+    /// the newest message showing a match.
+    /// </summary>
+    /// <param name="button">Picks the button, e.g. <c>b =&gt; b.CallbackData == "date:next"</c>.</param>
+    /// <param name="on">A specific message to tap it on, as that message now stands.</param>
+    /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>The bot's answer: the notification or alert the user sees, if any.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// No button matches, more than one on the message does, or the match is not a callback button.
+    /// </exception>
+    public Task<TestCallbackAnswer> TapsAsync(
+        Func<InlineKeyboardButton, bool> button,
         TestMessage? on = null,
         CancellationToken token = default
     )
     {
-        ArgumentException.ThrowIfNullOrEmpty(button);
+        ArgumentNullException.ThrowIfNull(button);
 
-        var (message, data) = Find(button, on);
+        return TapAsync(Find(button, "button matching the predicate", on), token);
+    }
+
+    private async Task<TestCallbackAnswer> TapAsync((TestMessage Message, string Data) tap, CancellationToken token)
+    {
+        var (message, data) = tap;
         var queryId = _host.Api.NextCallbackQueryId();
         var query = new JsonObject
         {
@@ -235,28 +259,33 @@ public sealed class TestUser
 
     private static string Quote(TestMessage message) => $"\"{message.Content}\"";
 
-    private (TestMessage Message, string Data) Find(string button, TestMessage? on)
+    // The one button `match` picks on `on`, or on the newest message showing a match; `what` names it in errors.
+    private (TestMessage Message, string Data) Find(
+        Func<InlineKeyboardButton, bool> match,
+        string what,
+        TestMessage? on
+    )
     {
         var messages = Messages;
         IEnumerable<TestMessage> candidates = on is null ? messages.Reverse() : [Current(on, messages)];
 
         foreach (var message in candidates)
         {
-            switch (message.Keyboard.Where(x => x.Text == button).ToArray())
+            switch (message.Keyboard.Where(match).ToArray())
             {
                 case []:
                     continue;
                 case [{ CallbackData: { } data }]:
                     return (message, data);
-                case [_]:
+                case [var button]:
                     throw new InvalidOperationException(
-                        $"The \"{button}\" button is not a callback button: the Telegram app handles it, and the bot "
-                            + "never hears of the tap."
+                        $"The \"{button.Text}\" button is not a callback button: the Telegram app handles it, and the "
+                            + "bot never hears of the tap."
                     );
-                default:
+                case [var first, ..]:
                     throw new InvalidOperationException(
-                        $"{Quote(message)} shows more than one \"{button}\" button, so which one {FirstName} taps "
-                            + "is ambiguous."
+                        $"{Quote(message)} shows more than one {what}, so which one {FirstName} taps is ambiguous. "
+                            + $"Pick one with TapsAsync(b => b.CallbackData == \"{first.CallbackData ?? "…"}\")."
                     );
             }
         }
@@ -264,7 +293,7 @@ public sealed class TestUser
         var shown = candidates.SelectMany(message => message.Buttons).Distinct().ToArray();
         var where = on is null ? $"in {Chat.Description}" : $"on {Quote(on)}";
         throw new InvalidOperationException(
-            $"{FirstName} sees no \"{button}\" button {where}. "
+            $"{FirstName} sees no {what} {where}. "
                 + (shown.Length == 0 ? "There are no buttons." : $"The buttons are \"{string.Join("\", \"", shown)}\".")
         );
     }

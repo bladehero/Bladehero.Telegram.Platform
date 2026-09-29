@@ -303,6 +303,43 @@ internal static class TestBot
             request.Client.SendMessage(request.Payload.Chat, "Pick one", replyMarkup: Menu, cancellationToken: token);
     }
 
+    // Two ◀ and two ▶, told apart only by their data.
+    private sealed class CardCommand : MessageCommand
+    {
+        private static readonly InlineKeyboardMarkup Arrows = new([
+            [
+                InlineKeyboardButton.WithCallbackData("◀", "method:back"),
+                InlineKeyboardButton.WithCallbackData("▶", "method:next"),
+            ],
+            [
+                InlineKeyboardButton.WithCallbackData("◀", "date:back"),
+                InlineKeyboardButton.WithCallbackData("▶", "date:next"),
+            ],
+        ]);
+
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/card"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(request.Payload.Chat, "Card", replyMarkup: Arrows, cancellationToken: token);
+    }
+
+    // Answers "moved method back" and the like.
+    private sealed class ArrowCommand : CallbackQueryCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.Data?.Split(':') is ["method" or "date", "back" or "next"]);
+
+        protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
+            request.Client.AnswerCallbackQuery(
+                request.Payload.Id,
+                $"moved {request.Payload.Data!.Replace(':', ' ')}",
+                cancellationToken: token
+            );
+    }
+
     // Answers A with a notification and B with an alert.
     private sealed class PickCommand : CallbackQueryCommand
     {
