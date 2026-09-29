@@ -1,4 +1,5 @@
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Bladehero.Telegram.Platform.Sandbox.Barista;
@@ -30,6 +31,7 @@ internal static class CoffeeShop
 
         // Coffee orders, and the barista who announces them when brewed.
         services.AddScoped<CoffeeOrdering>();
+        services.AddScoped<IButtonRefusalHandler, CoffeeShopRefusals>();
         services.AddSingleton<OrderQueue>();
         services.AddHostedService<BaristaService>();
 

@@ -17,6 +17,6 @@ internal sealed class OrderCoffeeCommand(CoffeeOrdering ordering) : MessageComma
         var (_, message, client) = request;
         var size = CoffeeFlow.ParseSize(message.ArgumentsOf("/coffee"));
 
-        return ordering.StartAsync(client, message.Chat, message.From!.Id, size, token);
+        return ordering.StartAsync(client, message.Chat, size, token);
     }
 }

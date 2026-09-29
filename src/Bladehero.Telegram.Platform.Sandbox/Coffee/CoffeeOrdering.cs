@@ -9,43 +9,38 @@ namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 // as the conversation it starts is the current update's.
 internal sealed class CoffeeOrdering(IConversation conversation)
 {
-    public async Task StartAsync(
-        ITelegramBotClient client,
-        Chat chat,
-        long ownerId,
-        CoffeeSize? size,
-        CancellationToken token
-    )
+    public async Task StartAsync(ITelegramBotClient client, Chat chat, CoffeeSize? size, CancellationToken token)
     {
-        var orderId = CoffeeFlow.NewOrderId();
-
         await RetireCardInProgressAsync(client, chat, token);
 
+        // A new run of the flow, so the buttons of an earlier order stop working.
+        var step = size is null ? CoffeeFlow.SizeStep : CoffeeFlow.NameStep;
+        var order = new CoffeeOrder(CardId: 0, size);
+        await conversation.StartAsync(CoffeeFlow.Name, step, order, token);
+        var binding = await conversation.BindAsync(token);
+
+        Message sent;
         if (size is { } known)
         {
             await client.SendMessage(chat, $"Size: {known} ✓", cancellationToken: token);
-            var prompt = await client.SendMessage(
+            sent = await client.SendMessage(
                 chat,
                 "Whose name goes on the cup?",
-                replyMarkup: CoffeeFlow.NameKeyboard(ownerId, orderId),
+                replyMarkup: CoffeeFlow.NameKeyboard(binding),
                 cancellationToken: token
             );
-            await conversation.StartAsync(
-                CoffeeFlow.Name,
-                CoffeeFlow.NameStep,
-                new CoffeeOrder(orderId, prompt.Id, known),
-                token
+        }
+        else
+        {
+            sent = await client.SendMessage(
+                chat,
+                "What size?",
+                replyMarkup: CoffeeFlow.SizeKeyboard(binding),
+                cancellationToken: token
             );
-            return;
         }
 
-        var card = await client.SendMessage(
-            chat,
-            "What size?",
-            replyMarkup: CoffeeFlow.SizeKeyboard(ownerId, orderId),
-            cancellationToken: token
-        );
-        await conversation.StartAsync(CoffeeFlow.Name, CoffeeFlow.SizeStep, new CoffeeOrder(orderId, card.Id), token);
+        await conversation.MoveToAsync(step, order with { CardId = sent.Id }, token);
     }
 
     // The order a new one replaces loses its buttons, so its card cannot be tapped by mistake.
