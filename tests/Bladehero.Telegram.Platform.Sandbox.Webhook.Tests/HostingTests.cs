@@ -3,6 +3,7 @@ using Bladehero.Telegram.Platform.Receiving.Errors;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
@@ -71,6 +72,31 @@ public sealed class HostingTests
             error.Update!.Id.Should().Be(1);
             error.Update.Message!.Chat.Id.Should().Be(nick.Chat.Id);
         }
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Tap_WhenTheBotAsksOnlyForMessages_ShouldSayTelegramWouldNotSendIt(BotMode mode)
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartAsync(
+            mode,
+            configure: web => web.UseSetting("Telegram:AllowedUpdates:0", "Message")
+        );
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("hello");
+
+        // Act
+        var act = () => nick.TapsAsync("Again");
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage(
+                "Telegram would not send this callback_query to the bot: it asked only for message "
+                    + "(allowed_updates). Add UpdateType.CallbackQuery to AllowedUpdates."
+            );
     }
 
     [Theory]

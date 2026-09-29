@@ -4,6 +4,7 @@ using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.ChatMembers;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
@@ -37,6 +38,22 @@ internal static class TestBot
             },
             api
         );
+
+    // Greets whoever joins a group.
+    private sealed class WelcomeCommand : ChatMemberCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<ChatMemberUpdated> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.NewChatMember is ChatMemberMember);
+
+        protected override Task HandleAsync(TypedCommandRequest<ChatMemberUpdated> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                $"Welcome, {request.Payload.NewChatMember.User.FirstName}",
+                cancellationToken: token
+            );
+    }
 
     // Never finishes, and ignores cancellation too.
     private sealed class HangCommand : MessageCommand

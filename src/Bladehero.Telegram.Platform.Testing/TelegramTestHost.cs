@@ -269,16 +269,18 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// The bot did not finish the update within <see cref="UpdateTimeout"/>.
     /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// Long polling: the bot's host stopped. Webhook mode: no webhook is set, or it answered with a failure.
+    /// Telegram would not send this type of update to the bot (<c>allowed_updates</c>). Long polling: the bot's host
+    /// stopped. Webhook mode: no webhook is set, or it answered with a failure.
     /// </exception>
     public Task SendAsync(Update update, CancellationToken token = default)
     {
         var json = JsonSerializer.SerializeToNode(update, JsonBotAPI.Options)!.AsObject();
-        return DeliverAsync(() => json, token);
+        return DeliverAsync(FakeBotApi.UpdateTypeOf(json), () => json, token);
     }
 
-    // `compose` builds the update, e.g. posting the user's message into the chat, once the bot can take it.
-    internal async Task DeliverAsync(Func<JsonObject> compose, CancellationToken token)
+    // `compose` builds the update of `updateType`, e.g. posting the user's message into the chat, once the bot can
+    // take it and Telegram would send it.
+    internal async Task DeliverAsync(string? updateType, Func<JsonObject> compose, CancellationToken token)
     {
         long? updateId = null;
         try
@@ -286,6 +288,7 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
             await _bot.DeliverAsync(
                 () =>
                 {
+                    Api.ThrowIfNotAllowed(updateType);
                     var update = compose();
                     Api.KnowChatsIn(update);
                     return update;

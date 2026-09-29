@@ -7,6 +7,10 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// A person in a <see cref="TestChat"/> who types, sends files and taps buttons. Each action returns once the bot has
 /// handled it, rethrowing what a command threw.
 /// </summary>
+/// <remarks>
+/// An action Telegram would not send to the bot, as the bot left its type out of <c>allowed_updates</c>, fails with an
+/// <see cref="InvalidOperationException"/> before anything changes.
+/// </remarks>
 public sealed class TestUser
 {
     // The small photo size, so a bot reading Photo[0] instead of the largest gets the wrong bytes, as with Telegram.
@@ -161,7 +165,7 @@ public sealed class TestUser
             ["data"] = data,
         };
 
-        await _host.DeliverAsync(() => new JsonObject { ["callback_query"] = query }, token);
+        await _host.DeliverAsync("callback_query", () => new JsonObject { ["callback_query"] = query }, token);
         return new TestCallbackAnswer(_host.Api.CallbackAnswer(queryId));
     }
 
@@ -194,7 +198,7 @@ public sealed class TestUser
 
     // The message is posted only once the bot can take it.
     private Task DeliverAsync(Func<JsonObject> message, CancellationToken token) =>
-        _host.DeliverAsync(() => new JsonObject { ["message"] = message() }, token);
+        _host.DeliverAsync("message", () => new JsonObject { ["message"] = message() }, token);
 
     private static void ThrowIfEmpty(byte[] content, [CallerArgumentExpression(nameof(content))] string? name = null)
     {

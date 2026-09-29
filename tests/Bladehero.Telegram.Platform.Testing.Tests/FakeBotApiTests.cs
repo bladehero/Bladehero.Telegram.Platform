@@ -1106,6 +1106,85 @@ public sealed class FakeBotApiTests
     }
 
     [Fact]
+    public async Task AllowedUpdates_WhenAPollOmitsThem_ShouldKeepTheOnesAskedForBefore()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        await client.GetUpdates(allowedUpdates: [UpdateType.Message]);
+        await client.GetUpdates();
+
+        // Act
+        var act = () => api.ThrowIfNotAllowed("callback_query");
+
+        // Assert
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage(
+                "Telegram would not send this callback_query to the bot: it asked only for message "
+                    + "(allowed_updates). Add UpdateType.CallbackQuery to AllowedUpdates."
+            );
+    }
+
+    [Fact]
+    public async Task AllowedUpdates_WhenAPollAsksForNone_ShouldMeanTelegramsDefault()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        await client.GetUpdates(allowedUpdates: [UpdateType.Message]);
+        await client.GetUpdates(allowedUpdates: []);
+
+        // Act
+        var tap = () => api.ThrowIfNotAllowed("callback_query");
+        var join = () => api.ThrowIfNotAllowed("chat_member");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            tap.Should().NotThrow();
+            join.Should()
+                .Throw<InvalidOperationException>()
+                .WithMessage(
+                    "Telegram sends chat_member only to a bot that asks for it: add UpdateType.ChatMember to "
+                        + "AllowedUpdates."
+                );
+        }
+    }
+
+    [Fact]
+    public async Task AllowedUpdates_WhileAWebhookIsSet_ShouldBeTheWebhooks()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        await client.GetUpdates(allowedUpdates: [UpdateType.Message]);
+        await client.SetWebhook("https://bot.example.com/updates", allowedUpdates: [UpdateType.CallbackQuery]);
+
+        // Act
+        var tapWhileSet = Record.Exception(() => api.ThrowIfNotAllowed("callback_query"));
+        var messageWhileSet = Record.Exception(() => api.ThrowIfNotAllowed("message"));
+        await client.DeleteWebhook();
+        var tapOnceDeleted = Record.Exception(() => api.ThrowIfNotAllowed("callback_query"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            tapWhileSet.Should().BeNull();
+            messageWhileSet
+                .Should()
+                .BeOfType<InvalidOperationException>()
+                .Which.Message.Should()
+                .Contain("only for callback_query");
+            tapOnceDeleted
+                .Should()
+                .BeOfType<InvalidOperationException>()
+                .Which.Message.Should()
+                .Contain("only for message");
+        }
+    }
+
+    [Fact]
     public async Task GetMe_ShouldAnswerWithTheBot()
     {
         // Arrange

@@ -213,6 +213,45 @@ public sealed class TelegramTestHostTests
     }
 
     [Fact]
+    public async Task SendAsync_AChatMemberUpdate_WhenTheBotNeverAskedForIt_ShouldSayItMustBeAskedFor()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var family = bot.GroupChat("Family");
+
+        // Act
+        var act = () => bot.SendAsync(Joined(family, "Anna"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should()
+                .ThrowAsync<InvalidOperationException>()
+                .WithMessage(
+                    "Telegram sends chat_member only to a bot that asks for it: add UpdateType.ChatMember to "
+                        + "AllowedUpdates."
+                );
+            family.Messages.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task SendAsync_AChatMemberUpdate_WhenTheBotAsksForIt_ShouldReachIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(receiver: receiver =>
+            receiver.AllowedUpdates = [UpdateType.Message, UpdateType.ChatMember]
+        );
+        var family = bot.GroupChat("Family");
+
+        // Act
+        await bot.SendAsync(Joined(family, "Anna"));
+
+        // Assert
+        family.LastMessage.ToString().Should().Be("Bot: Welcome, Anna");
+    }
+
+    [Fact]
     public async Task SendMessage_ToAChatSeenInARawUpdate_ShouldBeAccepted()
     {
         // Arrange: no test chat opened chat 42, and no command answers /nothing.
@@ -683,6 +722,27 @@ public sealed class TelegramTestHostTests
                     .AddTypedClient<ITelegramBotClient>(http => new TelegramBotClient(realLookingToken, http));
                 break;
         }
+    }
+
+    private static Update Joined(TestChat group, string firstName)
+    {
+        var user = new User { Id = 2001, FirstName = firstName };
+        return new Update
+        {
+            ChatMember = new ChatMemberUpdated
+            {
+                Chat = new Chat
+                {
+                    Id = group.Id,
+                    Type = ChatType.Supergroup,
+                    Title = group.ToString(),
+                },
+                From = user,
+                Date = DateTime.UtcNow,
+                OldChatMember = new ChatMemberLeft { User = user },
+                NewChatMember = new ChatMemberMember { User = user },
+            },
+        };
     }
 
     private static Update Text(string text) =>

@@ -1,7 +1,9 @@
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
@@ -19,6 +21,76 @@ public sealed class TestUserTests
 
         // Assert
         nick.LastMessage.Text.Should().Be("You are Nick");
+    }
+
+    [Fact]
+    public async Task SendsAsync_WhenTheBotAsksOnlyForMessages_ShouldReachIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(receiver: receiver =>
+            receiver.AllowedUpdates = [UpdateType.Message]
+        );
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("/whoami");
+
+        // Assert
+        nick.LastMessage.Text.Should().Be("You are Nick");
+    }
+
+    [Fact]
+    public async Task TapsAsync_WhenTheBotAsksOnlyForMessages_ShouldSayTelegramWouldNotSendTheTap()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(receiver: receiver =>
+            receiver.AllowedUpdates = [UpdateType.Message]
+        );
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/menu");
+        var before = nick.Messages.Select(x => x.ToString()).ToArray();
+
+        // Act
+        var act = () => nick.TapsAsync("A");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should()
+                .ThrowAsync<InvalidOperationException>()
+                .WithMessage(
+                    "Telegram would not send this callback_query to the bot: it asked only for message "
+                        + "(allowed_updates). Add UpdateType.CallbackQuery to AllowedUpdates."
+                );
+            nick.Messages.Select(x => x.ToString()).Should().Equal(before);
+        }
+    }
+
+    [Fact]
+    public async Task TapsAsync_WithDropPendingUpdates_ShouldUseTheListTheLoopAskedFor()
+    {
+        // Arrange: the tap is the first update, just after the loop dropped pending ones with an empty list.
+        await using var bot = await TestBot.StartAsync(receiver: receiver =>
+        {
+            receiver.DropPendingUpdates = true;
+            receiver.AllowedUpdates = [UpdateType.Message];
+        });
+        var nick = bot.PrivateChat("Nick");
+        await bot
+            .Api.CreateClient()
+            .SendMessage(
+                nick.Chat.Id,
+                "Pick one",
+                replyMarkup: new InlineKeyboardMarkup(InlineKeyboardButton.WithCallbackData("A", "pick:A"))
+            );
+
+        // Act
+        var act = () => nick.TapsAsync("A");
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("Telegram would not send this callback_query to the bot: it asked only for message *");
     }
 
     [Fact]
