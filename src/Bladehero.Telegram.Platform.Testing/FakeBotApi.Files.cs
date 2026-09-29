@@ -18,6 +18,7 @@ public sealed partial class FakeBotApi
         "caption_entities",
         "reply_parameters",
         "suggested_post_parameters",
+        "allowed_updates",
     ];
 
     // Decodes names the way the wire would, and fails rather than guessing when the bytes are not UTF-8.

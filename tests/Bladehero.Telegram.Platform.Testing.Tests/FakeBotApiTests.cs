@@ -901,6 +901,62 @@ public sealed class FakeBotApiTests
     }
 
     [Fact]
+    public async Task SetWebhook_ShouldShowInTheWebhookInfoUntilDeleted()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        await client.SetWebhook("https://bot.example.com/updates");
+        var set = await client.GetWebhookInfo();
+
+        // Act
+        await client.DeleteWebhook();
+
+        // Assert
+        using (new AssertionScope())
+        {
+            set.Url.Should().Be("https://bot.example.com/updates");
+            api.WebhookUrl.Should().BeNull();
+            (await client.GetWebhookInfo()).Url.Should().BeEmpty();
+        }
+    }
+
+    [Theory]
+    [InlineData("http://bot.example.com/updates", "An HTTPS URL must be provided")]
+    [InlineData("https://bot.example.com:5001/updates", "only on ports 80, 88, 443 or 8443")]
+    public async Task SetWebhook_WhereTelegramCannotDeliver_ShouldFailLikeTelegram(string url, string error)
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        var act = () => client.SetWebhook(url);
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain(error);
+        api.WebhookUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetUpdates_WhileAWebhookIsSet_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        await client.SetWebhook("https://bot.example.com/updates");
+
+        // Act
+        var act = () => client.GetUpdates();
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.ErrorCode.Should()
+            .Be(409);
+    }
+
+    [Fact]
     public async Task GetMe_ShouldAnswerWithTheBot()
     {
         // Arrange

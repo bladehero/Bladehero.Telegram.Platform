@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Bladehero.Telegram.Platform.Receiving;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -103,6 +104,25 @@ public sealed class TelegramTestHostTests
         {
             bot.Api.Should().BeSameAs(api);
             api.CommandMenu().Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ForLongPollingAsync_WithALeftoverWebhook_ShouldDeleteItAndPoll()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        await api.CreateClient().SetWebhook("https://bot.example.com/updates");
+
+        // Act
+        await using var bot = await TestBot.StartAsync(api);
+        await bot.SendAsync(Text("hello"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            api.WebhookUrl.Should().BeNull();
+            api.Calls.Should().Contain(x => x.Method == "sendMessage");
         }
     }
 
