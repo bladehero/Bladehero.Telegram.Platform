@@ -56,15 +56,16 @@ public sealed class TestUser
     {
         ThrowIfEmpty(photo);
 
-        var thumbnail = _host.Api.StoreFile(Thumbnail, "photos", ".jpg");
-        thumbnail["width"] = 90;
-        thumbnail["height"] = 68;
+        var thumbnail = _host.Api.StoreFile(
+            FileKind.Photo,
+            Thumbnail,
+            new JsonObject { ["width"] = 90, ["height"] = 68 }
+        )["photo"]![0]!;
 
-        var size = _host.Api.StoreFile(photo, "photos", ".jpg");
-        size["width"] = 1280;
-        size["height"] = 960;
+        var content = _host.Api.StoreFile(FileKind.Photo, photo, new JsonObject { ["width"] = 1280, ["height"] = 960 });
+        content["photo"]!.AsArray().Insert(0, thumbnail.DeepClone());
 
-        return SendsFileAsync(new JsonObject { ["photo"] = new JsonArray(thumbnail, size) }, caption, token);
+        return SendsFileAsync(content, caption, token);
     }
 
     /// <summary>Sends a voice message, recorded for <paramref name="duration"/> — a second when not given.</summary>
@@ -75,11 +76,17 @@ public sealed class TestUser
         ThrowIfEmpty(voice);
         ArgumentOutOfRangeException.ThrowIfLessThan(duration ?? TimeSpan.Zero, TimeSpan.Zero, nameof(duration));
 
-        var file = _host.Api.StoreFile(voice, "voice", ".oga");
-        file["duration"] = (int)Math.Ceiling((duration ?? TimeSpan.FromSeconds(1)).TotalSeconds);
-        file["mime_type"] = "audio/ogg";
+        var content = _host.Api.StoreFile(
+            FileKind.Voice,
+            voice,
+            new JsonObject
+            {
+                ["duration"] = (int)Math.Ceiling((duration ?? TimeSpan.FromSeconds(1)).TotalSeconds),
+                ["mime_type"] = "audio/ogg",
+            }
+        );
 
-        return SendsFileAsync(new JsonObject { ["voice"] = file }, caption: null, token);
+        return SendsFileAsync(content, caption: null, token);
     }
 
     /// <summary>
@@ -102,11 +109,17 @@ public sealed class TestUser
         ThrowIfEmpty(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
 
-        var file = _host.Api.StoreFile(document, "documents", Path.GetExtension(fileName));
-        file["file_name"] = fileName;
-        file["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypeOf(fileName) : mimeType;
+        var content = _host.Api.StoreFile(
+            FileKind.Document,
+            document,
+            new JsonObject
+            {
+                ["file_name"] = fileName,
+                ["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypes.Of(fileName) : mimeType,
+            }
+        );
 
-        return SendsFileAsync(new JsonObject { ["document"] = file }, caption, token);
+        return SendsFileAsync(content, caption, token);
     }
 
     /// <summary>
@@ -176,22 +189,6 @@ public sealed class TestUser
     }
 
     private static string Quote(TestMessage message) => $"\"{message.Content}\"";
-
-    private static string MimeTypeOf(string fileName) =>
-        Path.GetExtension(fileName).ToLowerInvariant() switch
-        {
-            ".pdf" => "application/pdf",
-            ".txt" => "text/plain",
-            ".csv" => "text/csv",
-            ".json" => "application/json",
-            ".xml" => "application/xml",
-            ".zip" => "application/zip",
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".png" => "image/png",
-            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            _ => "application/octet-stream",
-        };
 
     private (TestMessage Message, string Data) Find(string button, TestMessage? on)
     {

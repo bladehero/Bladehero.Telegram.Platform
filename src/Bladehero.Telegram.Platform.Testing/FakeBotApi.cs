@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -16,12 +17,13 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// Every Bot API call is recorded in <see cref="Calls"/> — except <c>getUpdates</c>, the polling loop's own traffic —
 /// and answered the way Telegram would, including Telegram's own errors: editing a message that was deleted, one the
 /// bot did not send, or one without changing it, answering a button tap twice, or asking for a file over the 20 MB
-/// bots may download. Files users send are served from memory, like the rest; a download is not a Bot API call, so it
-/// is neither recorded nor can be made to <see cref="Fail"/>. A method the fake does not know yet
+/// bots may download. Files are kept in memory both ways: what users send is served back through <c>getFile</c> and
+/// a download, and what the bot uploads can be read from the chat. A download is not a Bot API call, so it is neither
+/// recorded nor can be made to <see cref="Fail"/>. A method the fake does not know yet
 /// fails with an error naming it, so an unsupported call fails the test instead of passing silently. To see how the
 /// bot copes when Telegram refuses a call, <see cref="Fail"/> it.
 /// </remarks>
-public sealed class FakeBotApi
+public sealed partial class FakeBotApi
 {
     internal const string Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
 
@@ -235,15 +237,6 @@ public sealed class FakeBotApi
         }
     }
 
-    // Keeps a file a person sends, returning how their message refers to it.
-    internal JsonObject StoreFile(byte[] content, string folder, string extension)
-    {
-        lock (_gate)
-        {
-            return _files.Add(content, folder, extension).Describe();
-        }
-    }
-
     internal IReadOnlyList<JsonObject> MessagesIn(long chatId)
     {
         lock (_gate)
@@ -261,13 +254,21 @@ public sealed class FakeBotApi
         : text.IndexOfAny([' ', '\n']) is var end and >= 0 ? end
         : text.Length;
 
-    private JsonNode Answer(string method, JsonObject parameters) =>
+    private JsonNode Answer(
+        string method,
+        JsonObject parameters,
+        IReadOnlyDictionary<string, Attachment> attachments
+    ) =>
         method switch
         {
             "getMe" => Bot(),
             "sendMessage" => Send(parameters),
-            "editMessageText" => Edit(parameters, parameters["text"]?.GetValue<string>()),
-            "editMessageReplyMarkup" => Edit(parameters, text: null),
+            "sendPhoto" => SendFile(parameters, attachments, FileKind.Photo),
+            "sendDocument" => SendFile(parameters, attachments, FileKind.Document),
+            "sendVoice" => SendFile(parameters, attachments, FileKind.Voice),
+            "editMessageText" => Edit(parameters, "text"),
+            "editMessageCaption" => Edit(parameters, "caption"),
+            "editMessageReplyMarkup" => Edit(parameters, field: null),
             "deleteMessage" => Delete(parameters),
             "answerCallbackQuery" => AnswerCallbackQuery(parameters),
             "getWebhookInfo" => new JsonObject
@@ -282,39 +283,6 @@ public sealed class FakeBotApi
             "getFile" => GetFile(parameters),
             _ => throw Refuse(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
-
-    // Bots can only download files of up to 20 MB; Telegram refuses to hand out a path to a bigger one.
-    private JsonObject GetFile(JsonObject parameters)
-    {
-        var file =
-            (parameters["file_id"]?.GetValue<string>() is { } fileId ? _files.Find(fileId) : null)
-            ?? throw Refuse(400, "Bad Request: invalid file_id");
-
-        if (file.Content.Length > DownloadLimit)
-        {
-            throw Refuse(400, "Bad Request: file is too big");
-        }
-
-        file.PathGiven = true;
-
-        var info = file.Describe();
-        info["file_path"] = file.Path;
-        return info;
-    }
-
-    // Only a path getFile handed out can be downloaded; any other is not found, as on Telegram's file server.
-    private HttpResponseMessage Download(string path)
-    {
-        StoredFile? file;
-        lock (_gate)
-        {
-            file = _files.AtPath(Uri.UnescapeDataString(path)) is { PathGiven: true } given ? given : null;
-        }
-
-        return file is null
-            ? Respond(new BotApiError(404, "Not Found"))
-            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(file.Content) };
-    }
 
     private JsonNode GetCommandMenu(JsonObject parameters) =>
         _commandMenus.GetValueOrDefault(MenuKey(parameters["scope"], parameters["language_code"]))?.DeepClone()
@@ -365,8 +333,10 @@ public sealed class FakeBotApi
         return ChatOf(parameters).Post(Bot(), content).DeepClone().AsObject();
     }
 
-    // Telegram removes the inline keyboard from an edited message unless the edit passes one again.
-    private JsonObject Edit(JsonObject parameters, string? text)
+    // Edits the message's text, its caption, or — when field is null — only its keyboard. Telegram removes the inline
+    // keyboard from an edited message unless the edit passes one again, and removes the caption when an edit of it
+    // passes none.
+    private JsonObject Edit(JsonObject parameters, string? field)
     {
         var message =
             ChatOf(parameters).Find(MessageIdOf(parameters))
@@ -377,10 +347,27 @@ public sealed class FakeBotApi
             throw Refuse(400, "Bad Request: message can't be edited");
         }
 
-        var newText = text ?? message["text"]?.GetValue<string>();
-        var newMarkup = InlineKeyboardOf(parameters);
+        var carriesFile =
+            message.ContainsKey("photo") || message.ContainsKey("voice") || message.ContainsKey("document");
+        switch (field)
+        {
+            case "text" when carriesFile:
+                throw Refuse(400, "Bad Request: there is no text in the message to edit");
+            case "caption" when !carriesFile:
+                throw Refuse(400, "Bad Request: there is no caption in the message to edit");
+        }
 
-        if (newText == message["text"]?.GetValue<string>() && JsonNode.DeepEquals(newMarkup, message["reply_markup"]))
+        var newValue = field is null ? null : NonBlank(parameters[field]?.GetValue<string>());
+        if (field == "text" && newValue is null)
+        {
+            throw Refuse(400, "Bad Request: message text is empty");
+        }
+
+        var newMarkup = InlineKeyboardOf(parameters);
+        if (
+            (field is null || newValue == message[field]?.GetValue<string>())
+            && JsonNode.DeepEquals(newMarkup, message["reply_markup"])
+        )
         {
             throw Refuse(
                 400,
@@ -388,16 +375,29 @@ public sealed class FakeBotApi
             );
         }
 
-        message["text"] = newText;
-        message["reply_markup"] = newMarkup;
-        message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        if (message["reply_markup"] is null)
+        if (field is not null)
         {
-            message.Remove("reply_markup");
+            SetOrRemove(message, field, newValue);
         }
 
+        SetOrRemove(message, "reply_markup", newMarkup);
+        message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
         return message.DeepClone().AsObject();
+    }
+
+    private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static void SetOrRemove(JsonObject message, string field, JsonNode? value)
+    {
+        if (value is null)
+        {
+            message.Remove(field);
+        }
+        else
+        {
+            message[field] = value;
+        }
     }
 
     // Only an inline keyboard belongs to a message. A reply keyboard, or the order to remove one, changes the user's
@@ -419,7 +419,7 @@ public sealed class FakeBotApi
 
     private ChatHistory ChatOf(JsonObject parameters)
     {
-        if (parameters["chat_id"] is not JsonValue value || !value.TryGetValue<long>(out var chatId))
+        if (NumberOf(parameters["chat_id"]) is not { } chatId)
         {
             throw Refuse(400, "Bad Request: chat not found");
         }
@@ -436,9 +436,29 @@ public sealed class FakeBotApi
     }
 
     private static int MessageIdOf(JsonObject parameters) =>
-        parameters["message_id"] is JsonValue value && value.TryGetValue<int>(out var messageId)
-            ? messageId
+        NumberOf(parameters["message_id"]) is { } messageId and <= int.MaxValue
+            ? (int)messageId
             : throw Refuse(400, "Bad Request: message identifier is not specified");
+
+    // A number, whether it came as JSON or as the text of a form field, as the fields of an upload do.
+    private static long? NumberOf(JsonNode? node)
+    {
+        if (node is not JsonValue value)
+        {
+            return null;
+        }
+
+        if (value.TryGetValue<long>(out var number))
+        {
+            return number;
+        }
+
+        return
+            value.TryGetValue<string>(out var text)
+            && long.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out number)
+            ? number
+            : null;
+    }
 
     private async Task<HttpResponseMessage> HandleAsync(HttpRequestMessage request, CancellationToken token)
     {
@@ -448,8 +468,7 @@ public sealed class FakeBotApi
         }
 
         var method = request.RequestUri.Segments[^1];
-        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(token);
-        var parameters = string.IsNullOrWhiteSpace(body) ? [] : JsonNode.Parse(body)!.AsObject();
+        var (parameters, attachments) = await ReadAsync(request.Content, token);
 
         if (method == "getUpdates")
         {
@@ -469,7 +488,7 @@ public sealed class FakeBotApi
 
             try
             {
-                result = Answer(method, parameters);
+                result = Answer(method, parameters, attachments);
             }
             catch (Refusal refusal)
             {

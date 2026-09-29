@@ -23,7 +23,8 @@ public sealed class TestChat
     /// Every message in the chat, oldest first — the members' and the bot's — as they now stand: edits applied and
     /// deleted messages gone.
     /// </summary>
-    public IReadOnlyList<TestMessage> Messages => [.. _host.Api.MessagesIn(Id).Select(json => new TestMessage(json))];
+    public IReadOnlyList<TestMessage> Messages =>
+        [.. _host.Api.MessagesIn(Id).Select(json => new TestMessage(json, _host.Api))];
 
     /// <summary>The newest message in the chat, whoever sent it.</summary>
     /// <exception cref="InvalidOperationException">The chat has no messages.</exception>

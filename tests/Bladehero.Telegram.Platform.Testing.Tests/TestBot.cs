@@ -94,6 +94,111 @@ internal static class TestBot
         }
     }
 
+    // Uploads a photo whose buttons rename it or send it again by its file id.
+    private sealed class PhotoCommand : MessageCommand
+    {
+        private static readonly InlineKeyboardMarkup Buttons = new([
+            [
+                InlineKeyboardButton.WithCallbackData("Rename", "rename"),
+                InlineKeyboardButton.WithCallbackData("Again", "again"),
+            ],
+        ]);
+
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/photo"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendPhoto(
+                request.Payload.Chat,
+                InputFile.FromStream(new MemoryStream("jpeg bytes"u8.ToArray()), "cat.jpg"),
+                caption: "A cat",
+                replyMarkup: Buttons,
+                cancellationToken: token
+            );
+    }
+
+    private sealed class RenameCommand : CallbackQueryCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.Data == "rename");
+
+        protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            var (_, query, client) = request;
+
+            await client.AnswerCallbackQuery(query.Id, cancellationToken: token);
+            await client.EditMessageCaption(
+                query.Message!.Chat,
+                query.Message.Id,
+                "A renamed cat",
+                cancellationToken: token
+            );
+        }
+    }
+
+    private sealed class AgainCommand : CallbackQueryCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.Data == "again");
+
+        protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            var (_, query, client) = request;
+
+            await client.AnswerCallbackQuery(query.Id, cancellationToken: token);
+            await client.SendPhoto(
+                query.Message!.Chat,
+                InputFile.FromFileId(query.Message.Photo![^1].FileId),
+                cancellationToken: token
+            );
+        }
+    }
+
+    private sealed class ReportCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/report"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendDocument(
+                request.Payload.Chat,
+                InputFile.FromStream(new MemoryStream("a,b\n1,2"u8.ToArray()), "report.csv"),
+                caption: "Your report",
+                cancellationToken: token
+            );
+    }
+
+    private sealed class SayCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/say"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendVoice(
+                request.Payload.Chat,
+                InputFile.FromStream(new MemoryStream("ogg bytes"u8.ToArray()), "hello.ogg"),
+                duration: 2,
+                cancellationToken: token
+            );
+    }
+
+    private sealed class CatCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/cat"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendPhoto(
+                request.Payload.Chat,
+                InputFile.FromUri("https://example.com/cat.jpg"),
+                cancellationToken: token
+            );
+    }
+
     // Deletes the command itself, as a bot keeping its chat tidy would.
     private sealed class TidyCommand : MessageCommand
     {
