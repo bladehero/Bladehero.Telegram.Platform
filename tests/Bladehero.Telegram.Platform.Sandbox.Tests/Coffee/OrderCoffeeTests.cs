@@ -1,6 +1,7 @@
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Tests.Coffee;
 
@@ -175,6 +176,43 @@ public sealed class OrderCoffeeTests
         {
             answer.ToString().Should().Be("Notification: That button is no longer active.");
             nick.Messages.Single(x => x.Id == current.Id).Text.Should().Be("Size: Medium ✓");
+        }
+    }
+
+    [Fact]
+    public async Task SizeButton_FromAViewThatMissedThePick_ShouldSayItIsNoLongerActive()
+    {
+        // Arrange: Nick's app still shows the size card after he picked Medium.
+        await using var bot = await StartBotAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/coffee");
+        var card = nick.LastMessage;
+        await nick.TapsAsync("Medium");
+        var large = card.Message.ReplyMarkup!.InlineKeyboard.SelectMany(row => row).Single(x => x.Text == "Large");
+
+        // Act
+        await bot.SendAsync(
+            new Update
+            {
+                CallbackQuery = new CallbackQuery
+                {
+                    Id = "stale-tap",
+                    From = new User { Id = nick.Id, FirstName = "Nick" },
+                    Message = card.Message,
+                    ChatInstance = "1",
+                    Data = large.CallbackData,
+                },
+            }
+        );
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Api.Calls.Last(x => x.Method == "answerCallbackQuery").Parameters["text"]!
+                .GetValue<string>()
+                .Should()
+                .Be("That button is no longer active.");
+            nick.Messages.Single(x => x.Id == card.Id).Text.Should().Be("Size: Medium ✓");
         }
     }
 
