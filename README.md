@@ -668,11 +668,19 @@ Telegram, with Telegram's own error texts, and fails the test on a method it doe
   - a loyalty club of [known users](#known-users), resolved by user id and seeded from `CoffeeShop:Members`: `/join`,
     `/leave`, `/redeem 10` with arguments, and a `/points` card that is edited in place or sent again, with
     [typed](#buttons-with-typed-data) known-user Redeem buttons;
-  - a `/coffee` [conversation](#conversations) bound to its card and its customer, where an earlier order's or another
-    customer's buttons are turned down;
+  - receipts for points: photos, PDFs, and photo and PDF albums read by a stand-in for an AI reader, too-big and
+    unsupported files turned down, and `/history` sending a CSV file;
+  - a `/coffee` [conversation](#conversations) bound to its card and its customer, which a voice message can start too,
+    through a stand-in for a transcriber, and whose cup name the customer can fix by editing their message;
+  - stale, foreign and double-tapped buttons: an earlier order's, another member's card, a receipt taken already;
+  - a barista telling each customer when their coffee is ready, [sent on its own](#sending-on-your-own) through
+    `ITelegramSender`, on the clock of an injected `TimeProvider`;
+  - an [error handler](#errors-and-the-httpclient) that apologises in the chat, even to someone who blocked the bot;
   - a greeting when the bot is added to a group, next to a logger of `MyChatMember` updates;
   - component tests of restarts on the same fake with and without a shared conversation store, members seeded with
-    `UserIdOf` before the host starts, and Telegram refusing calls to one chat.
+    `UserIdOf` before the host starts, Telegram refusing calls to one chat or asking the bot to slow down, and a
+    `FakeTimeProvider` moving the barista's clock on. The stand-ins are registered after `AddCoffeeShop`, in place of
+    its disabled defaults.
 - [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): an ASP.NET Core echo with an Again button. It
   receives by webhook when `Telegram:BaseUrl` is set and by long polling otherwise, and its scenarios are tested in both
   modes.
