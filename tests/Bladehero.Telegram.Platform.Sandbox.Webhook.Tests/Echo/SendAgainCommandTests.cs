@@ -1,7 +1,7 @@
 using FluentAssertions;
 using FluentAssertions.Execution;
 
-namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests;
+namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests.Echo;
 
 public sealed class SendAgainCommandTests
 {

@@ -38,7 +38,7 @@ public sealed class HostingTests
         // Assert
         nick.Messages.Select(x => x.ToString())
             .Should()
-            .Equal("Nick: hello", "Bot: Reply: hello [Again]", "Bot: Your limit is near");
+            .Equal("Nick: hello", "Bot: Reply: hello [Again] [Louder]", "Bot: Your limit is near");
     }
 
     [Theory]

@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Sandbox.Webhook.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Bladehero.Telegram.Platform.Receiving.Background\Bladehero.Telegram.Platform.Receiving.Background.csproj" />
   </ItemGroup>
 

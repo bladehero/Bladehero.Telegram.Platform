@@ -3,12 +3,13 @@ using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
-namespace Bladehero.Telegram.Platform.Sandbox.Webhook;
+namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Echo;
 
-public sealed class SendAgainCommand : CallbackQueryCommand
+// Sends the reply once more, as loud as it is now.
+internal sealed class SendAgainCommand : CallbackQueryCommand
 {
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
-        Task.FromResult(request.Payload.Data == SendMessageBackCommand.AgainData);
+        Task.FromResult(request.Payload.Data == EchoKeyboard.AgainData);
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {

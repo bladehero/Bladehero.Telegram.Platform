@@ -2,7 +2,7 @@ using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using Telegram.Bot.Exceptions;
 
-namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests;
+namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests.Echo;
 
 public sealed class SendMessageBackCommandTests
 {
@@ -19,7 +19,7 @@ public sealed class SendMessageBackCommandTests
         await nick.SendsAsync("hello");
 
         // Assert
-        nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: hello", "Bot: Reply: hello [Again]");
+        nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: hello", "Bot: Reply: hello [Again] [Louder]");
     }
 
     [Theory]
@@ -35,7 +35,23 @@ public sealed class SendMessageBackCommandTests
         await family.Member("Anna").SendsAsync("hi all");
 
         // Assert
-        family.LastMessage.ToString().Should().Be("Bot: Reply: hi all [Again]");
+        family.LastMessage.ToString().Should().Be("Bot: Reply: hi all [Again] [Louder]");
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Command_ShouldNotBeEchoed(BotMode mode)
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartAsync(mode);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("/nothing");
+
+        // Assert
+        nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: /nothing");
     }
 
     [Theory]
