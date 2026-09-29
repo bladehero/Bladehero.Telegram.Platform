@@ -458,7 +458,7 @@ public sealed class TelegramTestHostTests
         await bot.DisposeAsync();
 
         // Assert
-        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the host's default shutdown timeout is 30 s");
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "the host's default shutdown timeout is 30 s");
     }
 
     [Fact]

@@ -27,7 +27,7 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     private const string MayBeHanging = "A command may be hanging, e.g. on a stub that never completes.";
 
     // Stopping the bot waits no longer for a command that ignores cancellation.
-    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(2);
 
     // The key the app's own error handler moves to, so the recording one can hand it every error.
     private static readonly object AppsErrorHandler = new();
