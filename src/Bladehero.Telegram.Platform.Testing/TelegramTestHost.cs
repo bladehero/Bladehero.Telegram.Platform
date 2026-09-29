@@ -82,7 +82,10 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// composition root does, and its real polling loop pulls updates from the fake.
     /// </summary>
     /// <param name="configureServices">The bot's registrations, with <c>AddTelegramLongPollingReceiving</c>.</param>
-    /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
+    /// <param name="api">
+    /// A pre-arranged fake, e.g. to fail startup calls, or one an earlier host ran on, which must be disposed first:
+    /// one host per fake at a time. A new one when <c>null</c>.
+    /// </param>
     /// <param name="token">Stops waiting for the bot to start.</param>
     /// <remarks>
     /// Only the bot client, including one the app registers itself as <see cref="ITelegramBotClient"/> or
@@ -111,7 +114,10 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// The bot's host builder, in Development with no configuration sources or log providers yet. Register the bot on
     /// its <c>Services</c>, e.g. with <c>AddTelegramLongPollingReceiving(builder.Configuration)</c>.
     /// </param>
-    /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
+    /// <param name="api">
+    /// A pre-arranged fake, e.g. to fail startup calls, or one an earlier host ran on, which must be disposed first:
+    /// one host per fake at a time. A new one when <c>null</c>.
+    /// </param>
     /// <param name="token">Stops waiting for the bot to start.</param>
     /// <remarks>
     /// Swaps the same registrations as the <see cref="IServiceCollection"/> overload, after
@@ -166,7 +172,10 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// Test tweaks: settings the app reads before <c>Build</c> via <c>UseSetting</c>, stand-ins for external services
     /// via <c>ConfigureTestServices</c>.
     /// </param>
-    /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
+    /// <param name="api">
+    /// A pre-arranged fake, e.g. to fail startup calls, or one an earlier host ran on, which must be disposed first:
+    /// one host per fake at a time. A new one when <c>null</c>.
+    /// </param>
     /// <param name="token">Stops waiting for the app to start.</param>
     /// <remarks>
     /// Swaps the same registrations as the generic-host overloads, which suit a bot without a web app, and runs in
@@ -202,7 +211,10 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// <param name="configureWebHost">
     /// Test tweaks, e.g. the webhook configuration via <c>UseSetting</c> or <c>ConfigureAppConfiguration</c>.
     /// </param>
-    /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
+    /// <param name="api">
+    /// A pre-arranged fake, e.g. to fail startup calls, or one an earlier host ran on, which must be disposed first:
+    /// one host per fake at a time. A new one when <c>null</c>.
+    /// </param>
     /// <param name="token">Stops waiting for the app to start.</param>
     /// <remarks>
     /// Swaps the same registrations as long polling and runs in Development. Returns once the app has started, so
@@ -433,11 +445,11 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
         return left > TimeSpan.Zero ? left : TimeSpan.Zero;
     }
 
-    // "500 ms", "1 second", "1.5 seconds".
     // The limit, or the cap when that comes sooner; no limit comes later than any cap.
     private static TimeSpan AtMost(TimeSpan limit, TimeSpan cap) =>
         limit == Timeout.InfiniteTimeSpan || limit > cap ? cap : limit;
 
+    // "500 ms", "1 second", "1.5 seconds".
     internal static string Describe(TimeSpan duration) =>
         duration < TimeSpan.FromSeconds(1)
             ? string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:0.###} ms")

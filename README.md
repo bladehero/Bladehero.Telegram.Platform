@@ -445,8 +445,9 @@ the right one. For the web apps the test project references the app; if the fact
 also reference `Microsoft.AspNetCore.Mvc.Testing`.
 
 The bot's client talks to the fake, and so does an `ITelegramBotClient` or `TelegramBotClient` the app registers itself,
-e.g. for messages it starts. Only clients registered in DI are swapped: one built by hand in `Program` or inside a
-factory still talks to Telegram, so give the tests a dummy token.
+e.g. for messages it starts. A client registered in DI is swapped, by instance or by factory. One built by hand isn't:
+one in `Program`, or one inside another service's constructor or factory (e.g.
+`new MyNotifier(new TelegramBotClient(token))`) still talks to Telegram, so give the tests a dummy token.
 
 ### Configure the app under test
 
@@ -736,12 +737,24 @@ services.Remove(services.Single(x =>
 For an internal type you can't name, match on `x.ImplementationType?.Name == "ModelWarmup"`.
 
 **The database:** point the app's connection string at a file of the test's own, so a test never writes to the
-developer's real database:
+developer's real database, and delete it once the host is disposed:
 
 ```csharp
 var path = Path.Combine(Path.GetTempPath(), $"budget-{Guid.NewGuid():N}.db");
-await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
-    web.UseSetting("ConnectionStrings:Database", $"Data Source={path}"));
+var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
+    web.UseSetting("ConnectionStrings:Database", $"Data Source={path};Pooling=False"));   // no pool keeps it open
+try
+{
+    // … the test …
+}
+finally
+{
+    await bot.DisposeAsync();
+    foreach (var file in new[] { path, path + "-wal", path + "-shm" })
+    {
+        File.Delete(file);   // no error if it isn't there
+    }
+}
 ```
 
 **In-memory SQLite:** each `:memory:` connection opens its own empty database, so contexts in different scopes would
@@ -756,14 +769,13 @@ services.AddDbContext<BudgetContext>(options => options.UseSqlite(connection)); 
 **Seed data or run an app service** through the bot's own container, in a scope as the app would:
 
 ```csharp
-using (var scope = bot.Services.CreateScope())
-{
-    var budgets = scope.ServiceProvider.GetRequiredService<BudgetContext>();
-    budgets.Limits.Add(new Limit("Groceries", 300));
-    await budgets.SaveChangesAsync();
+await using var scope = bot.Services.CreateAsyncScope();
 
-    await scope.ServiceProvider.GetRequiredService<MonthlyReport>().SendAsync(CancellationToken.None);
-}
+var budgets = scope.ServiceProvider.GetRequiredService<BudgetContext>();
+budgets.Limits.Add(new Limit("Groceries", 300));
+await budgets.SaveChangesAsync();
+
+await scope.ServiceProvider.GetRequiredService<MonthlyReport>().SendAsync(CancellationToken.None);
 ```
 
 **A restart** is a second host on the same `FakeBotApi`, which keeps the chats, their messages and the command menu:
