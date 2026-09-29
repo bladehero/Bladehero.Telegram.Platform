@@ -2,6 +2,7 @@ using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
@@ -13,6 +14,9 @@ public sealed class ScopedUpdateHandlerTests
     private static readonly ITelegramBotClient Client = new TelegramBotClient(
         "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
     );
+
+    // Only bounds a failing test's wait for the handler to let go once the clock has moved on; not a sleep.
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
 
     [Fact]
     public async Task EveryUpdateIsHandledInItsOwnScope()
@@ -180,22 +184,123 @@ public sealed class ScopedUpdateHandlerTests
     public async Task APollingErrorIsReportedWithoutAnUpdate()
     {
         var log = new ScopeLog();
-        await using var provider = BuildProvider(log);
+        var time = new FakeTimeProvider();
+        await using var provider = BuildProvider(log, time: time);
         var handler = provider.GetRequiredService<ScopedUpdateHandler>();
         var failure = new HttpRequestException("Telegram is unreachable");
 
-        await handler.HandleErrorAsync(Client, failure, HandleErrorSource.PollingError, CancellationToken.None);
+        var polled = handler.HandleErrorAsync(Client, failure, HandleErrorSource.PollingError, CancellationToken.None);
+        time.Advance(TimeSpan.FromSeconds(1));
+        await polled.WaitAsync(Patience);
 
         var error = Assert.Single(log.Errors);
         Assert.Same(failure, error.Exception);
         Assert.Null(error.Update);
     }
 
+    [Fact]
+    public async Task APollingErrorWaitsASecondBeforeTheNextPoll()
+    {
+        var time = new RecordingTimeProvider();
+        await using var provider = BuildProvider(new ScopeLog(), time: time);
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+
+        var polled = PollingErrorAsync(handler);
+        time.Advance(TimeSpan.FromMilliseconds(999));
+        var waitingBefore = !polled.IsCompleted;
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        await polled.WaitAsync(Patience);
+
+        Assert.Equal([TimeSpan.FromSeconds(1)], time.DueTimes);
+        Assert.True(waitingBefore);
+    }
+
+    [Fact]
+    public async Task ConsecutivePollingErrorsWaitLongerUpToThirtySeconds()
+    {
+        var time = new RecordingTimeProvider();
+        await using var provider = BuildProvider(new ScopeLog(), time: time);
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+
+        for (var error = 0; error < 7; error++)
+        {
+            await WaitOutAPollingErrorAsync(handler, time);
+        }
+
+        Assert.Equal([1, 2, 4, 8, 16, 30, 30], time.DueTimes.Select(wait => wait.TotalSeconds));
+    }
+
+    [Fact]
+    public async Task AnUpdateResetsTheWait()
+    {
+        var time = new RecordingTimeProvider();
+        await using var provider = BuildProvider(new ScopeLog(), time: time);
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+        await WaitOutAPollingErrorAsync(handler, time);
+        await WaitOutAPollingErrorAsync(handler, time);
+
+        await handler.HandleUpdateAsync(Client, new Update { Id = 1 }, CancellationToken.None);
+        await WaitOutAPollingErrorAsync(handler, time);
+
+        Assert.Equal([1, 2, 1], time.DueTimes.Select(wait => wait.TotalSeconds));
+    }
+
+    [Fact]
+    public async Task AQuietMinuteResetsTheWait()
+    {
+        var time = new RecordingTimeProvider();
+        await using var provider = BuildProvider(new ScopeLog(), time: time);
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+        await WaitOutAPollingErrorAsync(handler, time);
+        await WaitOutAPollingErrorAsync(handler, time);
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        await WaitOutAPollingErrorAsync(handler, time);
+
+        Assert.Equal([1, 2, 1], time.DueTimes.Select(wait => wait.TotalSeconds));
+    }
+
+    [Fact]
+    public async Task ShutdownEndsTheWaitAtOnce()
+    {
+        await using var provider = BuildProvider(new ScopeLog(), time: new RecordingTimeProvider());
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+        using var shutdown = new CancellationTokenSource();
+        var polled = handler.HandleErrorAsync(
+            Client,
+            new HttpRequestException("Telegram is unreachable"),
+            HandleErrorSource.PollingError,
+            shutdown.Token
+        );
+
+        await shutdown.CancelAsync();
+
+        // The clock never moved, so only the shutdown can end the wait, and without an exception.
+        await polled.WaitAsync(Patience);
+    }
+
+    private static Task PollingErrorAsync(ScopedUpdateHandler handler) =>
+        handler.HandleErrorAsync(
+            Client,
+            new HttpRequestException("Telegram is unreachable"),
+            HandleErrorSource.PollingError,
+            CancellationToken.None
+        );
+
+    // A polling error, then the clock moved on by as long as the handler asked to wait.
+    private static async Task WaitOutAPollingErrorAsync(ScopedUpdateHandler handler, RecordingTimeProvider time)
+    {
+        var polled = PollingErrorAsync(handler);
+        time.Advance(time.DueTimes[^1]);
+        await polled.WaitAsync(Patience);
+    }
+
     private static ServiceProvider BuildProvider(
         ScopeLog log,
         bool throwing = false,
         LogRecorder? logs = null,
-        Action<IServiceCollection>? configure = null
+        Action<IServiceCollection>? configure = null,
+        TimeProvider? time = null
     )
     {
         var services = new ServiceCollection();
@@ -211,6 +316,7 @@ public sealed class ScopedUpdateHandlerTests
             }
         });
         services.AddSingleton(log);
+        services.AddSingleton(time ?? new FakeTimeProvider());
         services.AddScoped<ScopedDependency>();
         services.AddTelegramReceiving(typeof(ProbeCommand).Assembly);
         services.AddSingleton<ScopedUpdateHandler>();

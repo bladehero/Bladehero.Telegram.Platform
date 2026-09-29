@@ -376,6 +376,8 @@ services.AddScoped<ITelegramErrorHandler, SentryTelegramErrorHandler>();
 
 Long polling keeps running after any failure: a command that throws, even a stray `OperationCanceledException` such as
 an `HttpClient` timeout, a command graph that can't be built, or an error handler that throws itself (that is logged).
+After a failed poll, e.g. while Telegram is unreachable, it waits 1 s before polling again, doubling up to 30 s while
+polls keep failing, on the registered `TimeProvider`.
 
 The webhook endpoint answers 200 once handling has started, even if a command or the error handler fails, so Telegram
 doesn't deliver the update again. It answers otherwise only with 401 without the secret token, 400 for a body that
@@ -639,7 +641,8 @@ var reminder = await nick.WaitForMessageAsync(x => x.Text?.StartsWith("⏰") is 
 
 A timer must exist before the test moves the clock: start it while the update is handled (as the `Sandbox` barista's
 `OrderQueue` does) or at startup (e.g. a periodic scan's `new PeriodicTimer(period, timeProvider)` created when the host
-starts). One a background loop creates later may miss the move and wait for the next.
+starts). One a background loop creates later may miss the move and wait for the next. Long polling's wait after a
+failed poll runs on the same clock, so with a `FakeTimeProvider` it too lasts until the test moves the clock on.
 
 ### Check and fail Telegram
 
