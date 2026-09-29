@@ -426,13 +426,19 @@ e.g. for messages it starts.
 
 ### Configure the app under test
 
-**Settings read before `Build()`**, such as a receiving mode, feature switches or API keys, must be set with
-`web.UseSetting(key, value)`: `ConfigureAppConfiguration` only reaches what the app reads after `Build()`.
+**Settings.** `web.UseSetting(key, value)` reaches the app as a command-line argument, so it beats everything
+`WebApplication.CreateBuilder` loads by default (appsettings, user secrets in Development, environment variables),
+values read before `Build()` included. `ConfigureAppConfiguration` only reaches what the app reads after `Build()`.
 
-**User secrets.** `WebApplicationFactory` runs the app in Development, which loads its user secrets, so real tokens and
-API keys are in reach. The Telegram client is always swapped; anything else external must be replaced, have its
-secrets overridden, or the app runs in another environment with `web.UseEnvironment("Testing")`, where neither
-`appsettings.Development.json` nor user secrets load unless the app adds them itself.
+**Sources the app adds itself.** One added after `CreateBuilder`, such as an explicit `AddUserSecrets`, `AddJsonFile`,
+`AddEnvironmentVariables` or a vault, comes after the command line and beats `UseSetting`. Don't re-add sources
+`CreateBuilder` already provides, or add `builder.Configuration.AddCommandLine(args)` after your own.
+
+**User secrets.** The app still runs in Development, so the developer's user secrets load underneath, and a key the
+test doesn't set comes from them. Set every setting that changes behaviour, even to `""`. The Telegram client is
+swapped regardless; replace every other external service, or override its key. `web.UseEnvironment("Testing")` skips
+user secrets and `appsettings.Development.json`, at a price: outside Development, the app's container is no longer
+validated on build.
 
 **External services**, such as an AI client, get a stand-in. On a generic host, register it after the bot's own
 registrations, as the last one wins:

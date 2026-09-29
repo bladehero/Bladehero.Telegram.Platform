@@ -38,6 +38,12 @@ internal static class SandboxBot
             web.UseSetting("Telegram:BaseUrl", baseUrl);
             web.UseSetting("Telegram:UpdateEndpoint", "telegram/updates");
         }
+        else
+        {
+            // A key the test does not set comes from the developer's user secrets.
+            web.UseSetting("Telegram:BaseUrl", "");
+            web.UseSetting("Telegram:UpdateEndpoint", "");
+        }
 
         configure?.Invoke(web);
     }

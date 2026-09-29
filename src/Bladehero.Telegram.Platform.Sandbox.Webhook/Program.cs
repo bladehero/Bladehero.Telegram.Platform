@@ -2,7 +2,6 @@ using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Configuration.AddUserSecrets<Program>();
 
 // The mode decides what is registered, so it has to be read before Build.
 var byWebhook = !string.IsNullOrWhiteSpace(builder.Configuration["Telegram:BaseUrl"]);
