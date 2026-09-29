@@ -214,10 +214,16 @@ public sealed class HelpCommand(IBotCommandMenu menu) : MessageCommand
 
 ### Known users
 
-`KnownUserCommand<TUser>` runs only for chats your `ITelegramUserResolver<TUser>` recognises; strangers are ignored.
+`KnownUserCommand<TUser>` runs only for users your `ITelegramUserResolver<TUser>` recognises; strangers are ignored.
 
 ```csharp
 services.AddScoped<ITelegramUserResolver<User>, UserResolver>();
+
+internal sealed class UserResolver(IUsers users) : ITelegramUserResolver<User>
+{
+    public Task<User?> ResolveAsync(long chatId, long userId, CancellationToken token) =>
+        users.FindByTelegramIdAsync(userId, token);
+}
 
 internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserCommand<User>
 {
@@ -230,6 +236,10 @@ internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserC
     }
 }
 ```
+
+The resolver gets the chat an update came from and the user who sent it, the same id in a private chat: resolve by
+`userId` to know a person in every chat, or by `chatId` to know a chat, such as a household's group. A message without
+a sender is declined unresolved.
 
 ### Buttons with typed data
 

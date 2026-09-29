@@ -137,7 +137,7 @@ public sealed class DependencyInjectionTests
 
     private sealed class DiTestResolver : ITelegramUserResolver<DiTestUser>
     {
-        public Task<DiTestUser?> ResolveAsync(long chatId, CancellationToken token) =>
+        public Task<DiTestUser?> ResolveAsync(long chatId, long userId, CancellationToken token) =>
             Task.FromResult<DiTestUser?>(null);
     }
 

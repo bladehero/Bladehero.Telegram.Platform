@@ -9,6 +9,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands.Typed.Messages;
 public sealed class KnownUserCommandTests
 {
     private const long KnownChat = 42;
+    private const long Family = -1001;
 
     private static readonly ITelegramBotClient Client = new TelegramBotClient(
         "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
@@ -46,10 +47,50 @@ public sealed class KnownUserCommandTests
         var canHandle = await command.CanHandleAsync(RequestFrom(KnownChat, "hello"), CancellationToken.None);
 
         Assert.False(canHandle);
-        Assert.Equal(0, resolver.Calls);
+        Assert.Empty(resolver.Seen);
     }
 
-    private static CommandRequest RequestFrom(long chatId, string text) =>
+    [Fact]
+    public async Task AGroupMembersMessageResolvesThatMemberInThatGroup()
+    {
+        var resolver = new Resolver();
+        var command = new ProbeCommand(resolver);
+
+        var canHandle = await command.CanHandleAsync(
+            RequestFrom(Family, "/probe", sender: KnownChat),
+            CancellationToken.None
+        );
+
+        Assert.True(canHandle);
+        Assert.Equal([(Family, KnownChat)], resolver.Seen);
+    }
+
+    [Fact]
+    public async Task AMessageWithoutASenderIsDeclinedWithoutResolving()
+    {
+        var resolver = new Resolver();
+        var command = new ProbeCommand(resolver);
+        var request = new CommandRequest(
+            new Update
+            {
+                Id = 1,
+                Message = new Message
+                {
+                    Text = "/probe",
+                    Chat = new Chat { Id = Family },
+                },
+            },
+            Client
+        );
+
+        var canHandle = await command.CanHandleAsync(request, CancellationToken.None);
+
+        Assert.False(canHandle);
+        Assert.Empty(resolver.Seen);
+    }
+
+    // From the chat's own user, as in a private chat, unless a sender is given.
+    private static CommandRequest RequestFrom(long chatId, string text, long? sender = null) =>
         new(
             new Update
             {
@@ -58,6 +99,7 @@ public sealed class KnownUserCommandTests
                 {
                     Text = text,
                     Chat = new Chat { Id = chatId },
+                    From = new User { Id = sender ?? chatId },
                 },
             },
             Client
@@ -65,14 +107,15 @@ public sealed class KnownUserCommandTests
 
     private sealed record TestUser(string Name);
 
+    // Knows the user of KnownChat, in every chat.
     private sealed class Resolver : ITelegramUserResolver<TestUser>
     {
-        public int Calls { get; private set; }
+        public List<(long ChatId, long UserId)> Seen { get; } = [];
 
-        public Task<TestUser?> ResolveAsync(long chatId, CancellationToken token)
+        public Task<TestUser?> ResolveAsync(long chatId, long userId, CancellationToken token)
         {
-            Calls++;
-            return Task.FromResult(chatId == KnownChat ? new TestUser("Nick") : null);
+            Seen.Add((chatId, userId));
+            return Task.FromResult(userId == KnownChat ? new TestUser("Nick") : null);
         }
     }
 
