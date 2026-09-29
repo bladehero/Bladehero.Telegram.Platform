@@ -1,9 +1,12 @@
+using System.Net;
+using System.Text;
 using System.Text.Json.Nodes;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
@@ -299,6 +302,67 @@ public sealed class WebhookTests
     }
 
     [Fact]
+    public async Task Update_WithoutTheSecretTokenAndAMalformedBody_ShouldBeRefusedWith401()
+    {
+        // Arrange
+        await using var bot = await StartWithSecretTokenAsync();
+
+        // Act
+        var status = await PostRawAsync(bot, "{not json", secretToken: null);
+
+        // Assert
+        status.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Update_WithTheSecretTokenAndAMalformedBody_ShouldBeRefusedWith400()
+    {
+        // Arrange
+        await using var bot = await StartWithSecretTokenAsync();
+
+        // Act
+        var status = await PostRawAsync(bot, "{not json", secretToken: "s3cret");
+
+        // Assert
+        status.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Update_WithoutTheSecretToken_ShouldNotBuildTheUpdateHandler()
+    {
+        // Arrange
+        var built = 0;
+        await using var bot = await SandboxBot.StartAsync(
+            BotMode.Webhook,
+            configure: web =>
+            {
+                web.UseSetting("Telegram:SecretToken", "s3cret");
+                web.ConfigureTestServices(services =>
+                    services.AddScoped<IUpdateHandler>(_ =>
+                    {
+                        Interlocked.Increment(ref built);
+                        throw new InvalidOperationException("Built for a request without the secret token");
+                    })
+                );
+            }
+        );
+
+        // Act
+        var status = await PostRawAsync(
+            bot,
+            """{"update_id":1,"message":{"message_id":1,"date":0,"chat":{"id":42,"type":"private"},"text":"hi"}}""",
+            secretToken: null
+        );
+
+        // Assert
+        using (new AssertionScope())
+        {
+            status.Should().Be(HttpStatusCode.Unauthorized);
+            built.Should().Be(0);
+        }
+    }
+
+    [Fact]
     public async Task Startup_WithAnInvalidSecretToken_ShouldFail()
     {
         // Act
@@ -332,6 +396,24 @@ public sealed class WebhookTests
             .WithMessage(
                 "The app polls for updates instead of setting a webhook; start it with ForLongPollingAsync<Program>."
             );
+    }
+
+    // Posts straight to the app's endpoint through its in-memory server, past the test host's delivery.
+    private static async Task<HttpStatusCode> PostRawAsync(TelegramTestHost bot, string body, string? secretToken)
+    {
+        using var client = ((TestServer)bot.Services.GetRequiredService<IServer>()).CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/telegram/updates")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+
+        if (secretToken is not null)
+        {
+            request.Headers.Add("X-Telegram-Bot-Api-Secret-Token", secretToken);
+        }
+
+        using var response = await client.SendAsync(request);
+        return response.StatusCode;
     }
 
     private static Task<TelegramTestHost> StartWithSecretTokenAsync() =>

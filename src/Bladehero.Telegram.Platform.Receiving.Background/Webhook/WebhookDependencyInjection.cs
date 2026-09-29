@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Bladehero.Configuration.Extensions;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Builder;
@@ -30,14 +31,13 @@ public static class WebhookDependencyInjection
             .ServiceProvider.GetRequiredService<ILogger<WebhookEndpoints>>()
             .LogInformation("Receiving Telegram updates at {Endpoint}", endpoint);
 
+        // Nothing is read or built before the secret token checks out: not the body, not the update handler.
         builder.MapPost(
             endpoint,
             async (
-                Update update,
-                TelegramBotClientAccessor accessor,
-                IUpdateHandler handler,
-                ILogger<WebhookEndpoints> logger,
                 HttpContext context,
+                TelegramBotClientAccessor accessor,
+                ILogger<WebhookEndpoints> logger,
                 CancellationToken token
             ) =>
             {
@@ -47,6 +47,13 @@ public static class WebhookDependencyInjection
                     return Results.Unauthorized();
                 }
 
+                if (await ReadUpdateAsync(context.Request, token) is not { } update)
+                {
+                    return Results.BadRequest();
+                }
+
+                // Outside the reporting below, so a handler that cannot be built answers 500.
+                var handler = context.RequestServices.GetRequiredService<IUpdateHandler>();
                 var client = accessor.Client;
                 try
                 {
@@ -64,6 +71,19 @@ public static class WebhookDependencyInjection
                 return Results.Ok();
             }
         );
+    }
+
+    // Null for a body that is not an update.
+    private static async Task<Update?> ReadUpdateAsync(HttpRequest request, CancellationToken token)
+    {
+        try
+        {
+            return await JsonSerializer.DeserializeAsync<Update>(request.Body, JsonBotAPI.Options, token);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     // Compared in constant time, so the response time tells nothing about the token.
