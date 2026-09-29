@@ -518,7 +518,7 @@ user everywhere.
 | `SendsAlbumAsync`, `SendsDocumentAlbumAsync` | Send 2 to 10 photos or files as one album. |
 | `EditsAsync(message, text)` | Edit the user's own text message. |
 | `TapsAsync(text or predicate, on?)` | Tap an inline button; return the bot's answer. |
-| `WaitForMessageAsync(match, timeout?)` | Wait for a message the bot sends later; also on `TestChat`. |
+| `WaitForMessageAsync(match, after?, timeout?)` | Wait for a message the bot sends later; also on `TestChat`. |
 
 A sent message is a snapshot that stays valid even if the bot deletes it. A user can edit their own text message: the
 chat shows the edit, and the bot gets an `edited_message`.
@@ -616,12 +616,14 @@ await nick.SendsDocumentAlbumAsync([(march, "march.csv"), (april, "april.csv")],
 A message the bot sends after the update was handled, such as a notification from a background job, is waited for:
 
 ```csharp
-await nick.SendsAsync("/import");   // answers "Importing…" and imports in the background
-var done = await nick.WaitForMessageAsync(x => x.Text?.StartsWith("Imported") is true);
+var import = await nick.SendsAsync("/import");   // answers "Importing…" and imports in the background
+var done = await nick.WaitForMessageAsync(x => x.Text?.StartsWith("Imported") is true, after: import);
 ```
 
-It returns the newest matching message, or else the first to match later, new or edited. It looks again on every change
-to the chat, without polling, and after `UpdateTimeout` fails showing the chat.
+It returns the newest matching message, or else the first to match later, new or edited. Without `after:`, a match
+already in the chat, such as an earlier import's notice, is returned at once; with it, only messages newer than the
+given one count. It looks again on every change to the chat, without polling, and after `UpdateTimeout` fails showing
+the chat.
 
 A message that waits on a timer comes as soon as the test moves the clock on, when the bot takes its time from an
 injected `TimeProvider` (`Task.Delay(delay, timeProvider, token)`). Register a `FakeTimeProvider`, from

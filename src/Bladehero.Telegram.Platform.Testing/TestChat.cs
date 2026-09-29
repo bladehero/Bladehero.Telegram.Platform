@@ -36,6 +36,10 @@ public sealed class TestChat
     /// that started it was handled.
     /// </summary>
     /// <param name="match">Accepts the message waited for.</param>
+    /// <param name="after">
+    /// Only messages newer than this one of the chat count, typically the trigger:
+    /// <c>after: await nick.SendsAsync("/import")</c>.
+    /// </param>
     /// <param name="timeout">
     /// How long to wait; the host's <see cref="TelegramTestHost.UpdateTimeout"/> by default.
     /// </param>
@@ -44,16 +48,30 @@ public sealed class TestChat
     /// The newest matching message as the chat now stands; failing that, the first message to match later, whether
     /// new or edited.
     /// </returns>
+    /// <exception cref="ArgumentException"><paramref name="after"/> is from another chat.</exception>
     /// <exception cref="TimeoutException">No message matched in time; the error shows the chat.</exception>
-    /// <remarks>It looks again on every change to the chat: a message posted, edited or deleted.</remarks>
+    /// <remarks>
+    /// Without <paramref name="after"/>, a matching message already in the chat, such as the notice of an earlier
+    /// run, is returned at once. It looks again on every change to the chat: a message posted, edited or deleted.
+    /// </remarks>
     public async Task<TestMessage> WaitForMessageAsync(
         Func<TestMessage, bool> match,
+        TestMessage? after = null,
         TimeSpan? timeout = null,
         CancellationToken token = default
     )
     {
         ArgumentNullException.ThrowIfNull(match);
 
+        if (after is not null && after.Message.Chat.Id != Id)
+        {
+            throw new ArgumentException(
+                $"The message \"{after}\" is from another chat, not {Description}; wait after one of its messages.",
+                nameof(after)
+            );
+        }
+
+        Func<TestMessage, bool> counts = after is null ? match : message => message.Id > after.Id && match(message);
         var limit = timeout ?? _host.UpdateTimeout;
         if (limit <= TimeSpan.Zero && limit != Timeout.InfiniteTimeSpan)
         {
@@ -67,7 +85,7 @@ public sealed class TestChat
             TestMessage[] messages = [.. now.Select(json => new TestMessage(json, _host.Api))];
 
             // Nothing matched before a later look, so whatever matches then is new.
-            if ((firstLook ? messages.LastOrDefault(match) : messages.FirstOrDefault(match)) is { } found)
+            if ((firstLook ? messages.LastOrDefault(counts) : messages.FirstOrDefault(counts)) is { } found)
             {
                 return found;
             }
