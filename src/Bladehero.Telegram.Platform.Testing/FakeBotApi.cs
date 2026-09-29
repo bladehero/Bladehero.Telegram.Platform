@@ -56,14 +56,14 @@ public sealed partial class FakeBotApi
     private readonly UpdateQueue _updates = new();
     private long _lastCallbackQueryId;
 
-    /// <summary>Every Bot API call the bot made, oldest first.</summary>
+    /// <summary>Every Bot API call the bot made, oldest first; copies, so changing one changes no record.</summary>
     public IReadOnlyList<BotApiCall> Calls
     {
         get
         {
             lock (_gate)
             {
-                return [.. _calls];
+                return [.. _calls.Select(call => call with { Parameters = call.Parameters.DeepClone().AsObject() })];
             }
         }
     }

@@ -100,6 +100,21 @@ public sealed partial class FakeBotApiTests
     }
 
     [Fact]
+    public async Task Calls_WhenAReadCallIsChanged_ShouldKeepTheRecordAsSent()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        await api.CreateClient().SendMessage(Chat, "Continue?");
+        api.Calls[0].Parameters["text"] = "changed";
+
+        // Act
+        var text = api.Calls[0].Parameters["text"]!.GetValue<string>();
+
+        // Assert
+        text.Should().Be("Continue?");
+    }
+
+    [Fact]
     public async Task EditMessageText_ShouldReplaceTheTextAndKeyboard()
     {
         // Arrange
