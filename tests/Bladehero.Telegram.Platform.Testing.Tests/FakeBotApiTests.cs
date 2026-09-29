@@ -1019,11 +1019,20 @@ public sealed partial class FakeBotApiTests
         api.WebhookUrl.Should().Be(url);
     }
 
+    public static TheoryData<string, string> SecretTokensTelegramRefuses =>
+        new()
+        {
+            { "my secret!", "Bad Request: secret token contains illegal characters" },
+            { "line\nbreak", "Bad Request: secret token contains illegal characters" },
+            { new string('a', 257), "Bad Request: secret token is too long" },
+        };
+
     [Theory]
-    [InlineData("my secret!")]
-    [InlineData("line\nbreak")]
-    [InlineData("")]
-    public async Task SetWebhook_WithASecretTokenTelegramWouldRefuse_ShouldFailLikeTelegram(string secretToken)
+    [MemberData(nameof(SecretTokensTelegramRefuses))]
+    public async Task SetWebhook_WithASecretTokenTelegramWouldRefuse_ShouldFailLikeTelegram(
+        string secretToken,
+        string error
+    )
     {
         // Arrange
         var api = ApiWithChats();
@@ -1035,8 +1044,26 @@ public sealed partial class FakeBotApiTests
         // Assert
         (await act.Should().ThrowAsync<ApiRequestException>())
             .Which.Message.Should()
-            .Contain("secret token contains unallowed characters");
+            .Be(error);
         api.WebhookUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SetWebhook_WithAnEmptySecretToken_ShouldSetNoSecret()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+
+        // Act
+        await client.SetWebhook("https://bot.example.com/updates", secretToken: "");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            api.WebhookUrl.Should().Be("https://bot.example.com/updates");
+            api.Webhook()!.Value.SecretToken.Should().BeNull();
+        }
     }
 
     [Fact]

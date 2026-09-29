@@ -58,7 +58,8 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // Telegram's rules: HTTPS on 443, 80, 88 or 8443; a secret token of 1-256 [A-Za-z0-9_-]; an empty URL removes it.
+    // Telegram's rules: HTTPS on 443, 80, 88 or 8443; a secret token of up to 256 [A-Za-z0-9_-], empty for none; an
+    // empty URL removes the webhook.
     private JsonNode SetWebhook(JsonObject parameters)
     {
         var url = parameters["url"]?.GetValue<string>();
@@ -78,21 +79,22 @@ public sealed partial class FakeBotApi
             throw Refuse(400, "Bad Request: bad webhook: Webhook can be set up only on ports 80, 88, 443 or 8443");
         }
 
-        if (
-            parameters["secret_token"]?.GetValue<string>() is { } secretToken
-            && (
-                secretToken.Length is 0 or > LongestSecretToken
-                || !secretToken.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-')
-            )
-        )
+        // As in Telegram, an empty secret token is none.
+        var secretToken = parameters["secret_token"]?.GetValue<string>() is { Length: > 0 } token ? token : null;
+        if (secretToken?.Length > LongestSecretToken)
         {
-            throw Refuse(400, "Bad Request: secret token contains unallowed characters");
+            throw Refuse(400, "Bad Request: secret token is too long");
+        }
+
+        if (secretToken?.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-') is false)
+        {
+            throw Refuse(400, "Bad Request: secret token contains illegal characters");
         }
 
         _webhook = new JsonObject
         {
             ["url"] = url,
-            ["secret_token"] = parameters["secret_token"]?.DeepClone(),
+            ["secret_token"] = secretToken,
             ["has_custom_certificate"] = parameters["certificate"] is not null,
         };
         UpdateAllowedUpdates(parameters);
