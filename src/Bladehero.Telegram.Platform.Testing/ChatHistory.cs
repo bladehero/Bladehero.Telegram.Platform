@@ -2,8 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// One chat as Telegram keeps it: its messages from every side as they now stand, edits applied and deletions gone.
-// Message ids count up per chat, whoever posts, as they do in Telegram.
+// A chat's messages as they now stand. As in Telegram, message ids count up per chat, whoever posts.
 internal sealed class ChatHistory(JsonObject chat)
 {
     private readonly List<JsonObject> _messages = [];

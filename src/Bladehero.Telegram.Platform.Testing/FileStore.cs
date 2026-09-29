@@ -2,16 +2,14 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// The files Telegram keeps: each has an id to pass around in messages and, once a bot asks for it with getFile, a path
-// to download it from.
+// Stored files: an id for messages, and a download path once getFile hands it out.
 internal sealed class FileStore
 {
     private const int LongestExtension = 20;
 
     private readonly List<StoredFile> _files = [];
 
-    // Details are what a message says about the file beyond its id and size: a photo's dimensions, a document's name
-    // and MIME type, a voice message's duration.
+    // Details: a photo's dimensions, a document's name and MIME type, a voice's duration.
     public StoredFile Add(FileKind kind, byte[] content, JsonObject details, string? url = null)
     {
         var number = _files.Count + 1;
@@ -46,9 +44,7 @@ internal sealed class FileStore
 
     public StoredFile? AtPath(string path) => _files.Find(file => file.Path == path);
 
-    // Paths look like Telegram's own, such as documents/file_12.pdf: only ASCII letters and digits of the extension are
-    // kept, so no name the user gave the file can turn the download URL into something else — "?" into a query, "#"
-    // into a fragment.
+    // Only ASCII letters and digits of the extension are kept, so a name cannot add a query or fragment to the URL.
     private static string PathExtension(string extension)
     {
         var kept = new string([.. extension.Where(char.IsAsciiLetterOrDigit).Take(LongestExtension)]);
@@ -81,14 +77,11 @@ internal sealed class StoredFile(
 
     public byte[] Content { get; } = content;
 
-    // Set when the bot sent the file by URL: Telegram would fetch it, but the fake never goes online, so it has no
-    // content.
+    // Set for files sent by URL, which have no content: the fake never goes online.
     public string? Url { get; } = url;
 
-    // Whether getFile has handed out the path, which is what makes the file downloadable.
     public bool PathGiven { get; set; }
 
-    // How a message refers to the file; the path is only handed out by getFile.
     public JsonObject Describe()
     {
         var described = new JsonObject { ["file_id"] = Id, ["file_unique_id"] = uniqueId };
@@ -106,7 +99,6 @@ internal sealed class StoredFile(
         return described;
     }
 
-    // The part of a message that carries the file: a photo comes as its sizes, the rest as one object.
     public JsonObject ToMessageContent() =>
         Kind switch
         {

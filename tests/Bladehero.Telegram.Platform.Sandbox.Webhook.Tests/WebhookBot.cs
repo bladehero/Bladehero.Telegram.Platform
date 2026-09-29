@@ -4,7 +4,6 @@ using Microsoft.Extensions.Configuration;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests;
 
-// Starts the webhook sandbox as it runs in production, with the configuration its user secrets would hold.
 internal static class WebhookBot
 {
     public const string BaseUrl = "https://bot.example.com";

@@ -9,19 +9,13 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Testing;
 
 /// <summary>
-/// An in-memory stand-in for the Telegram Bot API. The client from <see cref="CreateClient"/> is a real
-/// <see cref="TelegramBotClient"/> that sends real HTTP requests and JSON, so the bot's requests are serialized exactly
-/// as in production — they just never leave the process.
+/// An in-memory Telegram Bot API. <see cref="CreateClient"/> returns a real <see cref="TelegramBotClient"/>, so
+/// requests are serialized as in production but never leave the process.
 /// </summary>
 /// <remarks>
-/// Every Bot API call is recorded in <see cref="Calls"/> — except <c>getUpdates</c>, the polling loop's own traffic —
-/// and answered the way Telegram would, including Telegram's own errors: editing a message that was deleted, one the
-/// bot did not send, or one without changing it, answering a button tap twice, or asking for a file over the 20 MB
-/// bots may download. Files are kept in memory both ways: what users send is served back through <c>getFile</c> and
-/// a download, and what the bot uploads can be read from the chat. A download is not a Bot API call, so it is neither
-/// recorded nor can be made to <see cref="Fail"/>. A method the fake does not know yet
-/// fails with an error naming it, so an unsupported call fails the test instead of passing silently. To see how the
-/// bot copes when Telegram refuses a call, <see cref="Fail"/> it.
+/// Calls are recorded in <see cref="Calls"/> (all but <c>getUpdates</c>) and answered as Telegram would, its errors
+/// included. A method the fake does not support fails with an error naming it. <see cref="Fail"/> makes Telegram
+/// refuse a call.
 /// </remarks>
 public sealed partial class FakeBotApi
 {
@@ -46,6 +40,7 @@ public sealed partial class FakeBotApi
     private readonly UpdateQueue _updates = new();
     private long _lastCallbackQueryId;
 
+    /// <summary>Every Bot API call the bot made, oldest first.</summary>
     public IReadOnlyList<BotApiCall> Calls
     {
         get
@@ -57,13 +52,11 @@ public sealed partial class FakeBotApi
         }
     }
 
+    /// <summary>A real bot client whose requests this fake answers.</summary>
     public ITelegramBotClient CreateClient() =>
         new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));
 
-    /// <summary>
-    /// The command menu Telegram shows for <paramref name="scope"/> — the default scope when none is given — as the
-    /// bot last set it.
-    /// </summary>
+    /// <summary>The command menu the bot set for <paramref name="scope"/>; the default scope when null.</summary>
     public IReadOnlyList<BotCommand> CommandMenu(BotCommandScope? scope = null, string? languageCode = null)
     {
         var key = MenuKey(
@@ -80,17 +73,10 @@ public sealed partial class FakeBotApi
     }
 
     /// <summary>
-    /// Makes Telegram refuse <paramref name="method"/> with <paramref name="error"/> — every call from now on, or only
-    /// the next <paramref name="times"/> calls. A refused call is still recorded in <see cref="Calls"/>, and changes
-    /// nothing.
+    /// Makes Telegram refuse <paramref name="method"/> (e.g. <c>sendMessage</c>) with <paramref name="error"/>: every
+    /// call, or only the next <paramref name="times"/>. A refused call is recorded but changes nothing.
     /// </summary>
-    /// <param name="method">The Bot API method as Telegram names it, such as <c>sendMessage</c>.</param>
-    /// <param name="error">What Telegram answers with; <see cref="BotApiError"/> has the common ones.</param>
-    /// <param name="times">How many calls to refuse before answering again, or <c>null</c> to refuse them all.</param>
-    /// <remarks>
-    /// To fail a call the bot makes as it starts, set the failure up on a fake before handing it to
-    /// <see cref="TelegramTestHost"/>.
-    /// </remarks>
+    /// <remarks>To fail startup calls, arrange this before passing the fake to <see cref="TelegramTestHost"/>.</remarks>
     public void Fail(string method, BotApiError error, int? times = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
@@ -121,7 +107,6 @@ public sealed partial class FakeBotApi
         return _updates.Add(update);
     }
 
-    // A callback query Telegram sends is one the bot may answer, once.
     private void ExpectAnswerTo(JsonObject update)
     {
         if (update["callback_query"]?["id"]?.GetValue<string>() is { } queryId)
@@ -143,7 +128,7 @@ public sealed partial class FakeBotApi
 
     internal Task HandledAsync(int updateId) => _updates.HandledAsync(updateId);
 
-    // A person is known by their first name: the same name is the same Telegram user in every chat of the test.
+    // The same first name is the same user in every chat.
     internal JsonObject Person(string firstName)
     {
         lock (_gate)
@@ -163,7 +148,7 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // A private chat's id is the id of the person the bot talks to, as in Telegram.
+    // As in Telegram, a private chat's id is the user's id.
     internal long PrivateChatWith(JsonObject person)
     {
         var id = person["id"]!.GetValue<long>();
@@ -208,7 +193,6 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // Posts what a person typed, marking a leading bot command the way Telegram does.
     internal JsonObject Receive(long chatId, JsonObject from, string text)
     {
         var content = new JsonObject { ["text"] = text };
@@ -221,7 +205,7 @@ public sealed partial class FakeBotApi
         return Receive(chatId, from, content);
     }
 
-    // How Telegram marks a bot command that starts a text or caption, or null when it starts with none.
+    // The bot_command entity Telegram adds for a leading /command.
     internal static JsonArray? BotCommandEntities(string text) =>
         BotCommandLength(text) is > 1 and var length
             ? new JsonArray(
@@ -296,11 +280,11 @@ public sealed partial class FakeBotApi
         return true;
     }
 
-    // Telegram keeps a menu per scope and language, and a request without a scope means the default one.
+    // Telegram keeps one menu per scope and language.
     private static string MenuKey(JsonNode? scope, JsonNode? languageCode) =>
         $"{scope?.ToJsonString() ?? DefaultScope}|{languageCode?.GetValue<string>()}";
 
-    // Telegram takes one answer per callback query: a second one, or one to a query it never sent, is refused.
+    // Telegram accepts one answer per query it sent.
     private JsonNode AnswerCallbackQuery(JsonObject parameters)
     {
         var queryId = parameters["callback_query_id"]?.GetValue<string>();
@@ -339,9 +323,8 @@ public sealed partial class FakeBotApi
         return ChatOf(parameters).Post(Bot(), content).DeepClone().AsObject();
     }
 
-    // Edits the message's text, its caption, or — when field is null — only its keyboard. An edit replaces the text or
-    // caption together with its entities; Telegram removes the inline keyboard from an edited message unless the edit
-    // passes one again, and removes the caption when an edit of it passes none.
+    // Edits the text, the caption, or (field null) only the keyboard. As in Telegram, entities go with their text, and
+    // a keyboard or caption the edit leaves out is removed.
     private JsonObject Edit(JsonObject parameters, string? field)
     {
         var message =
@@ -370,7 +353,6 @@ public sealed partial class FakeBotApi
         }
 
         var entitiesField = field == "caption" ? "caption_entities" : "entities";
-        // Telegram leaves empty entities out, and a removed text or caption takes its entities with it.
         var newEntities =
             newValue is not null && parameters[entitiesField] is JsonArray { Count: > 0 } entities
                 ? entities.DeepClone()
@@ -416,8 +398,7 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // Only an inline keyboard belongs to a message. A reply keyboard, or the order to remove one, changes the user's
-    // keyboard instead, so the message Telegram returns never carries it.
+    // Only an inline keyboard is attached to a message; a reply keyboard lives on the user's side.
     private static JsonNode? InlineKeyboardOf(JsonObject parameters) =>
         parameters["reply_markup"] is JsonObject markup && markup.ContainsKey("inline_keyboard")
             ? markup.DeepClone()
@@ -456,7 +437,7 @@ public sealed partial class FakeBotApi
             ? (int)messageId
             : throw Refuse(400, "Bad Request: message identifier is not specified");
 
-    // A number, whether it came as JSON or as the text of a form field, as the fields of an upload do.
+    // Uploads send numbers as form text.
     private static long? NumberOf(JsonNode? node)
     {
         if (node is not JsonValue value)
@@ -490,8 +471,7 @@ public sealed partial class FakeBotApi
         {
             if (HasWebhook)
             {
-                // Answered after a pause, as Telegram's round trip would be: at once, a polling loop that cannot
-                // clear the webhook would spin, and flood the test with errors.
+                // Paused like a real round trip, so a loop that cannot clear the webhook does not spin.
                 Interlocked.Increment(ref _refusedPolls);
                 await Task.Delay(ConflictPause, token);
                 return Respond(

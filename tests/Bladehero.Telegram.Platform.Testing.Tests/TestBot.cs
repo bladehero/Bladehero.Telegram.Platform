@@ -10,8 +10,8 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
-// The bot every test here runs: commands are found by scanning this assembly, so together they make up one bot. Each
-// answers only its own command or button — apart from the echo, which answers any text that is not a command.
+// The one bot all tests run (commands are found by assembly scan). Each command answers only its own trigger; the echo
+// answers any non-command text.
 internal static class TestBot
 {
     public static Task<TelegramTestHost> StartAsync(FakeBotApi? api = null) =>
@@ -68,7 +68,7 @@ internal static class TestBot
             );
     }
 
-    // Downloads whatever file a user sends and says what it got, reading the content as text.
+    // Downloads any file sent and replies with its content as text.
     private sealed class FileCommand : MessageCommand
     {
         protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
@@ -94,7 +94,6 @@ internal static class TestBot
         }
     }
 
-    // Uploads a photo whose buttons rename it or send it again by its file id.
     private sealed class PhotoCommand : MessageCommand
     {
         private static readonly InlineKeyboardMarkup Buttons = new([
@@ -199,7 +198,6 @@ internal static class TestBot
             );
     }
 
-    // Deletes the command itself, as a bot keeping its chat tidy would.
     private sealed class TidyCommand : MessageCommand
     {
         protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
@@ -209,7 +207,7 @@ internal static class TestBot
             request.Client.DeleteMessage(request.Payload.Chat, request.Payload.Id, cancellationToken: token);
     }
 
-    // Ignore is a button no command handles, so its tap goes unanswered.
+    // No command handles Ignore, so its tap goes unanswered.
     [BotCommand("menu", "Show the menu")]
     private sealed class MenuCommand : MessageCommand
     {
@@ -232,7 +230,7 @@ internal static class TestBot
             request.Client.SendMessage(request.Payload.Chat, "Pick one", replyMarkup: Menu, cancellationToken: token);
     }
 
-    // Edits the menu into the pick, which takes its keyboard away. B is answered with an alert, A with a notification.
+    // Answers A with a notification and B with an alert.
     private sealed class PickCommand : CallbackQueryCommand
     {
         protected override Task<bool> CanHandleAsync(
