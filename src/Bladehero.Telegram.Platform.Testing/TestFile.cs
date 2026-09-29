@@ -25,14 +25,18 @@ public sealed class TestFile
     /// <summary>A document's name; <c>null</c> for photos and voice messages.</summary>
     public string? FileName { get; }
 
+    /// <summary>
+    /// The file's MIME type, which Telegram gives documents and voice messages; <c>null</c> for photos.
+    /// </summary>
     public string? MimeType { get; }
 
     /// <summary>
-    /// The address the bot sent the file by, for Telegram to fetch; <c>null</c> when it was uploaded or sent by id.
+    /// The address the file was first sent by, for Telegram to fetch — it stays set when the bot sends the same file
+    /// again by its id. <c>null</c> for a file that was uploaded.
     /// </summary>
     public string? Url { get; }
 
-    /// <summary>The file's bytes.</summary>
+    /// <summary>The file's bytes — a copy, so changing it changes nothing in the chat.</summary>
     /// <exception cref="InvalidOperationException">
     /// The bot sent the file by <see cref="Url"/>. The fake never goes online to fetch it, so it has no bytes.
     /// </exception>

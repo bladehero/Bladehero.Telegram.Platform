@@ -4,6 +4,7 @@ using FluentAssertions.Execution;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
@@ -467,7 +468,7 @@ public sealed class FakeBotApiTests
         {
             sent.Caption.Should().Be("123");
             sent.ReplyMarkup!.InlineKeyboard.SelectMany(row => row).Select(x => x.Text).Should().Equal("Yes", "No");
-            api.File(sent.Photo![^1].FileId).Content.Should().Equal("jpeg"u8.ToArray());
+            api.TestFileOf(sent.Photo![^1].FileId).Content.Should().Equal("jpeg"u8.ToArray());
         }
     }
 
@@ -566,6 +567,120 @@ public sealed class FakeBotApiTests
 
         // Assert
         edited.Caption.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("Отчёт за май.pdf")]
+    [InlineData("Café.txt")]
+    [InlineData("😀 plan.pdf")]
+    public async Task SendDocument_Uploaded_ShouldKeepTheFileNameAsWritten(string fileName)
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        var sent = await client.SendDocument(Chat, InputFile.FromStream(new MemoryStream("x"u8.ToArray()), fileName));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Document!.FileName.Should().Be(fileName);
+            api.TestFileOf(sent.Document.FileId).FileName.Should().Be(fileName);
+        }
+    }
+
+    [Fact]
+    public async Task SendDocument_WithAThumbnail_ShouldKeepEachUploadApart()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        var sent = await client.SendDocument(
+            Chat,
+            InputFile.FromStream(new MemoryStream("a,b"u8.ToArray()), "report.csv"),
+            thumbnail: InputFile.FromStream(new MemoryStream("thumb"u8.ToArray()), "report.csv")
+        );
+
+        // Assert
+        api.TestFileOf(sent.Document!.FileId).ReadAsString().Should().Be("a,b");
+    }
+
+    [Theory]
+    [InlineData("https://example.com/my%20report.pdf", "my report.pdf")]
+    [InlineData("https://example.com/", "file")]
+    public async Task SendDocument_ByUrl_ShouldNameItAfterTheUrlsPath(string url, string fileName)
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var sent = await client.SendDocument(Chat, InputFile.FromUri(url));
+
+        // Assert
+        sent.Document!.FileName.Should().Be(fileName);
+    }
+
+    [Fact]
+    public async Task SendPhoto_WithCaptionEntities_ShouldKeepThem()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var sent = await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
+            caption: "A cat",
+            captionEntities:
+            [
+                new MessageEntity
+                {
+                    Type = MessageEntityType.Bold,
+                    Offset = 2,
+                    Length = 3,
+                },
+            ]
+        );
+
+        // Assert
+        sent.CaptionEntities.Should().ContainSingle().Which.Type.Should().Be(MessageEntityType.Bold);
+    }
+
+    [Fact]
+    public async Task EditMessageText_OnAVoiceMessage_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendVoice(Chat, InputFile.FromStream(new MemoryStream("ogg"u8.ToArray())));
+
+        // Act
+        var act = () => client.EditMessageText(Chat, sent.Id, "Hello");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("there is no text in the message to edit");
+    }
+
+    [Fact]
+    public async Task EditMessageCaption_OnADocument_ShouldReplaceTheCaption()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendDocument(
+            Chat,
+            InputFile.FromStream(new MemoryStream("a,b"u8.ToArray()), "report.csv"),
+            caption: "Draft"
+        );
+
+        // Act
+        var edited = await client.EditMessageCaption(Chat, sent.Id, "Final");
+
+        // Assert
+        edited.Caption.Should().Be("Final");
     }
 
     [Fact]
