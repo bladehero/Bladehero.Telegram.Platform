@@ -28,7 +28,7 @@ public sealed partial class TelegramTestHost
         public IServiceProvider Services => services;
 
         public async Task DeliverAsync(
-            JsonObject update,
+            Func<JsonObject> compose,
             TimeSpan timeout,
             Action<long> numbered,
             CancellationToken token
@@ -39,7 +39,7 @@ public sealed partial class TelegramTestHost
                 throw new InvalidOperationException(await WhyNoWebhookAsync(timeout, token));
             }
 
-            var (stamped, updateId) = api.StampForWebhook(update);
+            var (stamped, updateId) = api.StampForWebhook(compose());
             numbered(updateId);
 
             var request = new HttpRequestMessage(HttpMethod.Post, webhook.Url)

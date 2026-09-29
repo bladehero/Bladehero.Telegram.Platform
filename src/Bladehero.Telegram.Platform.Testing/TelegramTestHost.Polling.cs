@@ -58,7 +58,7 @@ public sealed partial class TelegramTestHost
         public IServiceProvider Services { get; }
 
         public async Task DeliverAsync(
-            JsonObject update,
+            Func<JsonObject> compose,
             TimeSpan timeout,
             Action<long> numbered,
             CancellationToken token
@@ -72,7 +72,7 @@ public sealed partial class TelegramTestHost
                 throw new TimeoutException($"No one fetched the update within {Describe(timeout)}. {WhyNotPolled()}");
             }
 
-            var updateId = _api.Enqueue(update);
+            var updateId = _api.Enqueue(compose());
             numbered(updateId);
 
             if (!await UntilAsync(_api.HandledAsync(updateId), Left(timeout, clock), token))

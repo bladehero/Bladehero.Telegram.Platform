@@ -29,7 +29,7 @@ public sealed class FakeBotApiTests
     public async Task SendMessage_ShouldAnswerWithTheMessageAsTelegramWould()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var sent = await client.SendMessage(Chat, "Continue?", replyMarkup: YesNo);
@@ -51,7 +51,7 @@ public sealed class FakeBotApiTests
     public async Task SendMessage_WithAReplyKeyboard_ShouldNotAttachItToTheMessage()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var sent = await client.SendMessage(Chat, "Continue?", replyMarkup: new ReplyKeyboardMarkup("Yes"));
@@ -64,7 +64,7 @@ public sealed class FakeBotApiTests
     public async Task SendMessage_ShouldNumberMessagesPerChat()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var first = await client.SendMessage(Chat, "one");
@@ -81,7 +81,7 @@ public sealed class FakeBotApiTests
     public async Task Calls_ShouldRecordEveryRequestInOrderWithItsParameters()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -101,7 +101,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageText_ShouldReplaceTheTextAndKeyboard()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendMessage(Chat, "Continue?");
 
         // Act
@@ -121,7 +121,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageText_WithoutAKeyboard_ShouldRemoveTheOneShown()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendMessage(Chat, "Continue?", replyMarkup: YesNo);
 
         // Act
@@ -135,7 +135,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageText_WhenNothingChanges_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendMessage(Chat, "Continue?", replyMarkup: YesNo);
 
         // Act
@@ -151,7 +151,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageText_OnAMessageTheBotDidNotSend_ShouldFailLikeTelegram()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         var nick = api.Person("Nick");
         var chat = api.PrivateChatWith(nick);
@@ -170,7 +170,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageReplyMarkup_WithoutAKeyboard_ShouldKeepTheTextAndRemoveTheButtons()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendMessage(Chat, "Continue?", replyMarkup: YesNo);
 
         // Act
@@ -188,7 +188,7 @@ public sealed class FakeBotApiTests
     public async Task DeleteMessage_ShouldRemoveTheMessageSoItCanNoLongerBeEdited()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendMessage(Chat, "Continue?");
         await client.DeleteMessage(Chat, sent.Id);
 
@@ -205,7 +205,7 @@ public sealed class FakeBotApiTests
     public async Task DeleteMessage_WhenTheMessageDoesNotExist_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var act = () => client.DeleteMessage(Chat, 99);
@@ -220,7 +220,7 @@ public sealed class FakeBotApiTests
     public async Task AnswerCallbackQuery_ForAQueryTelegramNeverSent_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var act = () => client.AnswerCallbackQuery("unknown");
@@ -235,7 +235,7 @@ public sealed class FakeBotApiTests
     public async Task AnswerCallbackQuery_Twice_ShouldFailLikeTelegram()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         api.Enqueue(new JsonObject { ["callback_query"] = new JsonObject { ["id"] = "7" } });
         await client.AnswerCallbackQuery("7");
@@ -253,7 +253,7 @@ public sealed class FakeBotApiTests
     public async Task SetMyCommands_ShouldKeepAMenuPerScope()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         var privateChats = new BotCommandScopeAllPrivateChats();
 
@@ -274,7 +274,7 @@ public sealed class FakeBotApiTests
     public async Task Fail_ShouldRefuseTheMethodWithTheErrorAndChangeNothing()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         api.Fail("sendMessage", BotApiError.BotBlocked);
 
@@ -296,7 +296,7 @@ public sealed class FakeBotApiTests
     public async Task Fail_ForSomeTimes_ShouldAnswerAgainOnceTheyRunOut()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         api.Fail("sendMessage", BotApiError.ChatNotFound, times: 1);
         await ((Func<Task>)(() => client.SendMessage(Chat, "one"))).Should().ThrowAsync<ApiRequestException>();
@@ -312,7 +312,7 @@ public sealed class FakeBotApiTests
     public async Task Fail_WithTooManyRequests_ShouldLetTheClientWaitAndRetry()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         api.Fail("sendMessage", BotApiError.TooManyRequests(retryAfter: 1), times: 1);
 
@@ -331,7 +331,7 @@ public sealed class FakeBotApiTests
     public void Fail_OnGetUpdates_ShouldSayTheHostOwnsIt()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
 
         // Act
         var act = () => api.Fail("getUpdates", BotApiError.ChatNotFound);
@@ -344,7 +344,7 @@ public sealed class FakeBotApiTests
     public async Task DownloadFile_ShouldServeTheBytesTheUserSent()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         var file = await client.GetFile(StoreDocument(api, "hello"u8.ToArray(), "hello.txt"));
         using var content = new MemoryStream();
@@ -360,7 +360,7 @@ public sealed class FakeBotApiTests
     public async Task DownloadFile_WithAnEscapedPath_ShouldServeTheFile()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         await client.GetFile(StoreDocument(api, "hello"u8.ToArray(), "hello.txt"));
         using var content = new MemoryStream();
@@ -376,7 +376,7 @@ public sealed class FakeBotApiTests
     public async Task DownloadFile_WithAPathTelegramNeverGave_ShouldFailLikeTelegram()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -396,7 +396,7 @@ public sealed class FakeBotApiTests
     public async Task DownloadFile_BeforeGetFileGaveThePath_ShouldFailLikeTelegram()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         StoreDocument(api, "hello"u8.ToArray(), "hello.txt");
 
@@ -413,7 +413,7 @@ public sealed class FakeBotApiTests
     public async Task GetFile_OfExactlyTwentyMegabytes_ShouldHandOutAPath()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         var fileId = StoreDocument(api, new byte[20 * 1024 * 1024], "big.zip");
 
@@ -428,7 +428,7 @@ public sealed class FakeBotApiTests
     public async Task GetFile_ForAFileTelegramDoesNotHave_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var act = () => client.GetFile("unknown");
@@ -443,7 +443,7 @@ public sealed class FakeBotApiTests
     public async Task GetFile_OverTheTwentyMegabytesBotsMayDownload_ShouldFailLikeTelegram()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         var fileId = StoreDocument(api, new byte[20 * 1024 * 1024 + 1], "big.zip");
 
@@ -460,7 +460,7 @@ public sealed class FakeBotApiTests
     public async Task SendPhoto_Uploaded_ShouldKeepTheBytesAndReadTheFormFields()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -484,7 +484,7 @@ public sealed class FakeBotApiTests
     public async Task SendPhoto_WithAnEmptyUpload_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var act = () => client.SendPhoto(Chat, InputFile.FromStream(new MemoryStream(), "cat.jpg"));
@@ -499,7 +499,7 @@ public sealed class FakeBotApiTests
     public async Task SendDocument_ByAFileIdTelegramDoesNotHave_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var act = () => client.SendDocument(Chat, InputFile.FromFileId("unknown"));
@@ -514,7 +514,7 @@ public sealed class FakeBotApiTests
     public async Task SendPhoto_WithADocumentsFileId_ShouldFailLikeTelegram()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         var fileId = StoreDocument(api, "a,b"u8.ToArray(), "report.csv");
 
@@ -531,7 +531,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageText_OnAPhoto_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendPhoto(Chat, InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())));
 
         // Act
@@ -547,7 +547,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageCaption_OnATextMessage_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendMessage(Chat, "Continue?");
 
         // Act
@@ -563,7 +563,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageCaption_WithoutACaption_ShouldRemoveIt()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendPhoto(
             Chat,
             InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
@@ -586,7 +586,7 @@ public sealed class FakeBotApiTests
     public async Task SendPhoto_WithEntitiesButNoCaption_ShouldKeepNoEntities()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var sent = await client.SendPhoto(
@@ -603,7 +603,7 @@ public sealed class FakeBotApiTests
     public async Task SendMessage_WithNoEntities_ShouldLeaveThemOutLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendMessage(Chat, "A cat", entities: []);
 
         // Act
@@ -626,7 +626,7 @@ public sealed class FakeBotApiTests
     public async Task SendDocument_Uploaded_ShouldKeepTheFileNameAsWritten(string fileName)
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -644,7 +644,7 @@ public sealed class FakeBotApiTests
     public async Task SendDocument_WithAThumbnail_ShouldKeepEachUploadApart()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -693,7 +693,7 @@ public sealed class FakeBotApiTests
     public async Task SendPhoto_Uploaded_ShouldRecordJsonFieldsAsJson()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -714,7 +714,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageCaption_ShouldReplaceTheCaptionsEntitiesWithIt()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendPhoto(
             Chat,
             InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
@@ -741,7 +741,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageCaption_ChangingOnlyTheEntities_ShouldBeAnEdit()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendPhoto(
             Chat,
             InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
@@ -781,7 +781,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageText_ShouldReplaceTheTextsEntitiesWithIt()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendMessage(
             Chat,
             "A cat",
@@ -815,7 +815,7 @@ public sealed class FakeBotApiTests
     public async Task SendDocument_ByUrl_ShouldNameItAfterTheUrlsPath(string url, string fileName)
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var sent = await client.SendDocument(Chat, InputFile.FromUri(url));
@@ -828,7 +828,7 @@ public sealed class FakeBotApiTests
     public async Task SendPhoto_WithCaptionEntities_ShouldKeepThem()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var sent = await client.SendPhoto(
@@ -854,7 +854,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageText_OnAVoiceMessage_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendVoice(Chat, InputFile.FromStream(new MemoryStream("ogg"u8.ToArray())));
 
         // Act
@@ -870,7 +870,7 @@ public sealed class FakeBotApiTests
     public async Task EditMessageCaption_OnADocument_ShouldReplaceTheCaption()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendDocument(
             Chat,
             InputFile.FromStream(new MemoryStream("a,b"u8.ToArray()), "report.csv"),
@@ -888,7 +888,7 @@ public sealed class FakeBotApiTests
     public async Task GetFile_OfAFileSentByUrl_ShouldSayTheFakeNeverFetchedIt()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         var sent = await client.SendPhoto(Chat, InputFile.FromUri("https://example.com/cat.jpg"));
 
         // Act
@@ -904,7 +904,7 @@ public sealed class FakeBotApiTests
     public async Task SetWebhook_ShouldShowInTheWebhookInfoUntilDeleted()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         await client.SetWebhook("https://bot.example.com/updates");
         var set = await client.GetWebhookInfo();
@@ -927,7 +927,7 @@ public sealed class FakeBotApiTests
     public async Task SetWebhook_WhereTelegramCannotDeliver_ShouldFailLikeTelegram(string url, string error)
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -948,7 +948,7 @@ public sealed class FakeBotApiTests
     public async Task SetWebhook_OnAPortTelegramDeliversTo_ShouldBeAccepted(string url)
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -965,7 +965,7 @@ public sealed class FakeBotApiTests
     public async Task SetWebhook_WithASecretTokenTelegramWouldRefuse_ShouldFailLikeTelegram(string secretToken)
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -982,7 +982,7 @@ public sealed class FakeBotApiTests
     public async Task SetWebhook_WithTheLongestSecretToken_ShouldBeAccepted()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
 
         // Act
@@ -996,7 +996,7 @@ public sealed class FakeBotApiTests
     public async Task SetWebhook_WithAnEmptyUrl_ShouldRemoveTheWebhook()
     {
         // Arrange
-        var api = new FakeBotApi();
+        var api = ApiWithChats();
         var client = api.CreateClient();
         await client.SetWebhook("https://bot.example.com/updates");
 
@@ -1011,7 +1011,7 @@ public sealed class FakeBotApiTests
     public async Task SetWebhook_WithACertificate_ShouldReadTheFormAsTelegramDoes()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         await client.SetWebhook(
@@ -1033,7 +1033,7 @@ public sealed class FakeBotApiTests
     public async Task SetWebhook_WithoutAllowedUpdates_ShouldKeepTheOnesSetBefore()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         await client.SetWebhook("https://bot.example.com/updates", allowedUpdates: [UpdateType.Message]);
 
         // Act
@@ -1049,7 +1049,7 @@ public sealed class FakeBotApiTests
     public async Task GetUpdates_WhileAWebhookIsSet_ShouldFailLikeTelegram()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
         await client.SetWebhook("https://bot.example.com/updates");
 
         // Act
@@ -1065,7 +1065,7 @@ public sealed class FakeBotApiTests
     public async Task GetMe_ShouldAnswerWithTheBot()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var me = await client.GetMe();
@@ -1082,7 +1082,7 @@ public sealed class FakeBotApiTests
     public async Task AMethodTheFakeDoesNotAnswer_ShouldFailNamingTheMethod()
     {
         // Arrange
-        var client = new FakeBotApi().CreateClient();
+        var client = ApiWithChats().CreateClient();
 
         // Act
         var act = () => client.SendDice(Chat);
@@ -1094,6 +1094,56 @@ public sealed class FakeBotApiTests
             failure.Which.ErrorCode.Should().Be(404);
             failure.Which.Message.Should().Contain("sendDice");
         }
+    }
+
+    [Fact]
+    public async Task SendMessage_ToAChatTelegramNeverSaw_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        var act = () => client.SendMessage(Chat, "hello");
+
+        // Assert
+        var failure = await act.Should().ThrowAsync<ApiRequestException>();
+        using (new AssertionScope())
+        {
+            failure.Which.ErrorCode.Should().Be(400);
+            failure.Which.Message.Should().Be("Bad Request: chat not found");
+            api.MessagesIn(Chat).Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task SendMessage_ToAGroupMemberWhoNeverStartedTheBot_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+        var anna = api.Person("Anna");
+        api.Group("Family");
+
+        // Act
+        var act = () => client.SendMessage(anna["id"]!.GetValue<long>(), "hello");
+
+        // Assert
+        var failure = await act.Should().ThrowAsync<ApiRequestException>();
+        using (new AssertionScope())
+        {
+            failure.Which.ErrorCode.Should().Be(403);
+            failure.Which.Message.Should().Be("Forbidden: bot can't initiate conversation with a user");
+        }
+    }
+
+    // A fake the bot may write to Chat and 7 on, as if both users had started it.
+    private static FakeBotApi ApiWithChats()
+    {
+        var api = new FakeBotApi();
+        api.PrivateChatWith(new JsonObject { ["id"] = Chat, ["first_name"] = "Nick" });
+        api.PrivateChatWith(new JsonObject { ["id"] = 7L, ["first_name"] = "Anna" });
+        return api;
     }
 
     private static string StoreDocument(FakeBotApi api, byte[] content, string fileName) =>

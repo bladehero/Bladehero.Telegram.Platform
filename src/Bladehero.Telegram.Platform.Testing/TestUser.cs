@@ -41,7 +41,7 @@ public sealed class TestUser
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
-        return DeliverAsync(_host.Api.Receive(Chat.Id, _person, text.Trim()), token);
+        return DeliverAsync(() => _host.Api.Receive(Chat.Id, _person, text.Trim()), token);
     }
 
     /// <summary>
@@ -53,16 +53,26 @@ public sealed class TestUser
     {
         ThrowIfEmpty(photo);
 
-        var thumbnail = _host.Api.StoreFile(
-            FileKind.Photo,
-            Thumbnail,
-            new JsonObject { ["width"] = 90, ["height"] = 68 }
-        )["photo"]![0]!;
+        return SendsFileAsync(
+            () =>
+            {
+                var thumbnail = _host.Api.StoreFile(
+                    FileKind.Photo,
+                    Thumbnail,
+                    new JsonObject { ["width"] = 90, ["height"] = 68 }
+                )["photo"]![0]!;
 
-        var content = _host.Api.StoreFile(FileKind.Photo, photo, new JsonObject { ["width"] = 1280, ["height"] = 960 });
-        content["photo"]!.AsArray().Insert(0, thumbnail.DeepClone());
-
-        return SendsFileAsync(content, caption, token);
+                var content = _host.Api.StoreFile(
+                    FileKind.Photo,
+                    photo,
+                    new JsonObject { ["width"] = 1280, ["height"] = 960 }
+                );
+                content["photo"]!.AsArray().Insert(0, thumbnail.DeepClone());
+                return content;
+            },
+            caption,
+            token
+        );
     }
 
     /// <summary>Sends a voice message of <paramref name="duration"/> (one second by default).</summary>
@@ -73,17 +83,20 @@ public sealed class TestUser
         ThrowIfEmpty(voice);
         ArgumentOutOfRangeException.ThrowIfLessThan(duration ?? TimeSpan.Zero, TimeSpan.Zero, nameof(duration));
 
-        var content = _host.Api.StoreFile(
-            FileKind.Voice,
-            voice,
-            new JsonObject
-            {
-                ["duration"] = (int)Math.Ceiling((duration ?? TimeSpan.FromSeconds(1)).TotalSeconds),
-                ["mime_type"] = "audio/ogg",
-            }
+        return SendsFileAsync(
+            () =>
+                _host.Api.StoreFile(
+                    FileKind.Voice,
+                    voice,
+                    new JsonObject
+                    {
+                        ["duration"] = (int)Math.Ceiling((duration ?? TimeSpan.FromSeconds(1)).TotalSeconds),
+                        ["mime_type"] = "audio/ogg",
+                    }
+                ),
+            caption: null,
+            token
         );
-
-        return SendsFileAsync(content, caption: null, token);
     }
 
     /// <summary>
@@ -105,17 +118,20 @@ public sealed class TestUser
         ThrowIfEmpty(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
 
-        var content = _host.Api.StoreFile(
-            FileKind.Document,
-            document,
-            new JsonObject
-            {
-                ["file_name"] = fileName,
-                ["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypes.Of(fileName) : mimeType,
-            }
+        return SendsFileAsync(
+            () =>
+                _host.Api.StoreFile(
+                    FileKind.Document,
+                    document,
+                    new JsonObject
+                    {
+                        ["file_name"] = fileName,
+                        ["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypes.Of(fileName) : mimeType,
+                    }
+                ),
+            caption,
+            token
         );
-
-        return SendsFileAsync(content, caption, token);
     }
 
     /// <summary>Taps the inline button <paramref name="button"/> on the newest message showing it.</summary>
@@ -145,31 +161,40 @@ public sealed class TestUser
             ["data"] = data,
         };
 
-        await _host.DeliverAsync(new JsonObject { ["callback_query"] = query }, token);
+        await _host.DeliverAsync(() => new JsonObject { ["callback_query"] = query }, token);
         return new TestCallbackAnswer(_host.Api.CallbackAnswer(queryId));
     }
 
     public override string ToString() => FirstName;
 
     // As Telegram: captions are trimmed, empty ones dropped, and a leading /command is marked.
-    private Task SendsFileAsync(JsonObject content, string? caption, CancellationToken token)
+    private Task SendsFileAsync(Func<JsonObject> file, string? caption, CancellationToken token)
     {
         caption = caption?.Trim();
-        if (!string.IsNullOrEmpty(caption))
-        {
-            content["caption"] = caption;
 
-            if (FakeBotApi.BotCommandEntities(caption) is { } entities)
+        return DeliverAsync(
+            () =>
             {
-                content["caption_entities"] = entities;
-            }
-        }
+                var content = file();
+                if (!string.IsNullOrEmpty(caption))
+                {
+                    content["caption"] = caption;
 
-        return DeliverAsync(_host.Api.Receive(Chat.Id, _person, content), token);
+                    if (FakeBotApi.BotCommandEntities(caption) is { } entities)
+                    {
+                        content["caption_entities"] = entities;
+                    }
+                }
+
+                return _host.Api.Receive(Chat.Id, _person, content);
+            },
+            token
+        );
     }
 
-    private Task DeliverAsync(JsonObject message, CancellationToken token) =>
-        _host.DeliverAsync(new JsonObject { ["message"] = message }, token);
+    // The message is posted only once the bot can take it.
+    private Task DeliverAsync(Func<JsonObject> message, CancellationToken token) =>
+        _host.DeliverAsync(() => new JsonObject { ["message"] = message() }, token);
 
     private static void ThrowIfEmpty(byte[] content, [CallerArgumentExpression(nameof(content))] string? name = null)
     {

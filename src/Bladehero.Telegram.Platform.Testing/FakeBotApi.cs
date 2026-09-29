@@ -203,6 +203,24 @@ public sealed partial class FakeBotApi
         }
     }
 
+    // A chat an update brings becomes known, as Telegram lets the bot answer where it heard from.
+    internal void KnowChatsIn(JsonObject update)
+    {
+        var payload = update.FirstOrDefault(field => field.Key != "update_id").Value;
+        JsonNode?[] chats = [payload?["chat"], payload?["message"]?["chat"]];
+
+        lock (_gate)
+        {
+            foreach (var chat in chats.OfType<JsonObject>())
+            {
+                if (NumberOf(chat["id"]) is { } id)
+                {
+                    _chats.TryAdd(id, new ChatHistory(chat.DeepClone().AsObject()));
+                }
+            }
+        }
+    }
+
     internal JsonObject Receive(long chatId, JsonObject from, string text)
     {
         var content = new JsonObject { ["text"] = text };
@@ -424,22 +442,18 @@ public sealed partial class FakeBotApi
         return true;
     }
 
+    // As in Telegram, the bot can only write to a chat it knows: one a user opened or an update brought.
     private ChatHistory ChatOf(JsonObject parameters)
     {
-        if (NumberOf(parameters["chat_id"]) is not { } chatId)
+        var chatId = NumberOf(parameters["chat_id"]);
+        if (chatId is { } id && _chats.TryGetValue(id, out var chat))
         {
-            throw Refuse(400, "Bad Request: chat not found");
+            return chat;
         }
 
-        if (!_chats.TryGetValue(chatId, out var chat))
-        {
-            chat = new ChatHistory(
-                new JsonObject { ["id"] = chatId, ["type"] = chatId > 0 ? "private" : "supergroup" }
-            );
-            _chats[chatId] = chat;
-        }
-
-        return chat;
+        throw _people.Values.Any(person => person["id"]!.GetValue<long>() == chatId)
+            ? Refuse(403, "Forbidden: bot can't initiate conversation with a user")
+            : Refuse(400, "Bad Request: chat not found");
     }
 
     private static int MessageIdOf(JsonObject parameters) =>

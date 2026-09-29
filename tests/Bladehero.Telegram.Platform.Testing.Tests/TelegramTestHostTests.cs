@@ -212,6 +212,39 @@ public sealed class TelegramTestHostTests
         }
     }
 
+    [Fact]
+    public async Task SendMessage_ToAChatSeenInARawUpdate_ShouldBeAccepted()
+    {
+        // Arrange: no test chat opened chat 42, and no command answers /nothing.
+        await using var bot = await TestBot.StartAsync();
+        await bot.SendAsync(Text("/nothing"));
+
+        // Act
+        var sent = await bot.Api.CreateClient().SendMessage(42, "Welcome");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Chat.Id.Should().Be(42);
+            sent.Chat.Type.Should().Be(ChatType.Private);
+        }
+    }
+
+    [Fact]
+    public async Task PrivateChat_ForAGroupMember_ShouldLetTheBotWriteToThem()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var anna = bot.GroupChat("Family").Member("Anna");
+        var inPrivate = bot.PrivateChat("Anna");
+
+        // Act
+        await bot.Api.CreateClient().SendMessage(anna.Id, "Your limit is near");
+
+        // Assert
+        inPrivate.LastMessage.ToString().Should().Be("Bot: Your limit is near");
+    }
+
     [Theory]
     [InlineData("instance")]
     [InlineData("factory")]

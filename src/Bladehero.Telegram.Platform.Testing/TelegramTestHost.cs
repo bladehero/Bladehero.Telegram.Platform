@@ -271,15 +271,29 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// <exception cref="InvalidOperationException">
     /// Long polling: the bot's host stopped. Webhook mode: no webhook is set, or it answered with a failure.
     /// </exception>
-    public Task SendAsync(Update update, CancellationToken token = default) =>
-        DeliverAsync(JsonSerializer.SerializeToNode(update, JsonBotAPI.Options)!.AsObject(), token);
+    public Task SendAsync(Update update, CancellationToken token = default)
+    {
+        var json = JsonSerializer.SerializeToNode(update, JsonBotAPI.Options)!.AsObject();
+        return DeliverAsync(() => json, token);
+    }
 
-    internal async Task DeliverAsync(JsonObject update, CancellationToken token)
+    // `compose` builds the update, e.g. posting the user's message into the chat, once the bot can take it.
+    internal async Task DeliverAsync(Func<JsonObject> compose, CancellationToken token)
     {
         long? updateId = null;
         try
         {
-            await _bot.DeliverAsync(update, UpdateTimeout, id => updateId = id, token);
+            await _bot.DeliverAsync(
+                () =>
+                {
+                    var update = compose();
+                    Api.KnowChatsIn(update);
+                    return update;
+                },
+                UpdateTimeout,
+                id => updateId = id,
+                token
+            );
         }
         catch when (updateId is not null)
         {
@@ -422,7 +436,8 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     {
         IServiceProvider Services { get; }
 
-        // Returns once the bot has finished the update, passing its id to `numbered` as soon as it has one.
-        Task DeliverAsync(JsonObject update, TimeSpan timeout, Action<long> numbered, CancellationToken token);
+        // Composes the update once the bot can take it and returns once the bot has finished it, passing its id to
+        // `numbered` as soon as it has one.
+        Task DeliverAsync(Func<JsonObject> compose, TimeSpan timeout, Action<long> numbered, CancellationToken token);
     }
 }
