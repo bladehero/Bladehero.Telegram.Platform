@@ -185,6 +185,9 @@ message.IsCommand("/last");      // true for /last, /last@MyBot and /last 10
 message.ArgumentsOf("/last");    // "10", or null
 ```
 
+`IsCommand` doesn't check the bot's own username: `/last@AnyBot` counts too, which matters in a group with several
+bots.
+
 ### Command menu
 
 Mark a command with `[BotCommand]` to list it in the menu Telegram shows on `/`:
@@ -367,9 +370,9 @@ public sealed class LimitAlerts(ITelegramSender sender)
 
 ## Errors and the HttpClient
 
-Receiver errors go to `ITelegramErrorHandler`. The default one logs every error: one from an update at Error, a timed-out
-call included, and a failed poll at Warning; shutdown's own cancellation isn't an error and never reaches it. Each
-`TelegramError` carries the `Exception` and the `Update` being handled (`null` for a failed poll), so a handler can
+Receiver errors go to `ITelegramErrorHandler`. The default one logs every error: one from an update at Error, a
+timed-out call included, and a failed poll at Warning; shutdown's own cancellation isn't an error and never reaches it.
+Each `TelegramError` carries the `Exception` and the `Update` being handled (`null` for a failed poll), so a handler can
 tell the user something went wrong. Replace it by registering your own **after** the receiving services:
 
 ```csharp
@@ -442,7 +445,8 @@ the right one. For the web apps the test project references the app; if the fact
 also reference `Microsoft.AspNetCore.Mvc.Testing`.
 
 The bot's client talks to the fake, and so does an `ITelegramBotClient` or `TelegramBotClient` the app registers itself,
-e.g. for messages it starts.
+e.g. for messages it starts. Only clients registered in DI are swapped: one built by hand in `Program` or inside a
+factory still talks to Telegram, so give the tests a dummy token.
 
 ### Configure the app under test
 
@@ -611,7 +615,8 @@ await nick.SendsAlbumAsync([front, back], caption: "Receipt");
 await nick.SendsDocumentAlbumAsync([new(march, "march.csv"), new(scan, "scan", "application/pdf")], caption: "Q2");
 ```
 
-Each `TestDocument` has its bytes, its name and, when the extension doesn't tell, its MIME type.
+Each `TestDocument` has its bytes, its name and, when the extension doesn't tell, its MIME type. A webhook bot gets an
+album's items one by one in tests too, where real Telegram may post them at once.
 
 ### Wait for later messages
 
@@ -658,7 +663,7 @@ failed poll runs on the same clock, so with a `FakeTimeProvider` it too lasts un
 | `CommandMenu(scope?)` | The published command menu; the default scope when none is given. |
 | `WebhookUrl` | The webhook the bot set. |
 | `Fail(method, error, times?, chatId?)` | Makes Telegram refuse a method, for every chat or only one. |
-| `FailNetwork(method, times?, chatId?)` | Makes the network drop a method's calls: the client throws a `RequestException`. |
+| `FailNetwork(method, times?, chatId?)` | Makes a method's calls fail on the network (`RequestException`). |
 | `UserIdOf(firstName)` | The Telegram id a test user gets, reserved before the host starts. |
 
 ```csharp
@@ -705,7 +710,8 @@ Any other method fails the test, naming it. It enforces:
 - `allowed_updates`, one list per bot: the types it asked for last, with `getUpdates` or `setWebhook`; an action of
   another type fails before anything changes;
 - limits: text up to 4096 characters, captions up to 1024, answers up to 200, callback data of 1-64 bytes, and inline
-  buttons that each do something;
+  buttons that each do something; text is measured raw, so formatted text near a limit may be refused where Telegram,
+  counting it without its markup, would take it;
 - trimming of the text and captions the bot sends, entities included;
 - only chats Telegram knows;
 - one answer per tap;
@@ -729,13 +735,48 @@ services.Remove(services.Single(x =>
 
 For an internal type you can't name, match on `x.ImplementationType?.Name == "ModelWarmup"`.
 
+**The database:** point the app's connection string at a file of the test's own, so a test never writes to the
+developer's real database:
+
+```csharp
+var path = Path.Combine(Path.GetTempPath(), $"budget-{Guid.NewGuid():N}.db");
+await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
+    web.UseSetting("ConnectionStrings:Database", $"Data Source={path}"));
+```
+
 **In-memory SQLite:** each `:memory:` connection opens its own empty database, so contexts in different scopes would
 not see each other's data. Share one open connection across the bot's scopes:
 
 ```csharp
 var connection = new SqliteConnection("Data Source=:memory:");
 connection.Open();   // the database lives as long as this connection
-services.AddDbContext<BudgetContext>(options => options.UseSqlite(connection));
+services.AddDbContext<BudgetContext>(options => options.UseSqlite(connection));   // after the app's own AddDbContext
+```
+
+**Seed data or run an app service** through the bot's own container, in a scope as the app would:
+
+```csharp
+using (var scope = bot.Services.CreateScope())
+{
+    var budgets = scope.ServiceProvider.GetRequiredService<BudgetContext>();
+    budgets.Limits.Add(new Limit("Groceries", 300));
+    await budgets.SaveChangesAsync();
+
+    await scope.ServiceProvider.GetRequiredService<MonthlyReport>().SendAsync(CancellationToken.None);
+}
+```
+
+**A restart** is a second host on the same `FakeBotApi`, which keeps the chats, their messages and the command menu:
+
+```csharp
+var api = new FakeBotApi();
+await using (var first = await TelegramTestHost.ForLongPollingAsync(services => services.AddBudgetBot(config), api))
+{
+    await first.PrivateChat("Nick").SendsAsync("/limit groceries 300");
+}
+
+await using var bot = await TelegramTestHost.ForLongPollingAsync(services => services.AddBudgetBot(config), api);
+var nick = bot.PrivateChat("Nick");   // the same chat, as the bot left it
 ```
 
 **One command per button:** Telegram takes one answer per tap, and a second fails with its own "query is too old and
