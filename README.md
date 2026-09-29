@@ -368,7 +368,14 @@ public sealed class LimitAlerts(ITelegramSender sender)
 
 For more than text (editing, deleting, sending files), inject the bot's `ITelegramBotClient`: the same client the
 library receives and replies with. To build it differently, e.g. for a local Bot API server, register your own
-`ITelegramBotClient`, before or after these calls, and the library uses that one too.
+`ITelegramBotClient` as a singleton, before or after these calls, and the library uses that one too:
+
+- The library resolves it once and keeps it. A scoped registration fails when scopes are validated, and a typed
+  `IHttpClientFactory` client is captured once (set `PooledConnectionLifetime` on its handler if DNS changes matter).
+- `httpClientFactory` applies only to the client the library builds; configure your own client's `HttpClient` yourself.
+- Register it as `ITelegramBotClient`: one registered only as `TelegramBotClient` leaves the library building a second.
+- A client for another bot goes under a key (`AddKeyedSingleton<ITelegramBotClient>("alerts", …)`), or it becomes this
+  bot's client.
 
 ## Errors and the HttpClient
 
@@ -391,7 +398,7 @@ doesn't deliver the update again. It answers otherwise only with 401 without the
 isn't an update, or 500 when the update handler can't be built.
 
 `AddTelegramBot` and the `IConfiguration` overloads of the receiving methods take an `httpClientFactory` for proxies,
-IPv4, retries or logging:
+IPv4, retries or logging. It builds the library's client, so it doesn't apply to a client you register yourself:
 
 ```csharp
 services.AddTelegramLongPollingReceiving(
