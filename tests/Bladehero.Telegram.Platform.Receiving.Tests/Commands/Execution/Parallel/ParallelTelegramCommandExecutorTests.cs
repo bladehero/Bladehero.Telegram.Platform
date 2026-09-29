@@ -13,9 +13,9 @@ namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands.Execution.Paralle
 
 public sealed class ParallelTelegramCommandExecutorTests
 {
-    // Each command's run. The checks are one-sided, so a loaded machine can only make them pass by a wider margin:
-    // commands that ran together overlap and took less than two runs; rounds one after another start only once the
-    // one before has ended, and took at least two runs.
+    // Each command's run. Every check is an ordering or one-sided, so a loaded machine can't fail it: commands that ran
+    // together overlap, each starting before any ends; rounds one after another start only once the one before has
+    // ended, and take at least two runs.
     private static readonly TimeSpan Delay = TimeSpan.FromSeconds(1);
 
     // A timer can fire up to one system clock tick (about 16 ms on Windows) before the stopwatch shows its delay.
@@ -369,15 +369,12 @@ public sealed class ParallelTelegramCommandExecutorTests
         );
     }
 
-    // Every command started before any of them ended, and together they took less than two runs.
+    // Every command started before any of them ended.
     private static void AssertRanConcurrently(EventLog log, params string[] names)
     {
         var lastStart = names.Max(name => log.OffsetOf($"{name}:start"));
         var firstEnd = names.Min(name => log.OffsetOf($"{name}:end"));
         lastStart.Should().BeLessThan(firstEnd, "commands that run together overlap");
-
-        var (start, end) = WindowOf(log, names);
-        (end - start).Should().BeLessThan(Delay * 2, "commands that run together take one run");
     }
 
     private static void AssertStartsAfter(TimeSpan later, TimeSpan earlier) =>
