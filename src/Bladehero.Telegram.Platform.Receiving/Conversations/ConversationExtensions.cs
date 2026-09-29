@@ -44,6 +44,40 @@ public static class ConversationExtensions
         await conversation.SetAsync(active with { Step = step, Data = JsonSerializer.Serialize(data) }, token);
     }
 
+    /// <summary>
+    /// The binding for the buttons of the active conversation, giving it a run id on first use (one save); later calls
+    /// in the run return the same binding.
+    /// </summary>
+    /// <remarks>
+    /// Build the run's buttons with it, e.g. <c>keyboard.AddButton(text, button, binding)</c>: a tap by anyone else,
+    /// or from an ended or replaced run, is then answered before any step runs.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// There is no active conversation, or the update has no user in a chat.
+    /// </exception>
+    public static async ValueTask<ConversationBinding> BindAsync(
+        this IConversation conversation,
+        CancellationToken token
+    )
+    {
+        var state =
+            await conversation.GetAsync(token)
+            ?? throw new InvalidOperationException(
+                "There is no active conversation to bind buttons to; start one first."
+            );
+        var key =
+            conversation.Key
+            ?? throw new InvalidOperationException("This update has no user in a chat to bind buttons to.");
+
+        if (state.Id is null)
+        {
+            state = state with { Id = ConversationState.NewId() };
+            await conversation.SetAsync(state, token);
+        }
+
+        return new ConversationBinding(key.UserId, state.Id!);
+    }
+
     /// <summary>The conversation's data, or <c>default</c> when there is none.</summary>
     public static async ValueTask<TData?> GetDataAsync<TData>(
         this IConversation conversation,

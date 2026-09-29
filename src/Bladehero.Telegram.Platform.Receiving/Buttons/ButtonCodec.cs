@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Reflection;
 using System.Text;
+using Bladehero.Telegram.Platform.Receiving.Conversations;
 
 namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 
@@ -100,12 +101,18 @@ internal sealed class ButtonCodec
             : $"{type.Name[..tick]}<{string.Join(", ", type.GetGenericArguments().Select(NameOf))}>";
     }
 
-    public string Encode(object button)
+    // A bound button's data ends in the binding, which counts toward the 64 bytes too.
+    public string Encode(object button, ConversationBinding? binding = null)
     {
         var data = new StringBuilder(Prefix);
         foreach (var field in _fields)
         {
             data.Append(':').Append(Write(field, field.Property.GetValue(button)));
+        }
+
+        if (binding is { } bound)
+        {
+            data.Append(bound.Suffix());
         }
 
         var encoded = data.ToString();
@@ -122,8 +129,31 @@ internal sealed class ButtonCodec
         return encoded;
     }
 
-    // Never throws: data that doesn't decode is simply not this button.
-    public bool TryDecode(string data, out object? button)
+    public bool TryDecode(string data, out object? button) => TryDecode(data, out button, out _);
+
+    // Never throws: data that doesn't decode is simply not this button. The last '@' starts a binding, as strings
+    // escape theirs; a malformed binding doesn't decode.
+    public bool TryDecode(string data, out object? button, out ConversationBinding? binding)
+    {
+        button = null;
+        binding = null;
+
+        var at = data.LastIndexOf('@');
+        if (at < 0)
+        {
+            return TryDecodeUnbound(data, out button);
+        }
+
+        if (!ConversationBinding.TryParse(data[(at + 1)..], out var bound) || !TryDecodeUnbound(data[..at], out button))
+        {
+            return false;
+        }
+
+        binding = bound;
+        return true;
+    }
+
+    private bool TryDecodeUnbound(string data, out object? button)
     {
         button = null;
 
