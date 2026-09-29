@@ -328,6 +328,50 @@ public sealed class FakeBotApiTests
     }
 
     [Fact]
+    public async Task Fail_ForOneChat_ShouldRefuseOnlyThatChat()
+    {
+        // Arrange: Anna (7) blocked the bot.
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        api.Fail("sendMessage", BotApiError.BotBlocked, chatId: 7);
+
+        // Act
+        var toAnna = await Record.ExceptionAsync(() => client.SendMessage(7, "Your limit is near"));
+        var toNick = await client.SendMessage(Chat, "Your limit is near");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            toAnna.Should().BeOfType<ApiRequestException>().Which.ErrorCode.Should().Be(403);
+            toNick.Text.Should().Be("Your limit is near");
+            api.MessagesIn(7).Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task Fail_ForOneChat_ShouldCountOnlyItsCalls()
+    {
+        // Arrange: uploads send chat_id as form text.
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        api.Fail("sendPhoto", BotApiError.BotBlocked, times: 1, chatId: 7);
+        await client.SendPhoto(Chat, InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())));
+
+        // Act
+        var first = await Record.ExceptionAsync(() =>
+            client.SendPhoto(7, InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())))
+        );
+        var second = await client.SendPhoto(7, InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            first.Should().BeOfType<ApiRequestException>().Which.ErrorCode.Should().Be(403);
+            second.Chat.Id.Should().Be(7);
+        }
+    }
+
+    [Fact]
     public void Fail_OnGetUpdates_ShouldSayTheHostOwnsIt()
     {
         // Arrange

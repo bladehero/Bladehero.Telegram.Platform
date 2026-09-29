@@ -1,3 +1,4 @@
+using System.Globalization;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
@@ -69,6 +70,42 @@ public sealed class HostingTests
             error.Exception.Should().BeSameAs(thrown);
             error.Update!.Id.Should().Be(1);
             error.Update.Message!.Chat.Id.Should().Be(nick.Chat.Id);
+        }
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Updates_ByTwoUsersAtOnce_ShouldEachRethrowOnlyTheirOwnError(BotMode mode)
+    {
+        // Arrange: Anna blocked the bot.
+        await using var bot = await SandboxBot.StartAsync(mode);
+        var nick = bot.PrivateChat("Nick");
+        var anna = bot.PrivateChat("Anna");
+        bot.Api.Fail("sendMessage", BotApiError.BotBlocked, chatId: anna.Chat.Id);
+        var rounds = new List<string>();
+
+        // Act
+        for (var round = 0; round < 20; round++)
+        {
+            var outcomes = await Task.WhenAll(OutcomeOf(nick.SendsAsync("hello")), OutcomeOf(anna.SendsAsync("hi")));
+            rounds.Add(string.Join(" | ", outcomes));
+        }
+
+        // Assert
+        rounds.Should().AllBeEquivalentTo("no error | 403");
+    }
+
+    private static async Task<string> OutcomeOf(Task action)
+    {
+        try
+        {
+            await action;
+            return "no error";
+        }
+        catch (ApiRequestException exception)
+        {
+            return exception.ErrorCode.ToString(CultureInfo.InvariantCulture);
         }
     }
 

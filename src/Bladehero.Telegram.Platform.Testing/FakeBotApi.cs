@@ -74,12 +74,14 @@ public sealed partial class FakeBotApi
 
     /// <summary>
     /// Makes Telegram refuse <paramref name="method"/> (e.g. <c>sendMessage</c>) with <paramref name="error"/>: every
-    /// call, or only the next <paramref name="times"/>. A refused call is recorded but changes nothing.
+    /// call, or only the next <paramref name="times"/>; with <paramref name="chatId"/>, only the calls to that chat,
+    /// e.g. a user who blocked the bot. A refused call is recorded but changes nothing.
     /// </summary>
     /// <remarks>
+    /// A method's first matching failure applies until its <paramref name="times"/> run out, then the next one does.
     /// To fail startup calls, arrange this before passing the fake to <see cref="TelegramTestHost"/>.
     /// </remarks>
-    public void Fail(string method, BotApiError error, int? times = null)
+    public void Fail(string method, BotApiError error, int? times = null, long? chatId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
         ArgumentNullException.ThrowIfNull(error);
@@ -99,7 +101,7 @@ public sealed partial class FakeBotApi
 
         lock (_gate)
         {
-            _failures.Add(new Failure(method, error, times));
+            _failures.Add(new Failure(method, error, times, chatId));
         }
     }
 
@@ -515,7 +517,7 @@ public sealed partial class FakeBotApi
         {
             _calls.Add(new BotApiCall(method, parameters.DeepClone().AsObject()));
 
-            if (TakeFailure(method) is { } failure)
+            if (TakeFailure(method, parameters) is { } failure)
             {
                 return Respond(failure);
             }
@@ -533,9 +535,10 @@ public sealed partial class FakeBotApi
         return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = result });
     }
 
-    private BotApiError? TakeFailure(string method)
+    private BotApiError? TakeFailure(string method, JsonObject parameters)
     {
-        var failure = _failures.FirstOrDefault(x => x.Matches(method));
+        var chatId = NumberOf(parameters["chat_id"]);
+        var failure = _failures.FirstOrDefault(x => x.Matches(method, chatId));
         if (failure is null)
         {
             return null;
@@ -585,13 +588,16 @@ public sealed partial class FakeBotApi
         public BotApiError Error { get; } = error;
     }
 
-    private sealed class Failure(string method, BotApiError error, int? times)
+    // chatId: only calls to that chat, whether chat_id came as a number or as form text.
+    private sealed class Failure(string method, BotApiError error, int? times, long? chatId)
     {
         public BotApiError Error { get; } = error;
 
         public bool Exhausted => times is 0;
 
-        public bool Matches(string requested) => requested.Equals(method, StringComparison.OrdinalIgnoreCase);
+        public bool Matches(string requested, long? requestedChatId) =>
+            requested.Equals(method, StringComparison.OrdinalIgnoreCase)
+            && (chatId is null || chatId == requestedChatId);
 
         public void Happen()
         {
