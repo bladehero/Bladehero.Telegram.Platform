@@ -1,6 +1,8 @@
 using System.Reflection;
 using Bladehero.Configuration.Extensions;
+using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,6 +28,7 @@ public static class WebhookDependencyInjection
                 TelegramBotClientAccessor accessor,
                 IUpdateHandler handler,
                 ILogger<WebhookEndpoints> logger,
+                HttpContext context,
                 CancellationToken token
             ) =>
             {
@@ -38,7 +41,8 @@ public static class WebhookDependencyInjection
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "An error occurred while handling telegram update");
-                    await handler.HandleErrorAsync(client, ex, HandleErrorSource.HandleUpdateError, token);
+                    var errorHandler = context.RequestServices.GetRequiredService<ITelegramErrorHandler>();
+                    await errorHandler.HandleAsync(new TelegramError(ex, client, update));
                 }
             }
         );

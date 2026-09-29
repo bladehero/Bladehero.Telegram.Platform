@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using Bladehero.Telegram.Platform.Receiving;
 using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
+using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -65,6 +67,46 @@ public sealed class TelegramTestHostTests
 
         // Assert
         bot.Api.Calls.Should().ContainSingle(x => x.Method == "sendMessage");
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenACommandThrowsACancellation_ShouldRethrowItAndKeepPolling()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+
+        // Act
+        var failure = await Record.ExceptionAsync(() => bot.SendAsync(Text("/timeout")));
+        await bot.SendAsync(Text("still here"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            failure.Should().BeOfType<TaskCanceledException>().Which.Message.Should().Be("Claude timed out");
+            bot.Api.Calls.Should().ContainSingle(x => x.Method == "sendMessage");
+        }
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenTheCommandGraphCannotBeBuilt_ShouldRethrowTheCauseAndKeepPolling()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(services: services =>
+            services.AddScoped<ITelegramCommandExecutor>(_ => throw new InvalidOperationException("db down"))
+        );
+        var stopwatch = Stopwatch.StartNew();
+
+        // Act
+        var first = await Record.ExceptionAsync(() => bot.SendAsync(Text("hello")));
+        var second = await Record.ExceptionAsync(() => bot.SendAsync(Text("hello again")));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            first.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("db down");
+            second.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("db down");
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "neither waits out the 30 s update timeout");
+        }
     }
 
     [Fact]

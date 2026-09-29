@@ -4,6 +4,7 @@ using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -14,13 +15,20 @@ namespace Bladehero.Telegram.Platform.Testing.Tests;
 // answers any non-command text.
 internal static class TestBot
 {
-    public static Task<TelegramTestHost> StartAsync(FakeBotApi? api = null) =>
+    // A test's own registrations come after the bot's, so they win.
+    public static Task<TelegramTestHost> StartAsync(
+        FakeBotApi? api = null,
+        Action<IServiceCollection>? services = null
+    ) =>
         TelegramTestHost.ForLongPollingAsync(
-            services =>
-                services.AddTelegramLongPollingReceiving(
+            collection =>
+            {
+                collection.AddTelegramLongPollingReceiving(
                     receiver => receiver.Token = "unused",
                     typeof(TestBot).Assembly
-                ),
+                );
+                services?.Invoke(collection);
+            },
             api
         );
 
@@ -52,6 +60,16 @@ internal static class TestBot
 
         protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
             throw new InvalidOperationException("boom");
+    }
+
+    // Fails as a timed-out HTTP call does: with a cancellation nobody asked for.
+    private sealed class TimeoutCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/timeout"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            throw new TaskCanceledException("Claude timed out");
     }
 
     [BotCommand("whoami", "Say who you are")]

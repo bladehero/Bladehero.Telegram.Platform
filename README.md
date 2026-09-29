@@ -353,12 +353,16 @@ public sealed class LimitAlerts(ITelegramSender sender)
 
 ## Errors and the HttpClient
 
-Receiver errors go to `ITelegramErrorHandler`, which logs them and ignores the cancellation on shutdown. Replace it by
-registering your own **after** the receiving services:
+Receiver errors go to `ITelegramErrorHandler`, which logs them and ignores the cancellation on shutdown. Each
+`TelegramError` carries the `Exception` and the `Update` being handled (`null` for a failed poll), so a handler can
+tell the user something went wrong. Replace it by registering your own **after** the receiving services:
 
 ```csharp
 services.AddScoped<ITelegramErrorHandler, SentryTelegramErrorHandler>();
 ```
+
+Long polling keeps running after any failure: a command that throws, even a stray `OperationCanceledException` such as
+an `HttpClient` timeout, a command graph that can't be built, or an error handler that throws itself (that is logged).
 
 `AddTelegramBot` and the `IConfiguration` overloads of the receiving methods take an `httpClientFactory` for proxies,
 IPv4, retries or logging:
