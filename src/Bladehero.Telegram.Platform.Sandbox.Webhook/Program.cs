@@ -1,5 +1,6 @@
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
+using Bladehero.Telegram.Platform.Sandbox.Webhook.Notes;
 using Bladehero.Telegram.Platform.Sandbox.Webhook.Translator;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +26,7 @@ else
 
 // Off until a real translator is registered in its place.
 builder.Services.AddSingleton<ITranslator, DisabledTranslator>();
+builder.Services.AddSingleton<Notebook>();
 
 var app = builder.Build();
 
