@@ -117,6 +117,13 @@ public sealed partial class FakeBotApi
 
     internal int Enqueue(JsonObject update)
     {
+        ExpectAnswerTo(update);
+        return _updates.Add(update);
+    }
+
+    // A callback query Telegram sends is one the bot may answer, once.
+    private void ExpectAnswerTo(JsonObject update)
+    {
         if (update["callback_query"]?["id"]?.GetValue<string>() is { } queryId)
         {
             lock (_gate)
@@ -124,8 +131,6 @@ public sealed partial class FakeBotApi
                 _callbackAnswers.TryAdd(queryId, null);
             }
         }
-
-        return _updates.Add(update);
     }
 
     internal JsonObject? CallbackAnswer(string queryId)
@@ -271,13 +276,9 @@ public sealed partial class FakeBotApi
             "editMessageReplyMarkup" => Edit(parameters, field: null),
             "deleteMessage" => Delete(parameters),
             "answerCallbackQuery" => AnswerCallbackQuery(parameters),
-            "getWebhookInfo" => new JsonObject
-            {
-                ["url"] = "",
-                ["has_custom_certificate"] = false,
-                ["pending_update_count"] = 0,
-            },
-            "deleteWebhook" => true,
+            "setWebhook" => SetWebhook(parameters),
+            "getWebhookInfo" => WebhookInfo(),
+            "deleteWebhook" => DeleteWebhook(),
             "getMyCommands" => GetCommandMenu(parameters),
             "setMyCommands" => SetCommandMenu(parameters),
             "getFile" => GetFile(parameters),
@@ -487,6 +488,20 @@ public sealed partial class FakeBotApi
 
         if (method == "getUpdates")
         {
+            if (HasWebhook)
+            {
+                // Answered after a pause, as Telegram's round trip would be: at once, a polling loop that cannot
+                // clear the webhook would spin, and flood the test with errors.
+                Interlocked.Increment(ref _refusedPolls);
+                await Task.Delay(ConflictPause, token);
+                return Respond(
+                    new BotApiError(
+                        409,
+                        "Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first"
+                    )
+                );
+            }
+
             var updates = await _updates.TakeAsync(parameters, token);
             return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = updates });
         }

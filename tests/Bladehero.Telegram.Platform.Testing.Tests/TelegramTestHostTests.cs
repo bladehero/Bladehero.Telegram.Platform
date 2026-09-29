@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using Bladehero.Telegram.Platform.Receiving;
+using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -103,6 +105,73 @@ public sealed class TelegramTestHostTests
         {
             bot.Api.Should().BeSameAs(api);
             api.CommandMenu().Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ForLongPollingAsync_WithALeftoverWebhook_ShouldDeleteItAndPoll()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        await api.CreateClient().SetWebhook("https://bot.example.com/updates");
+
+        // Act
+        await using var bot = await TestBot.StartAsync(api);
+        await bot.SendAsync(Text("hello"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            api.WebhookUrl.Should().BeNull();
+            api.Calls.Should().Contain(x => x.Method == "sendMessage");
+        }
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenTheLeftoverWebhookCannotBeDeleted_ShouldSayItBlocksPolling()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        await api.CreateClient().SetWebhook("https://bot.example.com/updates");
+        api.Fail("deleteWebhook", new BotApiError(500, "Internal Server Error"));
+        await using var bot = await TestBot.StartAsync(api);
+        bot.UpdateTimeout = TimeSpan.FromSeconds(1);
+
+        // Act
+        var act = () => bot.SendAsync(Text("hello"));
+
+        // Assert
+        await act.Should().ThrowAsync<TimeoutException>().WithMessage("*still has a webhook*409*");
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenWebhookReceivingWasRegisteredInstead_ShouldSayLongPollingIsMissing()
+    {
+        // Arrange — the webhook is set, but nothing ever polls, so Telegram never refused a poll.
+        await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
+            services.AddTelegramWebhookReceiving(
+                webhook =>
+                {
+                    webhook.Token = "unused";
+                    webhook.BaseUrl = "https://bot.example.com";
+                    webhook.UpdateEndpoint = "updates";
+                },
+                typeof(TestBot).Assembly
+            )
+        );
+        bot.UpdateTimeout = TimeSpan.FromSeconds(1);
+
+        // Act
+        var act = () => bot.SendAsync(Text("hello"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Api.WebhookUrl.Should().NotBeNull();
+            (await act.Should().ThrowAsync<TimeoutException>())
+                .Which.Message.Should()
+                .Contain("AddTelegramLongPollingReceiving")
+                .And.NotContain("409");
         }
     }
 
