@@ -79,6 +79,119 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task SendsAlbumAsync_ShouldSendEachPhotoAsItsOwnUpdateInOneGroup()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var sent = await nick.SendsAlbumAsync(["one"u8.ToArray(), "two"u8.ToArray(), "three"u8.ToArray()], "Lunch");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Select(x => x.Photo!.ReadAsString()).Should().Equal("one", "two", "three");
+            sent.Select(x => x.Caption).Should().Equal("Lunch", null, null);
+            sent.Select(x => x.Message.MediaGroupId).Distinct().Should().ContainSingle().Which.Should().NotBeNull();
+            sent.Select(x => x.Id).Should().BeInAscendingOrder();
+            AlbumReplies(nick).Should().Equal("Album item: Lunch", "Album item: no caption", "Album item: no caption");
+        }
+    }
+
+    [Fact]
+    public async Task SendsDocumentAlbumAsync_ShouldPutTheCaptionUnderTheLastFile()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var sent = await nick.SendsDocumentAlbumAsync(
+            [("a,b"u8.ToArray(), "march.csv"), ("%PDF"u8.ToArray(), "april.pdf")],
+            "Reports"
+        );
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Select(x => x.Document!.FileName).Should().Equal("march.csv", "april.pdf");
+            sent.Select(x => x.Document!.MimeType).Should().Equal("text/csv", "application/pdf");
+            sent.Select(x => x.Caption).Should().Equal(null, "Reports");
+            sent.Select(x => x.Message.MediaGroupId).Distinct().Should().ContainSingle();
+            AlbumReplies(nick).Should().Equal("Album item: no caption", "Album item: Reports");
+        }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(11)]
+    public async Task SendsAlbumAsync_WithoutTwoToTenPhotos_ShouldBeRefused(int count)
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsAlbumAsync([.. Enumerable.Repeat("jpeg"u8.ToArray(), count)]);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should()
+                .ThrowAsync<ArgumentException>()
+                .WithMessage($"An album holds 2 to 10 items, not {count}.*");
+            nick.Messages.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task SendsAlbumAsync_WithAnEmptyPhoto_ShouldBeRefused()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsAlbumAsync(["jpeg"u8.ToArray(), []]);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should()
+                .ThrowAsync<ArgumentException>()
+                .WithMessage("The Telegram app never sends an empty file.*");
+            nick.Messages.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task SendsDocumentAlbumAsync_WhenTheSecondItemFails_ShouldSendNoMore()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () =>
+            nick.SendsDocumentAlbumAsync([
+                ("a"u8.ToArray(), "first.csv"),
+                ("b"u8.ToArray(), "broken.csv"),
+                ("c"u8.ToArray(), "third.csv"),
+            ]);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Cannot read broken.csv");
+            nick.Messages.Where(x => !x.IsFromBot)
+                .Select(x => x.Message.Document!.FileName)
+                .Should()
+                .Equal("first.csv", "broken.csv");
+        }
+    }
+
+    [Fact]
     public async Task SendsAsync_WhenTheBotAsksOnlyForMessages_ShouldReachIt()
     {
         // Arrange
@@ -783,4 +896,10 @@ public sealed class TestUserTests
             .ThrowAsync<InvalidOperationException>()
             .WithMessage("Nick sees no \"A\" button on \"(photo)\"*");
     }
+
+    // The bot's answers to album items only; its file command answers them too.
+    private static IEnumerable<string?> AlbumReplies(TestUser user) =>
+        user
+            .Messages.Where(x => x.Text?.StartsWith("Album item:", StringComparison.Ordinal) is true)
+            .Select(x => x.Text);
 }

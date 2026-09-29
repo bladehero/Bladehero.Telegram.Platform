@@ -55,6 +55,7 @@ public sealed partial class FakeBotApi
     private readonly FileStore _files = new();
     private readonly UpdateQueue _updates = new();
     private long _lastCallbackQueryId;
+    private long _lastMediaGroupId;
 
     /// <summary>Every Bot API call the bot made, oldest first; copies, so changing one changes no record.</summary>
     public IReadOnlyList<BotApiCall> Calls
@@ -287,6 +288,9 @@ public sealed partial class FakeBotApi
     }
 
     internal string NextCallbackQueryId() => Interlocked.Increment(ref _lastCallbackQueryId).ToString();
+
+    internal string NextMediaGroupId() =>
+        Interlocked.Increment(ref _lastMediaGroupId).ToString(CultureInfo.InvariantCulture);
 
     private JsonNode Answer(
         string method,

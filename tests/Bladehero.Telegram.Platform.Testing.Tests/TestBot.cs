@@ -303,6 +303,22 @@ internal static class TestBot
             request.Client.SendMessage(request.Payload.Chat, "Pick one", replyMarkup: Menu, cancellationToken: token);
     }
 
+    // Answers each album item with its caption, and cannot read broken.csv.
+    private sealed class AlbumCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.MediaGroupId is not null);
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Payload.Document?.FileName == "broken.csv"
+                ? throw new InvalidOperationException("Cannot read broken.csv")
+                : request.Client.SendMessage(
+                    request.Payload.Chat,
+                    $"Album item: {request.Payload.Caption ?? "no caption"}",
+                    cancellationToken: token
+                );
+    }
+
     // Two ◀ and two ▶, told apart only by their data.
     private sealed class CardCommand : MessageCommand
     {

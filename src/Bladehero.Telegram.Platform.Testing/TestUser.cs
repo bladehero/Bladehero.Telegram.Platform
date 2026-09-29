@@ -116,6 +116,69 @@ public sealed class TestUser
         return SendsFileAsync(DocumentOf(document, fileName, mimeType), CheckedCaption(caption), token);
     }
 
+    /// <summary>
+    /// Sends <paramref name="photos"/> as an album: each its own photo message, in two sizes as
+    /// <see cref="SendsPhotoAsync"/> sends one, all in one media group, and each delivered as its own update, in
+    /// order, once the bot has handled the one before.
+    /// </summary>
+    /// <param name="photos">2 to 10 photos.</param>
+    /// <param name="caption">Shown under the first photo.</param>
+    /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>The messages as posted, in order.</returns>
+    /// <exception cref="ArgumentException">
+    /// Not 2 to 10 photos, an empty one, or <paramref name="caption"/> longer than the 1024 characters of a caption.
+    /// </exception>
+    /// <remarks>When the bot fails on an item, the rest are not sent.</remarks>
+    public Task<IReadOnlyList<TestMessage>> SendsAlbumAsync(
+        IReadOnlyList<byte[]> photos,
+        string? caption = null,
+        CancellationToken token = default
+    )
+    {
+        ThrowIfNotAnAlbum(photos);
+        foreach (var photo in photos)
+        {
+            ThrowIfEmpty(photo, nameof(photos));
+        }
+
+        return SendsAlbumAsync([.. photos.Select(PhotoOf)], CheckedCaption(caption), captionOn: 0, token);
+    }
+
+    /// <summary>
+    /// Sends <paramref name="documents"/> as an album: each its own document message, its MIME type from its file
+    /// name, all in one media group, and each delivered as its own update, in order, once the bot has handled the one
+    /// before.
+    /// </summary>
+    /// <param name="documents">2 to 10 documents.</param>
+    /// <param name="caption">Shown under the last document, where the Telegram apps put a comment on files.</param>
+    /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>The messages as posted, in order.</returns>
+    /// <exception cref="ArgumentException">
+    /// Not 2 to 10 documents, an empty one or one with a blank name, or <paramref name="caption"/> longer than the
+    /// 1024 characters of a caption.
+    /// </exception>
+    /// <remarks>When the bot fails on an item, the rest are not sent.</remarks>
+    public Task<IReadOnlyList<TestMessage>> SendsDocumentAlbumAsync(
+        IReadOnlyList<(byte[] Content, string FileName)> documents,
+        string? caption = null,
+        CancellationToken token = default
+    )
+    {
+        ThrowIfNotAnAlbum(documents);
+        foreach (var (content, fileName) in documents)
+        {
+            ThrowIfEmpty(content, nameof(documents));
+            ArgumentException.ThrowIfNullOrWhiteSpace(fileName, nameof(documents));
+        }
+
+        return SendsAlbumAsync(
+            [.. documents.Select(document => DocumentOf(document.Content, document.FileName))],
+            CheckedCaption(caption),
+            captionOn: documents.Count - 1,
+            token
+        );
+    }
+
     /// <summary>Taps the inline button <paramref name="button"/> on the newest message showing it.</summary>
     /// <param name="button">The button's exact text.</param>
     /// <param name="on">A specific message to tap it on, as that message now stands.</param>
@@ -256,6 +319,50 @@ public sealed class TestUser
             },
             token
         );
+
+    // Each item is its own update, sent once the bot has handled the one before.
+    private async Task<IReadOnlyList<TestMessage>> SendsAlbumAsync(
+        Func<JsonObject>[] items,
+        string? caption,
+        int captionOn,
+        CancellationToken token
+    )
+    {
+        var mediaGroupId = _host.Api.NextMediaGroupId();
+        var sent = new List<TestMessage>();
+
+        for (var index = 0; index < items.Length; index++)
+        {
+            var item = items[index];
+            sent.Add(
+                await SendsFileAsync(
+                    () =>
+                    {
+                        var content = item();
+                        content["media_group_id"] = mediaGroupId;
+                        return content;
+                    },
+                    index == captionOn ? caption : null,
+                    token
+                )
+            );
+        }
+
+        return sent;
+    }
+
+    private static void ThrowIfNotAnAlbum<T>(
+        IReadOnlyList<T> items,
+        [CallerArgumentExpression(nameof(items))] string? name = null
+    )
+    {
+        ArgumentNullException.ThrowIfNull(items, name);
+
+        if (items.Count is < 2 or > 10)
+        {
+            throw new ArgumentException($"An album holds 2 to 10 items, not {items.Count}.", name);
+        }
+    }
 
     // The message is posted only once the bot can take it; returns it as posted.
     private async Task<TestMessage> DeliverAsync(Func<JsonObject> message, CancellationToken token)
