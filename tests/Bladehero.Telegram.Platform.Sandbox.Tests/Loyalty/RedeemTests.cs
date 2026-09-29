@@ -1,5 +1,7 @@
+using Bladehero.Telegram.Platform.Sandbox.Loyalty;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Tests.Loyalty;
 
@@ -138,6 +140,31 @@ public sealed class RedeemTests
         {
             answer.ToString().Should().Be("No answer");
             nick.Messages.Single(x => x.Id == card.Id).ToString().Should().Be(card.ToString());
+        }
+    }
+
+    [Fact]
+    public async Task RedeemButton_OnAnotherMembersCard_ShouldAlertAndSpendNothing()
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40), ("Anna", 30));
+        var office = bot.GroupChat("Office");
+        var nick = office.Member("Nick");
+        var anna = office.Member("Anna");
+        await nick.SendsAsync("/points");
+        var before = office.Messages.Select(x => x.ToString()).ToArray();
+
+        // Act
+        var answer = await anna.TapsAsync("Redeem 10");
+
+        // Assert
+        var members = bot.Services.GetRequiredService<MemberDirectory>();
+        using (new AssertionScope())
+        {
+            answer.ToString().Should().Be("Alert: This card is Nick's — send /points for your own.");
+            office.Messages.Select(x => x.ToString()).Should().Equal(before);
+            members.Find(nick.Id)!.Points.Should().Be(40);
+            members.Find(anna.Id)!.Points.Should().Be(30);
         }
     }
 }
