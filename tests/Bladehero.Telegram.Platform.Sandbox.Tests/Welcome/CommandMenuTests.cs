@@ -13,6 +13,10 @@ public sealed class CommandMenuTests
         "/coffee Order a coffee",
         "/cancel Cancel the current order",
         "/help What I can do",
+        "/join Join the loyalty club",
+        "/leave Leave the loyalty club",
+        "/points Your loyalty points",
+        "/redeem Redeem points, e.g. /redeem 10",
     ];
 
     [Fact]

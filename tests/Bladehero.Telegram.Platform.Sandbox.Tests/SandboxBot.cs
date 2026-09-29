@@ -1,3 +1,4 @@
+using System.Globalization;
 using Bladehero.Telegram.Platform.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -22,4 +23,25 @@ internal static class SandboxBot
             },
             api
         );
+
+    // With loyalty club members already in, each the test user of that name.
+    public static Task<TelegramTestHost> StartWithMembersAsync(params (string FirstName, int Points)[] members)
+    {
+        var api = new FakeBotApi();
+        return StartAsync(api, Members([.. members.Select(x => (api.UserIdOf(x.FirstName), x.FirstName, x.Points))]));
+    }
+
+    // Loyalty club members to seed, as CoffeeShop:Members settings.
+    public static Dictionary<string, string?> Members(params (long UserId, string Name, int Points)[] members) =>
+        members
+            .SelectMany(
+                (member, i) =>
+                    new Dictionary<string, string?>
+                    {
+                        [$"CoffeeShop:Members:{i}:UserId"] = member.UserId.ToString(CultureInfo.InvariantCulture),
+                        [$"CoffeeShop:Members:{i}:Name"] = member.Name,
+                        [$"CoffeeShop:Members:{i}:Points"] = member.Points.ToString(CultureInfo.InvariantCulture),
+                    }
+            )
+            .ToDictionary();
 }

@@ -1,14 +1,17 @@
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
+using Bladehero.Telegram.Platform.Sandbox.Loyalty;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 
 [ConversationStep(CoffeeFlow.Name, CoffeeFlow.ConfirmStep)]
-internal sealed class ConfirmOrderStep(IConversation conversation) : CallbackQueryCommand
+internal sealed class ConfirmOrderStep(IConversation conversation, MemberDirectory members) : CallbackQueryCommand
 {
+    private const int PointsPerCoffee = 10;
+
     protected override async Task<bool> CanHandleAsync(
         TypedCommandRequest<CallbackQuery> request,
         CancellationToken token
@@ -23,6 +26,9 @@ internal sealed class ConfirmOrderStep(IConversation conversation) : CallbackQue
         var order = (await conversation.GetDataAsync<CoffeeOrder>(token))!;
 
         await conversation.EndAsync(token);
+
+        // Anyone can order; members earn points for it.
+        members.Earn(query.From.Id, PointsPerCoffee);
 
         await client.AnswerCallbackQuery(query.Id, cancellationToken: token);
         await client.EditMessageText(
