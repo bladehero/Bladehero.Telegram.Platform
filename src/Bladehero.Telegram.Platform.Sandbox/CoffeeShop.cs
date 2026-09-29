@@ -1,7 +1,9 @@
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Bladehero.Telegram.Platform.Receiving.Errors;
 using Bladehero.Telegram.Platform.Sandbox.Barista;
 using Bladehero.Telegram.Platform.Sandbox.Coffee;
+using Bladehero.Telegram.Platform.Sandbox.Failures;
 using Bladehero.Telegram.Platform.Sandbox.Loyalty;
 using Bladehero.Telegram.Platform.Sandbox.Receipts;
 using Bladehero.Telegram.Platform.Sandbox.Voice;
@@ -17,6 +19,7 @@ internal static class CoffeeShop
     internal static IServiceCollection AddCoffeeShop(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddTelegramLongPollingReceiving(configuration, assemblies: typeof(CoffeeShop).Assembly);
+        services.AddScoped<ITelegramErrorHandler, ApologizingErrorHandler>(); // after receiving, to replace its own
         services.Configure<CoffeeShopOptions>(configuration.GetSection(CoffeeShopOptions.Section));
         services.TryAddSingleton(TimeProvider.System);
 
