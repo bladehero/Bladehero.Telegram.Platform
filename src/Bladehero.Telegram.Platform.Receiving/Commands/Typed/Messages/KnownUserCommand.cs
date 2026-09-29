@@ -2,14 +2,8 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 
-/// <summary>
-/// A message command that only runs for chats the application recognises, exposing the resolved user
-/// to <see cref="TypedTelegramCommand{T}.HandleAsync(TypedCommandRequest{T}, CancellationToken)"/>.
-/// </summary>
-/// <remarks>
-/// An unresolved chat makes the command decline the update rather than throw, so a stranger messaging
-/// the bot is simply ignored instead of raising an error per message.
-/// </remarks>
+/// <summary>A message command that runs only for known users, exposing the resolved user.</summary>
+/// <remarks>An unresolved chat declines the update, so strangers are ignored rather than raising errors.</remarks>
 public abstract class KnownUserCommand<TUser> : MessageCommand
     where TUser : class
 {
