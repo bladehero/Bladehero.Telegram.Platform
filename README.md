@@ -4,13 +4,9 @@
 [![Downloads](https://img.shields.io/nuget/dt/Bladehero.Telegram.Platform.svg)](https://www.nuget.org/packages/Bladehero.Telegram.Platform/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A small framework for building Telegram bots on .NET in a **command-style** approach.
-
-[Telegram.Bot](https://github.com/TelegramBots/Telegram.Bot) gives you one `Update` object and a `switch`
-statement. This library gives you a place to put your code: every piece of bot behaviour is a **command** —
-an ordinary DI-registered class that says whether it can handle an update and then handles it. Commands are
-discovered by assembly scanning, resolved from the container, and dispatched in parallel. Long polling and
-webhook hosting are drop-in, so the same commands run either way.
+Command-style Telegram bots on .NET 10. Every piece of behaviour is a **command**: a DI-registered class that says
+whether it handles an update, then handles it. Commands are found by assembly scanning and run the same under long
+polling or a webhook.
 
 ```csharp
 public sealed class EchoCommand : MessageCommand
@@ -18,72 +14,68 @@ public sealed class EchoCommand : MessageCommand
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
         Task.FromResult(request.Payload.Text is not null);
 
-    protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
-    {
-        var (_, message, client) = request;
-        await client.SendMessage(message.Chat, $"Reply: {message.Text}", cancellationToken: token);
-    }
+    protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+        request.Client.SendMessage(request.Payload.Chat, $"Reply: {request.Payload.Text}", cancellationToken: token);
 }
 ```
 
-That is the whole contract. No registration call, no routing table — drop the class in a scanned assembly
-and it participates.
+No registration, no routing table: drop the class in a scanned assembly.
+
+## Contents
+
+- [Packages](#packages)
+- [Quick start](#quick-start): [long polling](#long-polling) · [webhook](#webhook) · [configuration](#configuration)
+- [Commands](#commands): [typed](#typed-commands) · [raw](#raw-commands) · [slash commands](#slash-commands) ·
+  [command menu](#command-menu) · [known users](#known-users) · [buttons with typed data](#buttons-with-typed-data)
+- [Execution](#execution): [priorities](#priorities) · [parallelism](#parallelism) · [scopes](#scopes)
+- [Conversations](#conversations)
+- [Sending on your own](#sending-on-your-own)
+- [Errors and the HttpClient](#errors-and-the-httpclient)
+- [Component tests](#component-tests): [start](#start-the-bot) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
+  [files](#send-and-read-files) · [fake Telegram](#check-and-fail-telegram)
+- [Samples](#samples)
 
 ## Packages
 
-| Package | What it gives you |
+| Package | Contents |
 | --- | --- |
-| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | `TelegramBotConfiguration`, `ITelegramSender`, and the `IServiceCollection` wiring behind both. |
-| [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | The command model: `ITelegramCommand`, typed base commands, assembly scanning, the parallel executor, multi-step conversations, the command menu, error handling. |
-| [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Hosting: a long-polling `BackgroundService` and an ASP.NET Core webhook endpoint that keeps the Telegram webhook registration in sync, plus the startup sync of the command menu. |
-| [`Bladehero.Telegram.Platform.Testing`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Testing/) | [Component tests](#component-tests): your bot end to end against an in-memory Telegram, with test users who send messages and files and tap buttons. For test projects. |
-
-Referencing `.Receiving.Background` pulls in the rest of the runtime packages. Target framework is **.NET 10**.
+| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramSender`, DI wiring. |
+| [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling. |
+| [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
+| [`Bladehero.Telegram.Platform.Testing`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Testing/) | [Component tests](#component-tests) against an in-memory Telegram. |
 
 ```sh
-dotnet add package Bladehero.Telegram.Platform.Receiving.Background
+dotnet add package Bladehero.Telegram.Platform.Receiving.Background   # pulls in the other runtime packages
+dotnet add package Bladehero.Telegram.Platform.Testing                # test projects
 ```
 
-## Quick start — long polling
+## Quick start
 
-Best for local development and bots that do not need a public URL. The bot pulls updates from Telegram.
+### Long polling
+
+The bot pulls updates; no public URL needed.
 
 ```csharp
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
-using Microsoft.Extensions.Hosting;
 
 var host = Host.CreateDefaultBuilder(args)
-    .ConfigureServices(
-        (context, services) =>
-        {
-            services.AddTelegramLongPollingReceiving(context.Configuration, assemblies: typeof(Program).Assembly);
-        }
-    )
+    .ConfigureServices((context, services) =>
+        services.AddTelegramLongPollingReceiving(context.Configuration, assemblies: typeof(Program).Assembly))
     .Build();
 
 await host.RunAsync();
 ```
 
-`appsettings.json`:
-
 ```json
-{
-  "TelegramReceiverConfiguration": {
-    "Token": "123456:ABC-DEF...",
-    "AllowedUpdates": ["Message", "CallbackQuery"],
-    "DropPendingUpdates": true
-  }
-}
+{ "TelegramReceiverConfiguration": { "Token": "123456:ABC-DEF..." } }
 ```
 
-Telegram serves a bot through `getUpdates` **or** a webhook, never both — polling a bot that still has one
-registered fails with HTTP 409 on every attempt. On startup the host checks for a webhook and deletes one
-if it finds it, logging the URL it removed. Worth knowing if the bot you are polling locally is the same
-bot serving a deployed webhook: starting long polling will unregister it.
+A bot can't poll while it has a webhook, so startup deletes one if found — including one a deployed copy of the bot
+relies on.
 
-## Quick start — webhook
+### Webhook
 
-Best for production. Telegram pushes updates to an endpoint you expose.
+Telegram pushes updates to your endpoint.
 
 ```csharp
 using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
@@ -92,109 +84,72 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddTelegramWebhookReceiving(builder.Configuration, assemblies: typeof(Program).Assembly);
 
 var app = builder.Build();
-app.UseTelegramWebhook();
+app.UseTelegramWebhook();   // maps POST {UpdateEndpoint}
 app.Run();
 ```
-
-`appsettings.json`:
 
 ```json
 {
   "TelegramWebhookConfiguration": {
     "Token": "123456:ABC-DEF...",
     "BaseUrl": "https://bot.example.com",
-    "UpdateEndpoint": "telegram/updates",
-    "AllowedUpdates": ["Message"],
-    "DropPendingUpdates": false
+    "UpdateEndpoint": "telegram/updates"
   }
 }
 ```
 
-`UseTelegramWebhook()` maps `POST {UpdateEndpoint}` and feeds every update through the same command pipeline
-as long polling. On startup a hosted service compares the live webhook registration against your
-configuration and only calls `setWebhook` when the URL, allowed updates, or pending-update handling actually
-differ — so restarts are cheap and you are not rate-limited for redundant registrations.
+Startup calls `setWebhook` only when the URL or settings changed. Keep the token in user secrets or environment
+variables.
 
-The token is a secret: keep it in user secrets, environment variables, or your secret store rather than in
-`appsettings.json`. Both sample projects use `dotnet user-secrets`.
+### Configuration
 
-## Configuration
+The section defaults to the type name; pass `sectionName` to change it.
 
-The section name defaults to the configuration type's own name — `TelegramReceiverConfiguration` for long
-polling and `TelegramWebhookConfiguration` for webhooks. Pass `sectionName` to override it:
-
-```csharp
-services.AddTelegramLongPollingReceiving(
-    configuration,
-    sectionName: "MyBot",
-    assemblies: typeof(Program).Assembly
-);
-```
-
-| Property | Applies to | Description |
+| Property | Mode | |
 | --- | --- | --- |
 | `Token` | both | Bot token from [@BotFather](https://t.me/BotFather). **Required.** |
-| `AllowedUpdates` | both | `UpdateType` values to subscribe to. Omit for Telegram's default set. |
-| `DropPendingUpdates` | both | Discard updates that queued up while the bot was down. |
-| `Offset` | long polling | Update id to resume from. |
-| `Limit` | long polling | Max updates per poll. |
-| `SyncCommandMenu` | both | Send the [command menu](#the-command-menu) to Telegram on startup. Defaults to `true`. |
-| `CommandMenuScope` | both | Chats the command menu is published to. Defaults to `Default` — every chat. |
-| `BaseUrl` | webhook | Public origin Telegram will call, e.g. `https://bot.example.com`. **Required.** |
-| `UpdateEndpoint` | webhook | Path the update endpoint is mapped on, e.g. `telegram/updates`. **Required.** |
+| `AllowedUpdates` | both | `UpdateType`s to receive; Telegram's default set when omitted. |
+| `DropPendingUpdates` | both | Discard updates queued while the bot was down. |
+| `SyncCommandMenu` | both | Publish the [command menu](#command-menu) on startup. Default `true`. |
+| `CommandMenuScope` | both | `Default`, `AllPrivateChats`, `AllGroupChats` or `AllChatAdministrators`. |
+| `Offset`, `Limit` | polling | Update id to resume from; max updates per poll. |
+| `BaseUrl`, `UpdateEndpoint` | webhook | Public origin and endpoint path. **Required.** |
 
 ## Commands
 
 ### Typed commands
 
-`TypedTelegramCommand<T>` binds to one `UpdateType` and unwraps the payload for you, so `CanHandleAsync` and
-`HandleAsync` receive the concrete type rather than a raw `Update`. Derive from the base class matching the
-update you care about:
-
-| Base class | Payload | Update type |
-| --- | --- | --- |
-| `MessageCommand` | `Message` | `Message` |
-| `EditedMessageCommand` | `Message` | `EditedMessage` |
-| `ChannelPostCommand` | `Message` | `ChannelPost` |
-| `EditedChannelPostCommand` | `Message` | `EditedChannelPost` |
-| `CallbackQueryCommand` | `CallbackQuery` | `CallbackQuery` |
-| `InlineQueryCommand` | `InlineQuery` | `InlineQuery` |
-| `ChosenInlineResultCommand` | `ChosenInlineResult` | `ChosenInlineResult` |
-| `PollCommand` | `Poll` | `Poll` |
-| `PollAnswerCommand` | `PollAnswer` | `PollAnswer` |
-| `ShippingQueryCommand` | `ShippingQuery` | `ShippingQuery` |
-| `PreCheckoutQueryCommand` | `PreCheckoutQuery` | `PreCheckoutQuery` |
-| `MyChatMemberCommand` | `ChatMemberUpdated` | `MyChatMember` |
-| `ChatMemberCommand` | `ChatMemberUpdated` | `ChatMember` |
-| `ChatJoinRequestCommand` | `ChatJoinRequest` | `ChatJoinRequest` |
-
-`CanHandleAsync` is where routing lives. Because it is async and gets the full payload, "which command runs"
-can depend on anything — the message text, the callback data, the user's state in your database:
+Derive from the base for the update you handle; `CanHandleAsync` and `HandleAsync` get the typed payload.
+Commands are **scoped**, so inject anything.
 
 ```csharp
 public sealed class StartCommand(IUserRepository users) : MessageCommand
 {
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-        Task.FromResult(request.Payload.Text?.StartsWith("/start", StringComparison.Ordinal) is true);
+        Task.FromResult(request.Payload.IsCommand("/start"));
 
     protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
     {
-        var (_, message, client) = request;
+        var (_, message, client) = request;   // UpdateId, Payload, Client
         await users.EnsureRegisteredAsync(message.From!.Id, token);
         await client.SendMessage(message.Chat, "Welcome aboard 👋", cancellationToken: token);
     }
 }
 ```
 
-Commands are registered as **scoped** services, so constructor-inject whatever you need — repositories,
-`ILogger<T>`, `HttpClient`, your own services.
-
-`TypedCommandRequest<T>` carries `UpdateId`, `Payload`, and `Client`, and deconstructs into all three.
+| Base | Payload |
+| --- | --- |
+| `MessageCommand`, `EditedMessageCommand`, `ChannelPostCommand`, `EditedChannelPostCommand` | `Message` |
+| `CallbackQueryCommand` | `CallbackQuery` |
+| `InlineQueryCommand`, `ChosenInlineResultCommand` | `InlineQuery`, `ChosenInlineResult` |
+| `PollCommand`, `PollAnswerCommand` | `Poll`, `PollAnswer` |
+| `ShippingQueryCommand`, `PreCheckoutQueryCommand` | `ShippingQuery`, `PreCheckoutQuery` |
+| `MyChatMemberCommand`, `ChatMemberCommand` | `ChatMemberUpdated` |
+| `ChatJoinRequestCommand` | `ChatJoinRequest` |
 
 ### Raw commands
 
-For anything the typed bases do not cover, implement `ITelegramCommand` directly and work with the whole
-`Update`:
+Implement `ITelegramCommand` to see the whole `Update`:
 
 ```csharp
 public sealed class AuditCommand(ILogger<AuditCommand> logger) : ITelegramCommand
@@ -209,23 +164,16 @@ public sealed class AuditCommand(ILogger<AuditCommand> logger) : ITelegramComman
 }
 ```
 
-`CommandRequest` exposes `Update` and `Client` and deconstructs into both.
-
-### Bot commands
-
-`IsCommand` recognises a slash command in every form Telegram sends it — bare, `@`-qualified, and with
-arguments — so `CanHandleAsync` stays a one-liner:
+### Slash commands
 
 ```csharp
-protected override bool Matches(Message message) => message.IsCommand("/last");
+message.IsCommand("/last");      // true for /last, /last@MyBot and /last 10
+message.ArgumentsOf("/last");    // "10", or null
 ```
 
-`ArgumentsOf("/last")` returns whatever followed the command, or `null` when there was nothing.
+### Command menu
 
-### The command menu
-
-Telegram offers a bot's commands in a menu when the user types `/`. Mark a command with `[BotCommand]` and it is
-listed there:
+Mark a command with `[BotCommand]` to list it in the menu Telegram shows on `/`:
 
 ```csharp
 [BotCommand("start", "Start over", Order = 1)]
@@ -240,68 +188,45 @@ public sealed class HelpCommand(IBotCommandMenu menu) : MessageCommand
     protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
         request.Client.SendMessage(
             request.Payload.Chat,
-            string.Join('\n', menu.Commands.Select(command => $"/{command.Command} - {command.Description}")),
+            string.Join('\n', menu.Commands.Select(c => $"/{c.Command} - {c.Description}")),
             cancellationToken: token
         );
 }
 ```
 
-On startup the menu Telegram shows is compared with the declared one and replaced only when they differ, so a
-restart costs a single read. `IBotCommandMenu` holds the same list in the same order — the `/help` reply above can
-never drift from the menu.
+- **Order:** ordered commands first (lowest first, unique), then the rest alphabetically.
+- **Validated at startup:** names 1–32 of `a-z0-9_`, descriptions up to 256 characters, at most 100 commands.
+- **Synced at startup** only when it differs. Without any `[BotCommand]` the menu is never touched.
 
-- **Order.** Commands with an `Order` come first, lowest first, which is how `/start` leads above; the commands
-  without one follow, alphabetically. An order you set must be unique.
-- **Validated on startup.** Names must be 1–32 lowercase letters, digits or underscores without the slash;
-  descriptions at most 256 characters; a name or an order declared twice, or more than 100 commands, fails the host
-  before it talks to Telegram.
-- **Nothing declared, nothing touched.** Without a single `[BotCommand]` the menu Telegram shows is never read or
-  written, so a menu kept in BotFather is safe.
-- **Configuration.** `SyncCommandMenu: false` leaves the menu alone — set it where a host shares its token with
-  another environment, such as a development machine running against the production bot. `CommandMenuScope` picks
-  the chats it goes to: `Default` (every chat without a menu of its own), `AllPrivateChats`, `AllGroupChats` or
-  `AllChatAdministrators`. Telegram keeps a separate menu per scope, so switching scopes leaves the old menu in
-  place.
+### Known users
 
-### Commands for known users only
-
-Most bots serve people they already know about. `KnownUserCommand<TUser>` resolves the chat through your
-`ITelegramUserResolver<TUser>` and runs only when that succeeds, handing the resolved user to `HandleAsync`:
+`KnownUserCommand<TUser>` runs only for chats your `ITelegramUserResolver<TUser>` recognises; strangers are ignored.
 
 ```csharp
+services.AddScoped<ITelegramUserResolver<User>, UserResolver>();
+
 internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserCommand<User>
 {
     protected override bool Matches(Message message) => message.IsCommand("/last");
 
     protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
     {
-        var recent = await expenses.RecentAsync(User.Id, token);   // User is already resolved
+        var recent = await expenses.RecentAsync(User.Id, token);   // User is resolved
         await request.Client.SendMessage(request.Payload.Chat, Render(recent), cancellationToken: token);
     }
 }
 ```
 
-Register the resolver once — `services.AddScoped<ITelegramUserResolver<User>, UserResolver>()` — and every
-known-user command receives it; the constructor stays free for the command's own dependencies.
-
-An unresolved chat makes the command decline the update rather than throw, so a stranger messaging the bot
-is ignored instead of raising an error for every message. The resolver is keyed on the chat id rather than
-the message, so the same implementation serves the buttons below.
-
 ### Buttons with typed data
 
-A button press arrives as a callback query carrying up to 64 bytes of data — usually a tiny vocabulary such as
-`page:2` or `open:<id>`. `CallbackQueryCommand<TData>` turns it into a typed value once, while deciding whether to
-handle the update: `Parse` returns the value, or `null` for a button that belongs to another command, and
-`HandleAsync` reads it from `Parsed`. A tuple carries several fields:
+`CallbackQueryCommand<TData>` parses callback data once; `Parse` returns `null` for another command's buttons.
+`KnownUserCallbackQueryCommand<TUser, TData>` adds the resolved user.
 
 ```csharp
-internal sealed class ExpenseButtonCommand(IExpenses expenses) : KnownUserCallbackQueryCommand<User, (string Action, Guid Id)>
+internal sealed class ExpenseButton(IExpenses expenses) : KnownUserCallbackQueryCommand<User, (string Action, Guid Id)>
 {
     protected override (string Action, Guid Id)? Parse(string data) =>
-        data.Split(':') is [var action, var id] && action is "edit" or "delete" && Guid.TryParse(id, out var expenseId)
-            ? (action, expenseId)
-            : null;
+        data.Split(':') is [var action, var id] && Guid.TryParse(id, out var expenseId) ? (action, expenseId) : null;
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {
@@ -315,48 +240,41 @@ internal sealed class ExpenseButtonCommand(IExpenses expenses) : KnownUserCallba
 }
 ```
 
-`KnownUserCallbackQueryCommand<TUser, TData>` is the known-user flavour: it parses first, so a button meant for
-another command never costs a lookup, and then resolves the chat the button sits in. `CallbackQueryCommand<TData>`
-is the same without a user.
+## Execution
 
-## Execution model
+Every command whose `CanHandleAsync` returns `true` runs — commands are not exclusive, so logging or rate limiting is
+just another command.
 
-For each update the executor asks every command whether it can handle it, then runs all commands that said
-yes. **Commands are not mutually exclusive** — several can handle the same update, which is what makes
-cross-cutting behaviour (logging, analytics, rate limiting) just another command rather than middleware.
+### Priorities
 
-Commands are processed in chunks, `CanHandleAsync` and `HandleAsync` running in parallel within a chunk.
-Chunk size defaults to 5 and is configurable:
+```csharp
+[CommandPriority(0)]       // runs after unmarked commands
+[CommandPriority(1, 0)]    // then global 1: group 0 first, ungrouped commands last
+```
+
+Commands are batched by priority and batches run in order: unmarked commands, then by global priority, then by group.
+
+### Parallelism
+
+Within a batch, commands run in parallel chunks of `ParallelCount` (default 5; `null` for one unbounded chunk):
 
 ```csharp
 services.Configure<ParallelCommandExecutionConfiguration>(options => options.ParallelCount = 10);
 ```
 
-Set `ParallelCount` to `null` to run every command in a single unbounded batch.
-
-To replace dispatch entirely, register your own `ITelegramCommandExecutor` after `AddTelegramReceiving` — it then
-owns [conversation](#conversations) routing too.
+To replace dispatch entirely, register your own `ITelegramCommandExecutor`.
 
 ### Scopes
 
-Every update is handled in its own DI scope under both hosting models — webhook updates get the ASP.NET Core
-request scope, and long polling creates one per update. Scoped dependencies therefore behave the way you
-would expect in a controller: a fresh instance per update, disposed once the update finishes.
-
-Commands within a single update share that scope and, by default, run in parallel. If they share a scoped
-dependency that is not thread-safe — an EF Core `DbContext` being the usual one — either set `ParallelCount`
-to `1` so commands run one at a time, or resolve a scope of your own inside the command.
+Each update gets its own DI scope, shared by its commands. With a non-thread-safe scoped dependency such as a
+`DbContext`, set `ParallelCount` to `1` or create a scope inside the command.
 
 ## Conversations
 
-Some exchanges take more than one message: a sign-up asking for a name and then a city, a form with a button per
-field, a confirmation before something irreversible. Between those messages the bot has to remember where the user
-is. A **conversation** is that memory — the flow it runs, the step it waits at, and the data gathered so far — and a
-**step** is an ordinary command that only runs while the sender's conversation is at it:
+Multi-step flows: a **conversation** remembers the flow, the step and the data; a **step** is a command that runs only
+while the sender is at it.
 
 ```csharp
-public sealed record Signup(string Name);
-
 public sealed class SignupCommand(IConversation conversation) : MessageCommand
 {
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
@@ -370,67 +288,35 @@ public sealed class SignupCommand(IConversation conversation) : MessageCommand
 }
 
 [ConversationStep("signup", "name")]
-public sealed class SignupNameStep(IConversation conversation) : MessageCommand
+public sealed class SignupNameStep(IConversation conversation, IUserRepository users) : MessageCommand
 {
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-        Task.FromResult(request.Payload.Text?.StartsWith('/') is false);
+        Task.FromResult(request.Payload.Text?.StartsWith('/') is false);   // let /cancel fall through
 
     protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
     {
-        await conversation.MoveToAsync("city", new Signup(Name: request.Payload.Text!), token);
-        await request.Client.SendMessage(request.Payload.Chat, "Which city?", cancellationToken: token);
-    }
-}
-
-[ConversationStep("signup", "city")]
-public sealed class SignupCityStep(IConversation conversation, IUserRepository users) : MessageCommand
-{
-    protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-        Task.FromResult(request.Payload.Text?.StartsWith('/') is false);
-
-    protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
-    {
-        var signup = await conversation.GetDataAsync<Signup>(token);
-        await users.RegisterAsync(signup!.Name, request.Payload.Text!, token);
+        await users.RegisterAsync(request.Payload.Text!, token);
         await conversation.EndAsync(token);
         await request.Client.SendMessage(request.Payload.Chat, "Welcome aboard 👋", cancellationToken: token);
     }
 }
 ```
 
-Steps are found by the same assembly scan as every other command and keep everything a command has — typed
-payloads and button data, `KnownUserCommand<TUser>`, priorities, constructor injection. How an update is routed:
-
-- **While a conversation is active, its steps go first.** Commands marked with the conversation's flow and step —
-  or with the flow alone, `[ConversationStep("signup")]`, to run at any step — see the update before any regular
-  command, and when one handles it the regular commands are skipped. The flow owns the update.
-- **When every step declines, the update falls through** to the regular commands. That is how `/cancel` and `/help`
-  keep working mid-flow, and why a step taking free text should decline bot commands, as above — otherwise it
-  swallows the `/cancel` meant to end it.
-- **Without a conversation, steps never run.**
-- **Changes steer the next update.** Starting, moving or ending a conversation while handling an update affects
-  where the following update goes; the current one keeps the routing it started with.
-
-A conversation belongs to one user in one chat, so in a group every member runs their own and one member's button
-press never advances another's flow. `IConversation` is scoped to the update and carries typed data as JSON through
-`StartAsync`, `MoveToAsync` and `GetDataAsync<T>`.
-
-Conversations live in memory by default and a restart forgets the ones in progress. Register an
-`IConversationStore` to persist them — it replaces the built-in store whichever order you register it in. The store
-is also the way to open a conversation outside of an update, when a background job finishes, say:
+- **Steps go first** while a conversation is active; regular commands run only if every step declines.
+- `[ConversationStep("signup")]` without a step runs at any step of the flow.
+- **Data:** `StartAsync(flow, step, data)`, `MoveToAsync(step, data)`, `GetDataAsync<T>()` (JSON).
+- **Per user per chat:** each group member has their own conversation.
+- A change routes the **next** update, not the current one.
+- **Storage:** in memory by default; register an `IConversationStore` to persist, or use it to start a conversation
+  from a background job:
 
 ```csharp
 await store.SaveAsync(new ConversationKey(chatId, userId), new ConversationState("import", "describe"), token);
 ```
 
-Bots without a single step never touch the store: the feature costs nothing until a command carries
-`[ConversationStep]`.
+## Sending on your own
 
-## Sending on your own initiative
-
-A command answering an update already holds the bot client — it arrives on the request, so replying never
-needs anything from the container. Messages the bot starts by itself have no request to draw on: a
-reminder, a nightly digest, an alert raised by a background job. Those go through `ITelegramSender`:
+Replies use the request's client. Messages the bot starts itself — reminders, alerts — go through `ITelegramSender`:
 
 ```csharp
 public sealed class LimitAlerts(ITelegramSender sender)
@@ -440,139 +326,123 @@ public sealed class LimitAlerts(ITelegramSender sender)
 }
 ```
 
-`ITelegramBotClient` itself is **not** registered in the container, on purpose. Two ways to reach the same
-object invites the wrong one — a command injecting the client instead of using its request, and losing the
-distinction between "the bot replied" and "the bot spoke first". The library builds the client internally and
-hands it to commands on their request; everything else sends through `ITelegramSender`.
+`ITelegramBotClient` is deliberately not in the container.
 
-## Error handling
+## Errors and the HttpClient
 
-Exceptions surfaced by the receiver go to `ITelegramErrorHandler`. The default implementation logs them and
-ignores the cancellation-shaped `RequestException` that long polling raises on shutdown. Override it with
-your own registration:
+Receiver errors go to `ITelegramErrorHandler` (logged by default). Replace it:
 
 ```csharp
 services.AddScoped<ITelegramErrorHandler, SentryTelegramErrorHandler>();
 ```
 
-## Customizing the HttpClient
-
-Every `Add…` entry point takes an optional `httpClientFactory`, used to build the `HttpClient` behind
-`ITelegramBotClient`. Useful for proxies, forcing IPv4, retry handlers, or logging:
+Every `Add…` method takes an `httpClientFactory` for proxies, IPv4, retries or logging:
 
 ```csharp
 services.AddTelegramLongPollingReceiving(
     configuration,
-    httpClientFactory: _ => new HttpClient(
-        new SocketsHttpHandler { ConnectCallback = Ipv4OnlyConnectCallback }
-    ),
+    httpClientFactory: _ => new HttpClient(new SocketsHttpHandler { ConnectCallback = Ipv4OnlyConnectCallback }),
     assemblies: typeof(Program).Assembly
 );
 ```
 
 ## Component tests
 
-`Bladehero.Telegram.Platform.Testing` runs your bot end to end without Telegram: your own registrations and
-hosting, with an in-memory Bot API standing in for Telegram. A test plays the people in the chat and checks
-what they see — no token, no network, no sleeps.
+`Bladehero.Telegram.Platform.Testing` runs your bot end to end against an in-memory Telegram: real hosting, no token,
+no network, no sleeps.
 
-```sh
-dotnet add package Bladehero.Telegram.Platform.Testing
-```
-
-### Starting the bot
-
-For a long-polling bot, register it as its composition root does; the real polling loop pulls updates from the
-fake:
+### Start the bot
 
 ```csharp
+// Long polling: register as your composition root does.
 await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
-    services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(Program).Assembly)
-);
-```
+    services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(Program).Assembly));
 
-For a webhook bot, start its ASP.NET Core app through `WebApplicationFactory`, giving it the webhook
-configuration its secrets would hold. The app sets its webhook with the fake as it starts, and every update is
-posted to that endpoint as Telegram would post it:
-
-```csharp
+// Webhook: your ASP.NET Core app via WebApplicationFactory.
 await using var bot = await TelegramTestHost.ForWebhookAsync<Program>(web =>
     web.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
     {
         ["TelegramWebhookConfiguration:BaseUrl"] = "https://bot.example.com",
         ["TelegramWebhookConfiguration:UpdateEndpoint"] = "telegram/updates",
-    }))
-);
+    })));
 ```
 
-Only the bot client is swapped, so the token is never used. Both return once the bot has started, so what it did
-on startup — its webhook, its command menu — can be checked straight away.
+Both return once startup (webhook, command menu) is done. For webhook tests the test project references the app; if
+the factory can't find the app's content root, also reference `Microsoft.AspNetCore.Mvc.Testing`.
 
-### Talking to the bot
+### Chat with it
 
 ```csharp
 var nick = bot.PrivateChat("Nick");
+var anna = bot.GroupChat("Family").Member("Anna");
 
 await nick.SendsAsync("/coffee");
-await nick.TapsAsync("Medium");   // the button the bot actually sent
-await nick.SendsAsync("Nicky");
-await nick.TapsAsync("Confirm");
 
-nick.Messages.Select(x => x.ToString()).Should().Equal(
-    "Nick: /coffee",
-    "Bot: Size: Medium ✓",
-    "Bot: Whose name goes on the cup?",
-    "Nick: Nicky",
-    "Bot: Order placed ☕ — a Medium coffee for Nicky."
-);
+nick.LastMessage.Text.Should().Be("What size?");
+nick.LastMessage.Buttons.Should().Equal("Small", "Medium", "Large", "Cancel");
+nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: /coffee", "Bot: What size? [Small] [Medium] [Large] [Cancel]");
 ```
 
-Each action returns once the bot has finished handling it, and rethrows whatever a command threw, so a crash
-fails the test. The chat reads as its members see it: both sides, the bot's edits applied, deleted messages gone.
+Each action returns once the bot is done and rethrows what a command threw. Chats show both sides, with edits applied
+and deletions gone. A name is one user everywhere.
 
-- **Groups** — `bot.GroupChat("Family").Member("Anna")`. A name is one person throughout the test: Nick in a
-  group is the same Telegram user as Nick in his private chat.
-- **Buttons** — `TapsAsync` presses the newest message showing the button, or the one passed as `on:`, and returns
-  how the bot answered: `Notification: …`, `Alert: …`, or an answer that never came. Tapping a button nobody
-  sees fails with the buttons that are there.
-- **Files** — `SendsPhotoAsync`, `SendsVoiceAsync` and `SendsDocumentAsync` send the bytes; the bot downloads them
-  through `getFile`, as from Telegram. What the bot sends is on `message.Photo`, `.Document` and `.Voice`, with its
-  name, MIME type and bytes.
+### Tap buttons
 
-### Checking what Telegram saw
+```csharp
+var card = nick.LastMessage;
+var answer = await nick.TapsAsync("Medium");   // on the newest message showing it
+await nick.TapsAsync("Large", on: card);       // on a specific message
 
-`bot.Api` is the fake Telegram:
+answer.IsAnswered.Should().BeTrue();
+answer.ToString();   // "Notification: …", "Alert: …", "Answered silently" or "No answer"
+```
 
-| Member | |
-| --- | --- |
-| `Calls` | Every Bot API call the bot made, with its parameters. |
-| `CommandMenu(scope?)` | The command menu the bot published. |
-| `WebhookUrl` | Where the bot asked Telegram to deliver its updates. |
-| `Fail(method, error, times?)` | Makes Telegram refuse a method — `BotApiError.BotBlocked`, `ChatNotFound`, `TooManyRequests(retryAfter)`, or any code and description. |
+Tapping a button nobody sees fails the test and lists the buttons that are there.
 
-The fake answers like Telegram, errors included: editing a deleted or unchanged message, answering a tap twice,
-fetching a file over the 20 MB bots may download. A method it does not know yet fails the test with an error
-naming it rather than passing silently. To fail a call the bot makes as it starts, arrange a `FakeBotApi` first
-and pass it to `ForLongPollingAsync` or `ForWebhookAsync`; for updates the chats do not cover, `bot.SendAsync`
-delivers any `Update`.
+### Send and read files
 
-Webhook tests run your app through `WebApplicationFactory`, so its usual rules apply: the test project references
-the app's project, and if the factory cannot find the app's content root, reference
-`Microsoft.AspNetCore.Mvc.Testing` from the test project too.
+```csharp
+await nick.SendsPhotoAsync(bytes, caption: "Lunch");
+await nick.SendsVoiceAsync(bytes, TimeSpan.FromSeconds(3));
+await nick.SendsDocumentAsync(bytes, "report.csv");
+
+var report = nick.LastMessage.Document!;   // also .Photo and .Voice
+report.FileName.Should().Be("report.csv");
+report.ReadAsString().Should().Be("a,b");
+```
+
+### Check and fail Telegram
+
+```csharp
+bot.Api.Calls           // every Bot API call with its parameters
+bot.Api.CommandMenu()   // the published menu
+bot.Api.WebhookUrl      // the webhook the bot set
+
+bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                     // every call
+bot.Api.Fail("sendMessage", BotApiError.TooManyRequests(1), times: 1);   // once
+
+await bot.SendAsync(new Update { /* … */ });   // any raw update
+```
+
+To fail a call made during startup, arrange the fake first:
+
+```csharp
+var api = new FakeBotApi();
+api.Fail("setMyCommands", new BotApiError(500, "Internal Server Error"));
+
+await using var bot = await TelegramTestHost.ForLongPollingAsync(Register, api);
+```
+
+The fake answers like Telegram, errors included (editing a deleted message, answering a tap twice, files over 20 MB),
+and fails the test on a method it doesn't support.
 
 ## Samples
 
-Two runnable projects live in this repository, each with component tests next to it in `tests/`:
+- [`Sandbox`](src/Bladehero.Telegram.Platform.Sandbox): long polling with a `/coffee` [conversation](#conversations)
+  covering text and button steps, cancelling and stale buttons.
+- [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): webhook echo with an Again button.
 
-- [`src/Bladehero.Telegram.Platform.Sandbox`](src/Bladehero.Telegram.Platform.Sandbox) — long-polling console
-  host with a command that logs `MyChatMember` updates, and a `/coffee` [conversation](#conversations), listed in the
-  bot's [command menu](#the-command-menu), that exercises every routing rule: text and button steps, a Cancel button at any step, `/cancel` falling through
-  mid-flow, and stale buttons answered after the order closes.
-- [`src/Bladehero.Telegram.Platform.Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook) —
-  ASP.NET Core webhook host with a command that echoes messages back, and an Again button that answers the tap and
-  sends the reply once more.
-
-Set a token and run:
+Their component tests live in `tests/`. To run one:
 
 ```sh
 cd src/Bladehero.Telegram.Platform.Sandbox
