@@ -29,7 +29,9 @@ public sealed class TestFile
     public string? Url { get; }
 
     /// <summary>A copy of the file's bytes.</summary>
-    /// <exception cref="InvalidOperationException">The file was sent by <see cref="Url"/>, which the fake never fetches.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The file was sent by <see cref="Url"/>, which the fake never fetches.
+    /// </exception>
     public byte[] Content =>
         Url is null
             ? [.. _content]

@@ -15,7 +15,9 @@ public sealed record BotApiError(int ErrorCode, string Description)
     /// <summary>For a 429: seconds to wait before retrying.</summary>
     public int? RetryAfter { get; init; }
 
-    /// <summary>429 flood limit; Telegram.Bot waits <paramref name="retryAfter"/> seconds and retries a few times itself.</summary>
+    /// <summary>
+    /// 429 flood limit; Telegram.Bot waits <paramref name="retryAfter"/> seconds and retries a few times itself.
+    /// </summary>
     public static BotApiError TooManyRequests(int retryAfter) =>
         new(429, $"Too Many Requests: retry after {retryAfter}") { RetryAfter = retryAfter };
 }

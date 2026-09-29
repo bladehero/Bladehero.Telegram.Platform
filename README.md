@@ -103,7 +103,17 @@ variables.
 
 ### Configuration
 
-The section defaults to the type name; pass `sectionName` to change it.
+Bind a section — named after the type unless you pass `sectionName` — or configure in code, optionally with up to five
+resolved dependencies:
+
+```csharp
+services.AddTelegramLongPollingReceiving(configuration, sectionName: "MyBot", assemblies: typeof(Program).Assembly);
+
+services.AddTelegramLongPollingReceiving<ISecrets>(
+    (receiver, secrets) => receiver.Token = secrets.BotToken,
+    typeof(Program).Assembly
+);
+```
 
 | Property | Mode | |
 | --- | --- | --- |
@@ -195,8 +205,10 @@ public sealed class HelpCommand(IBotCommandMenu menu) : MessageCommand
 ```
 
 - **Order:** ordered commands first (lowest first, unique), then the rest alphabetically.
-- **Validated at startup:** names 1–32 of `a-z0-9_`, descriptions up to 256 characters, at most 100 commands.
+- **Validated at startup:** unique names of 1–32 `a-z0-9_`, descriptions up to 256 characters, at most 100 commands.
 - **Synced at startup** only when it differs. Without any `[BotCommand]` the menu is never touched.
+- **Settings:** turn `SyncCommandMenu` off where another environment shares the token. `CommandMenuScope` defaults to
+  `Default`; Telegram keeps a menu per scope, so switching scopes leaves the old menu in place.
 
 ### Known users
 
@@ -226,7 +238,9 @@ internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserC
 internal sealed class ExpenseButton(IExpenses expenses) : KnownUserCallbackQueryCommand<User, (string Action, Guid Id)>
 {
     protected override (string Action, Guid Id)? Parse(string data) =>
-        data.Split(':') is [var action, var id] && Guid.TryParse(id, out var expenseId) ? (action, expenseId) : null;
+        data.Split(':') is [var action and ("edit" or "delete"), var id] && Guid.TryParse(id, out var expenseId)
+            ? (action, expenseId)
+            : null;
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {
@@ -256,13 +270,15 @@ Commands are batched by priority and batches run in order: unmarked commands, th
 
 ### Parallelism
 
-Within a batch, commands run in parallel chunks of `ParallelCount` (default 5; `null` for one unbounded chunk):
+Within a batch, commands run in chunks of `ParallelCount` (default 5; `null` for one unbounded chunk): the commands of
+a chunk run in parallel, chunks one after another.
 
 ```csharp
 services.Configure<ParallelCommandExecutionConfiguration>(options => options.ParallelCount = 10);
 ```
 
-To replace dispatch entirely, register your own `ITelegramCommandExecutor`.
+To replace dispatch entirely, register your own `ITelegramCommandExecutor` **after** the receiving services; it then
+owns [conversation](#conversations) routing too.
 
 ### Scopes
 
@@ -316,7 +332,12 @@ await store.SaveAsync(new ConversationKey(chatId, userId), new ConversationState
 
 ## Sending on your own
 
-Replies use the request's client. Messages the bot starts itself — reminders, alerts — go through `ITelegramSender`:
+Replies use the request's client. Messages the bot starts itself — reminders, alerts — go through `ITelegramSender`.
+The receiving setups register it; an app that only sends needs just the core package:
+
+```csharp
+services.AddTelegramBot(configuration);   // binds TelegramBotConfiguration: { "Token": "…" }
+```
 
 ```csharp
 public sealed class LimitAlerts(ITelegramSender sender)
@@ -330,13 +351,15 @@ public sealed class LimitAlerts(ITelegramSender sender)
 
 ## Errors and the HttpClient
 
-Receiver errors go to `ITelegramErrorHandler` (logged by default). Replace it:
+Receiver errors go to `ITelegramErrorHandler`, which logs them and ignores the cancellation on shutdown. Replace it by
+registering your own **after** the receiving services:
 
 ```csharp
 services.AddScoped<ITelegramErrorHandler, SentryTelegramErrorHandler>();
 ```
 
-Every `Add…` method takes an `httpClientFactory` for proxies, IPv4, retries or logging:
+`AddTelegramBot` and the `IConfiguration` overloads of the receiving methods take an `httpClientFactory` for proxies,
+IPv4, retries or logging:
 
 ```csharp
 services.AddTelegramLongPollingReceiving(
@@ -389,13 +412,18 @@ and deletions gone. A name is one user everywhere.
 ### Tap buttons
 
 ```csharp
-var card = nick.LastMessage;
-var answer = await nick.TapsAsync("Medium");   // on the newest message showing it
-await nick.TapsAsync("Large", on: card);       // on a specific message
+await nick.SendsAsync("/coffee");
+var first = nick.LastMessage;
+await nick.SendsAsync("/coffee");
+
+var answer = await nick.TapsAsync("Medium");            // on the newest message showing it
+var stale = await nick.TapsAsync("Large", on: first);   // on a given message, as it now stands
 
 answer.IsAnswered.Should().BeTrue();
-answer.ToString();   // "Notification: …", "Alert: …", "Answered silently" or "No answer"
+stale.ToString().Should().Be("Notification: That button is no longer active.");
 ```
+
+An answer reads as `Notification: …`, `Alert: …`, `Answered silently` or `No answer`.
 
 Tapping a button nobody sees fails the test and lists the buttons that are there.
 
@@ -413,11 +441,14 @@ report.ReadAsString().Should().Be("a,b");
 
 ### Check and fail Telegram
 
-```csharp
-bot.Api.Calls           // every Bot API call with its parameters
-bot.Api.CommandMenu()   // the published menu
-bot.Api.WebhookUrl      // the webhook the bot set
+| `bot.Api` | |
+| --- | --- |
+| `Calls` | Every Bot API call with its parameters. |
+| `CommandMenu(scope?)` | The published command menu. |
+| `WebhookUrl` | The webhook the bot set. |
+| `Fail(method, error, times?)` | Makes Telegram refuse a method. |
 
+```csharp
 bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                     // every call
 bot.Api.Fail("sendMessage", BotApiError.TooManyRequests(1), times: 1);   // once
 
@@ -430,7 +461,10 @@ To fail a call made during startup, arrange the fake first:
 var api = new FakeBotApi();
 api.Fail("setMyCommands", new BotApiError(500, "Internal Server Error"));
 
-await using var bot = await TelegramTestHost.ForLongPollingAsync(Register, api);
+await using var bot = await TelegramTestHost.ForLongPollingAsync(
+    services => services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(Program).Assembly),
+    api
+);
 ```
 
 The fake answers like Telegram, errors included (editing a deleted message, answering a tap twice, files over 20 MB),
@@ -439,10 +473,10 @@ and fails the test on a method it doesn't support.
 ## Samples
 
 - [`Sandbox`](src/Bladehero.Telegram.Platform.Sandbox): long polling with a `/coffee` [conversation](#conversations)
-  covering text and button steps, cancelling and stale buttons.
+  covering text and button steps, cancelling and stale buttons, and a logger of `MyChatMember` updates.
 - [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): webhook echo with an Again button.
 
-Their component tests live in `tests/`. To run one:
+Their component tests live in `tests/`. To run a sample against Telegram:
 
 ```sh
 cd src/Bladehero.Telegram.Platform.Sandbox

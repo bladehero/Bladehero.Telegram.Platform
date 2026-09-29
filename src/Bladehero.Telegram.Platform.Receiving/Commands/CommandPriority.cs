@@ -9,12 +9,14 @@ public sealed class CommandPriority
     internal static readonly IEqualityComparer<CommandPriority> EqualityComparer =
         new CommandPriorityEqualityComparer();
 
-    /// <summary>Global priority; lower runs first, 0 is the highest.</summary>
+    /// <summary>
+    /// Global priority; lower runs first. 0 is the highest you can set, but unmarked commands (-1) run before all.
+    /// </summary>
     public int Global { get; private set; }
 
     /// <summary>
-    /// Order within the same global priority; lower runs first. <c>null</c> runs last and may run in parallel with
-    /// other ungrouped commands.
+    /// Order within the same global priority; lower runs first, <c>null</c> last. Commands with equal priority run in
+    /// parallel.
     /// </summary>
     public int? Group { get; private set; }
 

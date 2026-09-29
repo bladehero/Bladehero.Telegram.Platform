@@ -4,11 +4,16 @@ namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
 public static class ConversationExtensions
 {
-    /// <summary>Starts <paramref name="flow"/> at <paramref name="step"/>, replacing any conversation in progress.</summary>
+    /// <summary>
+    /// Starts <paramref name="flow"/> at <paramref name="step"/>, replacing any conversation in progress.
+    /// </summary>
     public static Task StartAsync(this IConversation conversation, string flow, string step, CancellationToken token) =>
         conversation.SetAsync(new ConversationState(flow, step), token);
 
-    /// <summary>Starts <paramref name="flow"/> at <paramref name="step"/> with <paramref name="data"/>, replacing any in progress.</summary>
+    /// <summary>
+    /// Starts <paramref name="flow"/> at <paramref name="step"/> with <paramref name="data"/>, replacing any in
+    /// progress.
+    /// </summary>
     public static Task StartAsync<TData>(
         this IConversation conversation,
         string flow,

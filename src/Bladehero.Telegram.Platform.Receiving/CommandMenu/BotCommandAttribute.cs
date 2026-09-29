@@ -44,7 +44,9 @@ public sealed class BotCommandAttribute : Attribute
 
     public string Description { get; }
 
-    /// <summary>Position in the menu, lowest first; unset (<see cref="int.MaxValue"/>) goes after ordered commands.</summary>
+    /// <summary>
+    /// Position in the menu, lowest first; unset (<see cref="int.MaxValue"/>) goes after ordered commands.
+    /// </summary>
     public int Order
     {
         get => _order ?? int.MaxValue;

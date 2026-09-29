@@ -88,10 +88,12 @@ public sealed class TestUser
 
     /// <summary>
     /// Sends <paramref name="document"/> named <paramref name="fileName"/>. The MIME type comes from the extension
-    /// (pdf, txt, csv, json, xml, zip, jpg, png, docx, xlsx; otherwise octet-stream) unless <paramref name="mimeType"/>
-    /// is given.
+    /// (pdf, txt, csv, json, xml, zip, jpg/jpeg, png, docx, xlsx; otherwise octet-stream) unless
+    /// <paramref name="mimeType"/> is given.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="document"/> is empty or <paramref name="fileName"/> blank.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="document"/> is empty or <paramref name="fileName"/> blank.
+    /// </exception>
     public Task SendsDocumentAsync(
         byte[] document,
         string fileName,
@@ -118,10 +120,12 @@ public sealed class TestUser
 
     /// <summary>Taps the inline button <paramref name="button"/> on the newest message showing it.</summary>
     /// <param name="button">The button's exact text.</param>
-    /// <param name="on">A specific (older) message to tap it on.</param>
+    /// <param name="on">A specific message to tap it on, as that message now stands.</param>
     /// <param name="token">Stops waiting for the bot.</param>
     /// <returns>The bot's answer: the notification or alert the user sees, if any.</returns>
-    /// <exception cref="InvalidOperationException">No such button is shown, it is ambiguous, or it is not a callback button.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// No such button is shown, it is ambiguous, or it is not a callback button.
+    /// </exception>
     public async Task<TestCallbackAnswer> TapsAsync(
         string button,
         TestMessage? on = null,

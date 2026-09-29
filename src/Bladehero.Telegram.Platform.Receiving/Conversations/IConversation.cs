@@ -2,7 +2,8 @@ namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
 /// <summary>The conversation of the user behind the current update.</summary>
 /// <remarks>
-/// Scoped to the update and written through at once; a change routes the <em>next</em> update. See
+/// Scoped to the update: the store is read at most once and written through at once; a change routes the <em>next</em>
+/// update. See
 /// <see cref="ConversationExtensions"/> for start, move and read.
 /// </remarks>
 public interface IConversation

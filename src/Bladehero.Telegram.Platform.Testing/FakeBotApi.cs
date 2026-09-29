@@ -13,9 +13,9 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// requests are serialized as in production but never leave the process.
 /// </summary>
 /// <remarks>
-/// Calls are recorded in <see cref="Calls"/> (all but <c>getUpdates</c>) and answered as Telegram would, its errors
-/// included. A method the fake does not support fails with an error naming it. <see cref="Fail"/> makes Telegram
-/// refuse a call.
+/// Calls are recorded in <see cref="Calls"/> (all but <c>getUpdates</c> and file downloads) and answered as Telegram
+/// would, its errors included. A method the fake does not support fails with an error naming it. <see cref="Fail"/>
+/// makes Telegram refuse a call.
 /// </remarks>
 public sealed partial class FakeBotApi
 {
@@ -76,7 +76,9 @@ public sealed partial class FakeBotApi
     /// Makes Telegram refuse <paramref name="method"/> (e.g. <c>sendMessage</c>) with <paramref name="error"/>: every
     /// call, or only the next <paramref name="times"/>. A refused call is recorded but changes nothing.
     /// </summary>
-    /// <remarks>To fail startup calls, arrange this before passing the fake to <see cref="TelegramTestHost"/>.</remarks>
+    /// <remarks>
+    /// To fail startup calls, arrange this before passing the fake to <see cref="TelegramTestHost"/>.
+    /// </remarks>
     public void Fail(string method, BotApiError error, int? times = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);

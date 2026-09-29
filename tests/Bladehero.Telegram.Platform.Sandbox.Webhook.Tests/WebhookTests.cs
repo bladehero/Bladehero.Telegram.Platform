@@ -308,6 +308,7 @@ public sealed class WebhookTests
                             return;
                         }
 
+                        // A slow app that does not notice the caller giving up.
                         await Task.Delay(Delay, CancellationToken.None);
                         await proceed();
                         FirstFinished.TrySetResult();

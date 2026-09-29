@@ -4,7 +4,9 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 
 public static class MessageExtensions
 {
-    /// <summary>Whether the message is the bot command: <c>/last</c>, <c>/last@BotName</c> or <c>/last 10</c>.</summary>
+    /// <summary>
+    /// Whether the message is the bot command: <c>/last</c>, <c>/last@BotName</c> or <c>/last 10</c>.
+    /// </summary>
     public static bool IsCommand(this Message message, string command) =>
         message.Text?.Split(' ', '@')[0].Equals(command, StringComparison.OrdinalIgnoreCase) is true;
 

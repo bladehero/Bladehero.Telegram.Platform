@@ -6,7 +6,9 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-/// <summary>A snapshot of a <see cref="TestChat"/> message, edits applied; read the chat again for later changes.</summary>
+/// <summary>
+/// A snapshot of a <see cref="TestChat"/> message, edits applied; read the chat again for later changes.
+/// </summary>
 public sealed class TestMessage
 {
     private readonly JsonObject _json;
