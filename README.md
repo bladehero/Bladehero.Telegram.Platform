@@ -403,6 +403,9 @@ await using var bot = await TelegramTestHost.ForWebhookAsync<Program>(web =>
 Both return once startup (webhook, command menu) is done. For webhook tests the test project references the app; if
 the factory can't find the app's content root, also reference `Microsoft.AspNetCore.Mvc.Testing`.
 
+The bot's client talks to the fake, and so does an `ITelegramBotClient` or `TelegramBotClient` the app registers itself,
+e.g. for messages it starts.
+
 ### Chat with it
 
 ```csharp

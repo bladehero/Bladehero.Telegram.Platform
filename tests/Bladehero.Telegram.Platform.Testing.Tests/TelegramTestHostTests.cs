@@ -109,6 +109,46 @@ public sealed class TelegramTestHostTests
         }
     }
 
+    [Theory]
+    [InlineData("instance")]
+    [InlineData("factory")]
+    [InlineData("concrete type")]
+    [InlineData("typed HttpClient")]
+    public async Task ForLongPollingAsync_WhenTheAppRegistersItsOwnBotClient_ShouldPointItAtTheFake(string registration)
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(services: services => RegisterOwnClient(services, registration));
+        var nick = bot.PrivateChat("Nick");
+        var client =
+            registration == "concrete type"
+                ? bot.Services.GetRequiredService<TelegramBotClient>()
+                : bot.Services.GetRequiredService<ITelegramBotClient>();
+
+        // Act
+        await client.SendMessage(nick.Chat.Id, "Your limit is near");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            nick.LastMessage.ToString().Should().Be("Bot: Your limit is near");
+            bot.Api.Calls.Should().ContainSingle(x => x.Method == "sendMessage");
+        }
+    }
+
+    [Fact]
+    public async Task ForLongPollingAsync_WhenTheAppRegistersNoBotClient_ShouldNotAddOne()
+    {
+        // Act
+        await using var bot = await TestBot.StartAsync();
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Services.GetService<ITelegramBotClient>().Should().BeNull();
+            bot.Services.GetService<TelegramBotClient>().Should().BeNull();
+        }
+    }
+
     [Fact]
     public async Task ForLongPollingAsync_ShouldRunTheHostsStartupAgainstTheFake()
     {
@@ -245,6 +285,29 @@ public sealed class TelegramTestHostTests
 
         // Assert
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    private static void RegisterOwnClient(IServiceCollection services, string registration)
+    {
+        const string realLookingToken = "7654321:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
+
+        switch (registration)
+        {
+            case "instance":
+                services.AddSingleton<ITelegramBotClient>(new TelegramBotClient(realLookingToken));
+                break;
+            case "factory":
+                services.AddSingleton<ITelegramBotClient>(_ => new TelegramBotClient(realLookingToken));
+                break;
+            case "concrete type":
+                services.AddSingleton(new TelegramBotClient(realLookingToken));
+                break;
+            default:
+                services
+                    .AddHttpClient("telegram")
+                    .AddTypedClient<ITelegramBotClient>(http => new TelegramBotClient(realLookingToken, http));
+                break;
+        }
     }
 
     private static Update Text(string text) =>

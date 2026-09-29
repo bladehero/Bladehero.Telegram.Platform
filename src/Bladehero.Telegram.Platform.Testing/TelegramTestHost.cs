@@ -44,9 +44,10 @@ public sealed class TelegramTestHost : IAsyncDisposable
     /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
     /// <param name="token">Stops waiting for the bot to start.</param>
     /// <remarks>
-    /// Only the bot client (the token is never used) and the error handler (errors fail the test) are swapped. Returns
-    /// once the host has started, so startup work such as the command menu can be checked right away. The container is
-    /// validated on build.
+    /// Only the bot client, including one the app registers itself as <see cref="ITelegramBotClient"/> or
+    /// <see cref="TelegramBotClient"/> (the token is never used), and the error handler (errors fail the test) are
+    /// swapped. Returns once the host has started, so startup work such as the command menu can be checked right away.
+    /// The container is validated on build.
     /// </remarks>
     public static async Task<TelegramTestHost> ForLongPollingAsync(
         Action<IServiceCollection> configureServices,
@@ -169,8 +170,28 @@ public sealed class TelegramTestHost : IAsyncDisposable
 
     private static void TalkToTheFake(IServiceCollection services, FakeBotApi api, ErrorLog errors)
     {
-        services.Replace(ServiceDescriptor.Singleton(new TelegramBotClientAccessor(api.CreateClient())));
+        var client = (TelegramBotClient)api.CreateClient();
+        services.Replace(ServiceDescriptor.Singleton(new TelegramBotClientAccessor(client)));
         services.Replace(ServiceDescriptor.Scoped<ITelegramErrorHandler>(_ => new RecordingErrorHandler(errors)));
+
+        // A client the app registers itself, e.g. for messages it starts, talks to the fake as well.
+        var ownClients = services
+            .Where(x => x.ServiceType == typeof(ITelegramBotClient) || x.ServiceType == typeof(TelegramBotClient))
+            .ToArray();
+
+        foreach (var descriptor in ownClients)
+        {
+            services.Remove(descriptor);
+        }
+
+        foreach (var (type, key) in ownClients.Select(x => (x.ServiceType, x.ServiceKey)).Distinct())
+        {
+            services.Add(
+                key is null
+                    ? ServiceDescriptor.Singleton(type, client)
+                    : ServiceDescriptor.KeyedSingleton(type, key, client)
+            );
+        }
     }
 
     private interface IRunningBot : IAsyncDisposable

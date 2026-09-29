@@ -237,6 +237,29 @@ public sealed class WebhookTests
         }
     }
 
+    [Fact]
+    public async Task Update_WhenTheAppRegistersItsOwnBotClient_ShouldTalkToTheFake()
+    {
+        // Arrange
+        await using var bot = await WebhookBot.StartAsync(configure: web =>
+            web.ConfigureTestServices(services =>
+                services.AddSingleton<ITelegramBotClient>(
+                    new TelegramBotClient("7654321:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw")
+                )
+            )
+        );
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("hello");
+        await bot.Services.GetRequiredService<ITelegramBotClient>().SendMessage(nick.Chat.Id, "Your limit is near");
+
+        // Assert
+        nick.Messages.Select(x => x.ToString())
+            .Should()
+            .Equal("Nick: hello", "Bot: Reply: hello [Again]", "Bot: Your limit is near");
+    }
+
     private static Task<Testing.TelegramTestHost> StartWatchedAsync(WebhookRequests requests) =>
         WebhookBot.StartAsync(configure: web =>
             web.ConfigureTestServices(services => services.AddSingleton<IStartupFilter>(requests))
