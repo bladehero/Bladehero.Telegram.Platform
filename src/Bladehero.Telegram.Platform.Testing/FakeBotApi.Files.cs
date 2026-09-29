@@ -148,7 +148,8 @@ public sealed partial class FakeBotApi
 
         if (Uri.TryCreate(value, UriKind.Absolute, out var url) && (url.Scheme == "http" || url.Scheme == "https"))
         {
-            var fileName = Path.GetFileName(Uri.UnescapeDataString(url.AbsolutePath));
+            // The last segment of the path, unescaped only once split off, so "%2F" or "%5C" stays part of the name.
+            var fileName = Uri.UnescapeDataString(url.AbsolutePath[(url.AbsolutePath.LastIndexOf('/') + 1)..]);
             return _files.Add(kind, [], DetailsOf(kind, fileName.Length == 0 ? "file" : fileName, parameters), value);
         }
 
@@ -212,15 +213,19 @@ public sealed partial class FakeBotApi
 
     // Telegram.Bot writes a file name's UTF-8 bytes into the header as they are, one character per byte. On the wire
     // that is exactly UTF-8, so Telegram reads the name right; the fake gets the header object instead, so it decodes
-    // the bytes back the same way. A name given as filename* is already decoded.
-    private static string? FileNameOf(ContentDispositionHeaderValue disposition)
+    // the bytes back the same way. The raw parameter is read rather than FileName, which would also decode a name that
+    // merely looks like an RFC 2047 encoded word. A name given as filename* is already decoded.
+    internal static string? FileNameOf(ContentDispositionHeaderValue disposition)
     {
         if (disposition.FileNameStar is { } decoded)
         {
             return decoded;
         }
 
-        if (disposition.FileName?.Trim('"') is not { } fileName)
+        var raw = disposition.Parameters.FirstOrDefault(parameter =>
+            parameter.Name.Equals("filename", StringComparison.OrdinalIgnoreCase)
+        );
+        if (raw?.Value?.Trim('"') is not { } fileName)
         {
             return null;
         }
