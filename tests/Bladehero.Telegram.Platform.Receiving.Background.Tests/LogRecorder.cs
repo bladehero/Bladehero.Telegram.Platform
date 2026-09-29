@@ -4,7 +4,18 @@ namespace Bladehero.Telegram.Platform.Receiving.Background.Tests;
 
 internal sealed class LogRecorder : ILoggerProvider
 {
-    public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+    private readonly List<(LogLevel Level, Exception? Exception)> _entries = [];
+
+    public IReadOnlyList<(LogLevel Level, Exception? Exception)> Entries
+    {
+        get
+        {
+            lock (_entries)
+            {
+                return [.. _entries];
+            }
+        }
+    }
 
     public ILogger CreateLogger(string categoryName) => new Logger(this);
 
@@ -25,9 +36,9 @@ internal sealed class LogRecorder : ILoggerProvider
             Func<TState, Exception?, string> formatter
         )
         {
-            lock (recorder.Entries)
+            lock (recorder._entries)
             {
-                recorder.Entries.Add((logLevel, exception));
+                recorder._entries.Add((logLevel, exception));
             }
         }
     }
