@@ -16,7 +16,8 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// <remarks>
 /// Calls are recorded in <see cref="Calls"/> (all but <c>getUpdates</c> and file downloads) and answered as Telegram
 /// would, its errors and limits included; the bot can write only to a chat a test user opened or an update brought. A
-/// method the fake does not support fails with an error naming it. <see cref="Fail"/> makes Telegram refuse a call.
+/// method the fake does not support fails with an error naming it. <see cref="Fail"/> makes Telegram refuse a call,
+/// and <see cref="FailNetwork"/> makes it never arrive.
 /// </remarks>
 public sealed partial class FakeBotApi
 {
@@ -43,6 +44,19 @@ public sealed partial class FakeBotApi
         "record_video_note",
         "upload_video_note",
     ];
+
+    // Methods that take no chat_id, so a failure for one chat could never apply.
+    private static readonly HashSet<string> MethodsWithoutAChat = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "getMe",
+        "getFile",
+        "answerCallbackQuery",
+        "setWebhook",
+        "getWebhookInfo",
+        "deleteWebhook",
+        "getMyCommands",
+        "setMyCommands",
+    };
 
     private readonly object _gate = new();
     private readonly List<BotApiCall> _calls = [];
@@ -114,10 +128,36 @@ public sealed partial class FakeBotApi
     /// A method's first matching failure applies until its <paramref name="times"/> run out, then the next one does.
     /// To fail startup calls, arrange this before passing the fake to <see cref="TelegramTestHost"/>.
     /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// The method is <c>getUpdates</c>, which the test host owns, or has no chat while <paramref name="chatId"/> is
+    /// given.
+    /// </exception>
     public void Fail(string method, BotApiError error, int? times = null, long? chatId = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(method);
         ArgumentNullException.ThrowIfNull(error);
+
+        AddFailure(method, error, times, chatId);
+    }
+
+    /// <summary>
+    /// Makes the network fail for <paramref name="method"/>: the call never reaches Telegram, and the bot's client
+    /// throws a <c>RequestException</c> over an <see cref="HttpRequestException"/>. The call is recorded all the same.
+    /// </summary>
+    /// <remarks>
+    /// Every call, or only the next <paramref name="times"/>; with <paramref name="chatId"/>, only the calls to that
+    /// chat. It takes turns with <see cref="Fail"/>'s failures by the same rules.
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// The method is <c>getUpdates</c>, which the test host owns, or has no chat while <paramref name="chatId"/> is
+    /// given.
+    /// </exception>
+    public void FailNetwork(string method, int? times = null, long? chatId = null) =>
+        AddFailure(method, error: null, times, chatId);
+
+    // A null error fails the network instead.
+    private void AddFailure(string method, BotApiError? error, int? times, long? chatId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
         if (times <= 0)
         {
@@ -129,6 +169,14 @@ public sealed partial class FakeBotApi
             throw new ArgumentException(
                 "getUpdates is how the test host delivers updates, so it cannot fail. Fail the calls the bot makes instead.",
                 nameof(method)
+            );
+        }
+
+        if (chatId is not null && MethodsWithoutAChat.Contains(method))
+        {
+            throw new ArgumentException(
+                $"{method} has no chat, so it cannot fail for one; leave chatId out to fail every call.",
+                nameof(chatId)
             );
         }
 
@@ -604,9 +652,14 @@ public sealed partial class FakeBotApi
         {
             _calls.Add(new BotApiCall(method, parameters.DeepClone().AsObject()));
 
-            if (TakeFailure(method, parameters) is { } failure)
+            switch (TakeFailure(method, parameters))
             {
-                return Respond(failure);
+                case { Error: { } error }:
+                    return Respond(error);
+                case not null:
+                    throw new HttpRequestException(
+                        $"The network failed for {method}, as FakeBotApi.FailNetwork asked; Telegram never saw it."
+                    );
             }
 
             try
@@ -622,7 +675,7 @@ public sealed partial class FakeBotApi
         return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = result });
     }
 
-    private BotApiError? TakeFailure(string method, JsonObject parameters)
+    private Failure? TakeFailure(string method, JsonObject parameters)
     {
         var chatId = NumberOf(parameters["chat_id"]);
         var failure = _failures.FirstOrDefault(x => x.Matches(method, chatId));
@@ -637,7 +690,7 @@ public sealed partial class FakeBotApi
             _failures.Remove(failure);
         }
 
-        return failure.Error;
+        return failure;
     }
 
     private static HttpResponseMessage Respond(BotApiError error)
@@ -675,10 +728,10 @@ public sealed partial class FakeBotApi
         public BotApiError Error { get; } = error;
     }
 
-    // chatId: only calls to that chat, whether chat_id came as a number or as form text.
-    private sealed class Failure(string method, BotApiError error, int? times, long? chatId)
+    // chatId: only calls to that chat, whether chat_id came as a number or as form text. No error: the network fails.
+    private sealed class Failure(string method, BotApiError? error, int? times, long? chatId)
     {
-        public BotApiError Error { get; } = error;
+        public BotApiError? Error { get; } = error;
 
         public bool Exhausted => times is 0;
 

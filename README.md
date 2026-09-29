@@ -656,12 +656,14 @@ failed poll runs on the same clock, so with a `FakeTimeProvider` it too lasts un
 | `CommandMenu(scope?)` | The published command menu; the default scope when none is given. |
 | `WebhookUrl` | The webhook the bot set. |
 | `Fail(method, error, times?, chatId?)` | Makes Telegram refuse a method, for every chat or only one. |
+| `FailNetwork(method, times?, chatId?)` | Makes the network drop a method's calls: the client throws a `RequestException`. |
 | `UserIdOf(firstName)` | The Telegram id a test user gets, reserved before the host starts. |
 
 ```csharp
 bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                                 // every call
 bot.Api.Fail("sendPhoto", BotApiError.TooManyRequests(1), times: 1);                 // only the next one
 bot.Api.Fail("sendMessage", BotApiError.BotBlocked, chatId: anna.Chat.Id);           // Anna blocked the bot
+bot.Api.FailNetwork("sendMessage", times: 1);                                        // the next one never arrives
 
 bot.Api.CommandMenu(new BotCommandScopeAllPrivateChats()).Should().NotBeEmpty();     // a menu for private chats
 
@@ -684,7 +686,8 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync(
 );
 ```
 
-A method's first matching failure applies until its `times` run out, then the next one does.
+A method's first matching failure, from `Fail` or `FailNetwork`, applies until its `times` run out, then the next one
+does. A `chatId` for a method without a chat, such as `answerCallbackQuery`, is refused.
 
 The fake answers like Telegram, with Telegram's own error texts, and supports:
 

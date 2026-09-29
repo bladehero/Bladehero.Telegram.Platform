@@ -401,6 +401,90 @@ public sealed partial class FakeBotApiTests
         act.Should().Throw<ArgumentException>().WithMessage("*test host*");
     }
 
+    [Theory]
+    [InlineData("getMe")]
+    [InlineData("getFile")]
+    [InlineData("answerCallbackQuery")]
+    [InlineData("setWebhook")]
+    [InlineData("getWebhookInfo")]
+    [InlineData("deleteWebhook")]
+    [InlineData("getMyCommands")]
+    [InlineData("setMyCommands")]
+    public void Fail_WithAChatForAMethodWithoutOne_ShouldBeRefused(string method)
+    {
+        // Arrange
+        var api = ApiWithChats();
+
+        // Act
+        var act = () => api.Fail(method, BotApiError.ChatNotFound, chatId: Chat);
+
+        // Assert
+        act.Should()
+            .Throw<ArgumentException>()
+            .WithMessage($"{method} has no chat*")
+            .Which.ParamName.Should()
+            .Be("chatId");
+    }
+
+    [Fact]
+    public async Task FailNetwork_ShouldThrowARequestExceptionAndRecordTheCall()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        api.FailNetwork("sendMessage");
+
+        // Act
+        var failure = await Record.ExceptionAsync(() => client.SendMessage(Chat, "Continue?"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            failure
+                .Should()
+                .BeOfType<RequestException>()
+                .Which.InnerException.Should()
+                .BeOfType<HttpRequestException>();
+            api.Calls.Should().ContainSingle(x => x.Method == "sendMessage");
+            api.MessagesIn(Chat).Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task FailNetwork_ForOneChat_ShouldFailOnlyThatChat()
+    {
+        // Arrange: Anna (7) is on a network that drops the bot's calls.
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        api.FailNetwork("sendMessage", times: 1, chatId: 7);
+
+        // Act
+        var toNick = await client.SendMessage(Chat, "Your limit is near");
+        var toAnna = await Record.ExceptionAsync(() => client.SendMessage(7, "Your limit is near"));
+        var toAnnaAgain = await client.SendMessage(7, "Your limit is near");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            toNick.Text.Should().Be("Your limit is near");
+            toAnna.Should().BeOfType<RequestException>();
+            toAnnaAgain.Chat.Id.Should().Be(7);
+        }
+    }
+
+    [Fact]
+    public void FailNetwork_OnGetUpdates_ShouldSayTheHostOwnsIt()
+    {
+        // Arrange
+        var api = ApiWithChats();
+
+        // Act
+        var act = () => api.FailNetwork("getUpdates");
+
+        // Assert
+        act.Should().Throw<ArgumentException>().WithMessage("*test host*");
+    }
+
     [Fact]
     public async Task DownloadFile_ShouldServeTheBytesTheUserSent()
     {
