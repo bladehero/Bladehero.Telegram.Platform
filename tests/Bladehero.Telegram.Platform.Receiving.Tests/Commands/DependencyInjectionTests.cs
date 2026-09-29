@@ -49,6 +49,24 @@ public sealed class DependencyInjectionTests
     }
 
     [Fact]
+    public void AddTelegramCommands_WhenAKnownUserCommandsDependencyIsMissing_ShouldFailNamingIt()
+    {
+        // Arrange: nothing registers the ledger.
+        var services = new ServiceCollection();
+        services.AddSingleton<ITelegramUserResolver<DiTestUser>>(new DiTestResolver());
+        services.AddTelegramCommands([typeof(DependencyInjectionTests).Assembly]);
+        var provider = services.BuildServiceProvider();
+
+        // Act
+        var act = () => provider.GetRequiredService<DiLedgerCommand>();
+
+        // Assert
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage($"*{nameof(IDiLedger)}*{nameof(DiLedgerCommand)}*");
+    }
+
+    [Fact]
     public void AddTelegramCommands_ShouldExposeTheCommandMenuDeclaredInTheScannedAssembly()
     {
         // Arrange
@@ -137,13 +155,26 @@ public sealed class DependencyInjectionTests
 
     private sealed class DiTestResolver : ITelegramUserResolver<DiTestUser>
     {
-        public Task<DiTestUser?> ResolveAsync(long chatId, CancellationToken token) =>
+        public Task<DiTestUser?> ResolveAsync(long chatId, long userId, CancellationToken token) =>
             Task.FromResult<DiTestUser?>(null);
     }
 
     private sealed class DiProbeCommand : KnownUserCommand<DiTestUser>
     {
         public bool HasResolver => UserResolver is not null;
+
+        protected override bool Matches(Message message) => false;
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.CompletedTask;
+    }
+
+    // No test in this assembly resolves every scanned command, so the missing ledger breaks only the test that asks.
+    private interface IDiLedger;
+
+    private sealed class DiLedgerCommand(IDiLedger ledger) : KnownUserCommand<DiTestUser>
+    {
+        public IDiLedger Ledger { get; } = ledger;
 
         protected override bool Matches(Message message) => false;
 

@@ -1,15 +1,17 @@
 using FluentAssertions;
 using FluentAssertions.Execution;
 
-namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests;
+namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests.Echo;
 
 public sealed class SendAgainCommandTests
 {
-    [Fact]
-    public async Task Again_ShouldSendTheReplyOnceMoreAndSaySo()
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Again_ShouldSendTheReplyOnceMoreAndSaySo(BotMode mode)
     {
         // Arrange
-        await using var bot = await WebhookBot.StartAsync();
+        await using var bot = await SandboxBot.StartAsync(mode);
         var nick = bot.PrivateChat("Nick");
         await nick.SendsAsync("hello");
 

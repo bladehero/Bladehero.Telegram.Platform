@@ -8,7 +8,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Receiving.Background;
 
 internal sealed class TelegramCommandMenuInitializer<TConfiguration>(
-    TelegramBotClientAccessor accessor,
+    ITelegramBotClient client,
     IBotCommandMenu menu,
     IOptions<TConfiguration> options,
     ILogger<TelegramCommandMenuInitializer<TConfiguration>> logger
@@ -32,7 +32,7 @@ internal sealed class TelegramCommandMenuInitializer<TConfiguration>(
         try
         {
             var scope = ScopeOf(configuration.CommandMenuScope);
-            var shown = await accessor.Client.GetMyCommands(scope, cancellationToken: cancellationToken);
+            var shown = await client.GetMyCommands(scope, cancellationToken: cancellationToken);
 
             if (Matches(shown))
             {
@@ -40,7 +40,7 @@ internal sealed class TelegramCommandMenuInitializer<TConfiguration>(
                 return;
             }
 
-            await accessor.Client.SetMyCommands(menu.Commands, scope, cancellationToken: cancellationToken);
+            await client.SetMyCommands(menu.Commands, scope, cancellationToken: cancellationToken);
             logger.LogInformation("Command menu updated: {Count} commands", menu.Commands.Count);
         }
         catch (Exception ex)

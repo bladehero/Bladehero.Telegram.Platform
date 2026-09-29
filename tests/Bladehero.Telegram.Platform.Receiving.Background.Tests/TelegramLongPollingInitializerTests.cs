@@ -52,7 +52,7 @@ public sealed class TelegramLongPollingInitializerTests
         bool dropPendingUpdates = false
     ) =>
         new(
-            new TelegramBotClientAccessor(client),
+            client,
             Options.Create(
                 new TelegramReceiverConfiguration { Token = "unused", DropPendingUpdates = dropPendingUpdates }
             ),

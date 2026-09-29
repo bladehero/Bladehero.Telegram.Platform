@@ -21,19 +21,10 @@ internal static class DependencyInjection
     [
         new(
             type => KnownUserCommands.Any(type.DerivesFromOpenGeneric),
+            // Built like any other command, so a missing dependency fails naming it, then given its resolver.
             (type, provider) =>
             {
-                var constructors = type.GetConstructors();
-                if (constructors.Length != 1)
-                {
-                    throw new InvalidOperationException($"The type {type} must have one constructor only.");
-                }
-
-                var constructor = constructors[0];
-                var parameters = constructor.GetParameters();
-                var instance = constructor.Invoke(
-                    parameters.Select(p => provider.GetService(p.ParameterType)).ToArray()
-                );
+                var instance = ActivatorUtilities.CreateInstance(provider, type);
 
                 var userResolver = type.GetProperty(
                     nameof(KnownUserCommand<>.UserResolver),

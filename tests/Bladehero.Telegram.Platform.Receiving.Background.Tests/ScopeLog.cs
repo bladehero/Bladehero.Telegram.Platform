@@ -11,6 +11,10 @@ internal sealed class ScopeLog
     public List<ScopedDependency> SeenByUpdates { get; } = [];
     public List<ScopedDependency> SeenByErrors { get; } = [];
     public List<ProbeCommand> CommandInstances { get; } = [];
+    public List<TelegramError> Errors { get; } = [];
+
+    /// <summary>What the command throws, if anything.</summary>
+    public Exception? CommandFailure { get; set; }
 }
 
 internal sealed class ScopedDependency : IDisposable
@@ -37,7 +41,7 @@ internal sealed class ProbeCommand(ScopeLog log, ScopedDependency dependency) : 
     public Task HandleAsync(CommandRequest request, CancellationToken token)
     {
         log.SeenByUpdates.Add(dependency);
-        return Task.CompletedTask;
+        return log.CommandFailure is { } failure ? Task.FromException(failure) : Task.CompletedTask;
     }
 }
 
@@ -46,6 +50,7 @@ internal sealed class ProbeErrorHandler(ScopeLog log, ScopedDependency dependenc
     public Task HandleAsync(TelegramError telegramError)
     {
         log.SeenByErrors.Add(dependency);
+        log.Errors.Add(telegramError);
         return Task.CompletedTask;
     }
 }

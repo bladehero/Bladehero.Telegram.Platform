@@ -44,5 +44,6 @@ public sealed class TestFile
     /// <exception cref="InvalidOperationException">The bot sent the file by <see cref="Url"/>.</exception>
     public string ReadAsString() => Encoding.UTF8.GetString(Content);
 
+    /// <summary>The document's name, else the URL it was sent by, else its file id.</summary>
     public override string ToString() => FileName ?? Url ?? Id;
 }

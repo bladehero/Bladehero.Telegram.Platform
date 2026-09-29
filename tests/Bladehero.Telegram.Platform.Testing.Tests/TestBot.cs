@@ -1,9 +1,13 @@
 using System.Text;
+using Bladehero.Telegram.Platform.Receiving.Background;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.ChatMembers;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.EditedMessages;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -14,15 +18,63 @@ namespace Bladehero.Telegram.Platform.Testing.Tests;
 // answers any non-command text.
 internal static class TestBot
 {
-    public static Task<TelegramTestHost> StartAsync(FakeBotApi? api = null) =>
+    // A test's own registrations come after the bot's, so they win.
+    public static Task<TelegramTestHost> StartAsync(
+        FakeBotApi? api = null,
+        Action<IServiceCollection>? services = null,
+        Action<TelegramReceiverConfiguration>? receiver = null
+    ) =>
         TelegramTestHost.ForLongPollingAsync(
-            services =>
-                services.AddTelegramLongPollingReceiving(
-                    receiver => receiver.Token = "unused",
+            collection =>
+            {
+                collection.AddTelegramLongPollingReceiving(
+                    configuration =>
+                    {
+                        configuration.Token = "unused";
+                        receiver?.Invoke(configuration);
+                    },
                     typeof(TestBot).Assembly
-                ),
+                );
+                services?.Invoke(collection);
+            },
             api
         );
+
+    // Greets whoever joins a group.
+    private sealed class WelcomeCommand : ChatMemberCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<ChatMemberUpdated> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.NewChatMember is ChatMemberMember);
+
+        protected override Task HandleAsync(TypedCommandRequest<ChatMemberUpdated> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                $"Welcome, {request.Payload.NewChatMember.User.FirstName}",
+                cancellationToken: token
+            );
+    }
+
+    // Never finishes, and ignores cancellation too.
+    private sealed class HangCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/hang"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            new TaskCompletionSource().Task;
+    }
+
+    // Finishes only when the bot stops.
+    private sealed class WaitCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/wait"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.Delay(Timeout.InfiniteTimeSpan, token);
+    }
 
     private sealed class EchoCommand : MessageCommand
     {
@@ -51,7 +103,29 @@ internal static class TestBot
             Task.FromResult(request.Payload.IsCommand("/boom"));
 
         protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-            throw new InvalidOperationException("boom");
+            throw new InvalidOperationException($"boom from {request.Payload.From!.FirstName}");
+    }
+
+    private sealed class SlowBoomCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/slowboom"));
+
+        protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(300), CancellationToken.None);
+            throw new InvalidOperationException("slow boom");
+        }
+    }
+
+    // Fails as a timed-out HTTP call does: with a cancellation nobody asked for.
+    private sealed class TimeoutCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/timeout"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            throw new TaskCanceledException("Claude timed out");
     }
 
     [BotCommand("whoami", "Say who you are")]
@@ -228,6 +302,92 @@ internal static class TestBot
 
         protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
             request.Client.SendMessage(request.Payload.Chat, "Pick one", replyMarkup: Menu, cancellationToken: token);
+    }
+
+    // Answers later, from the background, as a job would after the update was handled.
+    private sealed class LaterCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/later"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (_, message, client) = request;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(200));
+                await client.SendMessage(message.Chat, "later");
+            });
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // Answers a user's edit.
+    private sealed class EditedCommand : EditedMessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.Text is not null);
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                $"You changed it to: {request.Payload.Text}",
+                cancellationToken: token
+            );
+    }
+
+    // Answers each album item with its caption, and cannot read broken.csv.
+    private sealed class AlbumCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.MediaGroupId is not null);
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Payload.Document?.FileName == "broken.csv"
+                ? throw new InvalidOperationException("Cannot read broken.csv")
+                : request.Client.SendMessage(
+                    request.Payload.Chat,
+                    $"Album item: {request.Payload.Caption ?? "no caption"}",
+                    cancellationToken: token
+                );
+    }
+
+    // Two ◀ and two ▶, told apart only by their data.
+    private sealed class CardCommand : MessageCommand
+    {
+        private static readonly InlineKeyboardMarkup Arrows = new([
+            [
+                InlineKeyboardButton.WithCallbackData("◀", "method:back"),
+                InlineKeyboardButton.WithCallbackData("▶", "method:next"),
+            ],
+            [
+                InlineKeyboardButton.WithCallbackData("◀", "date:back"),
+                InlineKeyboardButton.WithCallbackData("▶", "date:next"),
+            ],
+        ]);
+
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/card"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(request.Payload.Chat, "Card", replyMarkup: Arrows, cancellationToken: token);
+    }
+
+    // Answers "moved method back" and the like.
+    private sealed class ArrowCommand : CallbackQueryCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.Data?.Split(':') is ["method" or "date", "back" or "next"]);
+
+        protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
+            request.Client.AnswerCallbackQuery(
+                request.Payload.Id,
+                $"moved {request.Payload.Data!.Replace(':', ' ')}",
+                cancellationToken: token
+            );
     }
 
     // Answers A with a notification and B with an alert.

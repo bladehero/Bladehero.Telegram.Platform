@@ -6,6 +6,11 @@ namespace Bladehero.Telegram.Platform.Receiving.Background;
 public class TelegramReceiverConfiguration : TelegramBotConfiguration
 {
     public int? Offset { get; set; }
+
+    /// <summary>
+    /// The update types to receive. Unset asks for Telegram's default set (all but <c>ChatMember</c> and reactions)
+    /// explicitly, so a list an earlier deployment set doesn't linger.
+    /// </summary>
     public UpdateType[]? AllowedUpdates { get; set; }
     public int? Limit { get; set; }
     public bool DropPendingUpdates { get; set; }
@@ -17,11 +22,12 @@ public class TelegramReceiverConfiguration : TelegramBotConfiguration
 
     public CommandMenuScope CommandMenuScope { get; set; }
 
+    // Unset asks for Telegram's default explicitly: an omitted list would keep one an earlier deployment set.
     internal ReceiverOptions ToOptions() =>
         new()
         {
             Offset = Offset,
-            AllowedUpdates = AllowedUpdates,
+            AllowedUpdates = AllowedUpdates ?? [],
             Limit = Limit,
             DropPendingUpdates = DropPendingUpdates,
         };

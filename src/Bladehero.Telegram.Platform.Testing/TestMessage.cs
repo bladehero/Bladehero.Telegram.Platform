@@ -21,8 +21,10 @@ public sealed class TestMessage
         Message = json.Deserialize<Message>(JsonBotAPI.Options)!;
     }
 
+    /// <summary>The message id, unique within its chat.</summary>
     public int Id => Message.Id;
 
+    /// <summary>The text of a text message; <c>null</c> for a photo or file, whose text is its caption.</summary>
     public string? Text => Message.Text;
 
     /// <summary>The text under a photo or file.</summary>
@@ -37,8 +39,10 @@ public sealed class TestMessage
     /// <summary>The voice message, or <c>null</c>.</summary>
     public TestFile? Voice => Message.Voice is { } voice ? _api.TestFileOf(voice.FileId) : null;
 
+    /// <summary>Whether the bot sent it, rather than a test user.</summary>
     public bool IsFromBot => Message.From?.IsBot is true;
 
+    /// <summary>Whether it was edited since it was sent, its text, caption or buttons.</summary>
     public bool IsEdited => Message.EditDate is not null;
 
     /// <summary>The inline keyboard's button texts, row by row.</summary>
@@ -55,7 +59,10 @@ public sealed class TestMessage
     // "(photo) Lunch", "What size?"
     internal string Content => string.Join(" ", new[] { Attachment, Text ?? Caption }.OfType<string>());
 
-    // "Nick: (photo) Lunch", "Bot: What size? [Small] [Large]"
+    /// <summary>
+    /// The sender, the content and the buttons, e.g. <c>Nick: (photo) Lunch</c> or
+    /// <c>Bot: What size? [Small] [Large]</c>.
+    /// </summary>
     public override string ToString() =>
         $"{(IsFromBot ? "Bot" : Message.From?.FirstName)}:"
         + (Content.Length == 0 ? "" : $" {Content}")

@@ -38,6 +38,20 @@ public sealed class MessageExtensionsTests
     }
 
     [Theory]
+    [InlineData("/rates\nall", true, "all")]
+    [InlineData("/rates\tall", true, "all")]
+    [InlineData("/rates@test_bot all", true, "all")]
+    [InlineData("/ratesall", false, null)]
+    [InlineData("/rates   ", true, null)]
+    public void TheCommandEndsAtAnyWhitespace(string text, bool isCommand, string? arguments)
+    {
+        var message = new Message { Text = text };
+
+        Assert.Equal(isCommand, message.IsCommand("/rates"));
+        Assert.Equal(arguments, message.ArgumentsOf("/rates"));
+    }
+
+    [Theory]
     [InlineData("/last")]
     [InlineData("/last ")]
     [InlineData("/other 10")]

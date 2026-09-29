@@ -1,6 +1,11 @@
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Bladehero.Configuration.Extensions;
+using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,35 +19,102 @@ namespace Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 
 public static class WebhookDependencyInjection
 {
+    private const string SecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token";
+
+    /// <summary>
+    /// Maps <c>POST {UpdateEndpoint}</c>, where Telegram posts the updates. With a <c>SecretToken</c> configured, a
+    /// request without it gets 401 before anything is read; a body that isn't an update gets 400, and 500 means the
+    /// update handler couldn't be built. Once handling has started the answer is 200, even when a command or the error
+    /// handler fails, so Telegram doesn't deliver the update again.
+    /// </summary>
     public static void UseTelegramWebhook(this IEndpointRouteBuilder builder)
     {
         var configuration = builder.ServiceProvider.GetRequiredService<IOptions<TelegramWebhookConfiguration>>().Value;
         var endpoint = NormalizeEndpointPath(configuration.UpdateEndpoint);
-        Console.WriteLine("[{0}]: Set bot update endpoint `{1}`", nameof(UseTelegramWebhook), endpoint);
+        var secretToken = configuration.HasSecretToken ? Encoding.UTF8.GetBytes(configuration.SecretToken!) : null;
+
+        builder
+            .ServiceProvider.GetRequiredService<ILogger<WebhookEndpoints>>()
+            .LogInformation("Receiving Telegram updates at {Endpoint}", endpoint);
+
+        // Nothing is read or built before the secret token checks out: not the body, not the update handler.
         builder.MapPost(
             endpoint,
-            async (
-                Update update,
-                TelegramBotClientAccessor accessor,
-                IUpdateHandler handler,
-                ILogger<WebhookEndpoints> logger,
-                CancellationToken token
-            ) =>
+            async (HttpContext context, ILogger<WebhookEndpoints> logger, CancellationToken token) =>
             {
-                var client = accessor.Client;
+                if (secretToken is not null && !CarriesSecretToken(context.Request, secretToken))
+                {
+                    logger.LogWarning("Refused a request to {Endpoint} without the webhook's secret token", endpoint);
+                    return Results.Unauthorized();
+                }
+
+                if (await ReadUpdateAsync(context.Request, token) is not { } update)
+                {
+                    return Results.BadRequest();
+                }
+
+                // Outside the reporting below, so a handler or client that cannot be built answers 500.
+                var handler = context.RequestServices.GetRequiredService<IUpdateHandler>();
+                var client = context.RequestServices.GetRequiredService<ITelegramBotClient>();
                 try
                 {
-                    logger.LogInformation("Received webhook update: {@Update}", update);
+                    // Debug, as updates carry personal data.
+                    logger.LogDebug("Received webhook update: {@Update}", update);
                     await handler.HandleUpdateAsync(client, update, token);
                 }
-                catch (Exception ex)
+                catch (Exception exception)
+                    when (exception is not OperationCanceledException || !token.IsCancellationRequested)
                 {
-                    logger.LogError(ex, "An error occurred while handling telegram update");
-                    await handler.HandleErrorAsync(client, ex, HandleErrorSource.HandleUpdateError, token);
+                    await ReportAsync(context.RequestServices, new TelegramError(exception, client, update), logger);
                 }
+                catch (OperationCanceledException)
+                {
+                    // The request is gone or the app is stopping, as at the end of polling: nothing to report.
+                }
+
+                // Once handling has started, anything but 200 would only make Telegram deliver the update again.
+                return Results.Ok();
             }
         );
     }
+
+    // The error handler logs the error, as with polling; one that fails itself is logged here and goes no further.
+    private static async Task ReportAsync(IServiceProvider services, TelegramError error, ILogger logger)
+    {
+        try
+        {
+            await services.GetRequiredService<ITelegramErrorHandler>().HandleAsync(error);
+        }
+        catch (Exception failure)
+        {
+            // Both stacks: the error first, then the handler's failure.
+            logger.LogError(
+                new AggregateException(error.Exception, failure),
+                "The Telegram error handler failed on an error from update {UpdateId}",
+                error.Update?.Id
+            );
+        }
+    }
+
+    // Null for a body that is not an update.
+    private static async Task<Update?> ReadUpdateAsync(HttpRequest request, CancellationToken token)
+    {
+        try
+        {
+            return await JsonSerializer.DeserializeAsync<Update>(request.Body, JsonBotAPI.Options, token);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    // Compared in constant time, so the response time tells nothing about the token.
+    private static bool CarriesSecretToken(HttpRequest request, byte[] secretToken) =>
+        CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(request.Headers[SecretTokenHeader].ToString()),
+            secretToken
+        );
 
     public static IServiceCollection AddTelegramWebhookReceiving(
         this IServiceCollection services,
@@ -149,6 +221,10 @@ public static class WebhookDependencyInjection
             httpClientFactory
         );
         services.AddTelegramReceiving(assemblies);
+        services
+            .AddOptions<TelegramWebhookConfiguration>()
+            .Validate(configuration => configuration.SecretTokenIsValid, TelegramWebhookConfiguration.SecretTokenRule)
+            .ValidateOnStart();
         services.AddHostedService<TelegramWebhookInitializer>();
         services.AddHostedService<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>();
     }

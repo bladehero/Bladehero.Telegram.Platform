@@ -10,6 +10,7 @@ public sealed record BotApiError(int ErrorCode, string Description)
     /// <summary>403: the user blocked the bot.</summary>
     public static BotApiError BotBlocked { get; } = new(403, "Forbidden: bot was blocked by the user");
 
+    /// <summary>400: Telegram doesn't know the chat, or the bot isn't in it.</summary>
     public static BotApiError ChatNotFound { get; } = new(400, "Bad Request: chat not found");
 
     /// <summary>For a 429: seconds to wait before retrying.</summary>
