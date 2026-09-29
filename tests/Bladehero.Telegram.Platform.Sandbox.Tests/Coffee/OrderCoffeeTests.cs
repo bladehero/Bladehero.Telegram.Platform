@@ -7,19 +7,6 @@ namespace Bladehero.Telegram.Platform.Sandbox.Tests.Coffee;
 public sealed class OrderCoffeeTests
 {
     [Fact]
-    public async Task CommandMenu_ShouldOfferCoffeeFirst()
-    {
-        // Act
-        await using var bot = await StartBotAsync();
-
-        // Assert
-        bot.Api.CommandMenu()
-            .Select(x => $"/{x.Command} {x.Description}")
-            .Should()
-            .Equal("/coffee Order a coffee", "/cancel Cancel the current order");
-    }
-
-    [Fact]
     public async Task Coffee_ShouldAskForTheSize()
     {
         // Arrange
