@@ -67,10 +67,14 @@ public sealed partial class TelegramTestHost
         {
             var clock = Stopwatch.StartNew();
 
-            // An update queued before the loop listens can be dropped as pending, as DropPendingUpdates does.
-            if (!await UntilAsync(_api.PolledAsync(_pollsBefore), Left(timeout, clock), token))
+            // An update queued before the loop listens can be dropped as pending, as DropPendingUpdates does. An app
+            // that set a webhook and hasn't polled since this host started gets a moment to, not the whole timeout.
+            var webhookSet = _api.WebhookUrl is not null && _api.Polls == _pollsBefore;
+            var listening = webhookSet ? AtMost(Left(timeout, clock), WrongHostGrace) : Left(timeout, clock);
+            if (!await UntilAsync(_api.PolledAsync(_pollsBefore), listening, token))
             {
-                throw new TimeoutException($"No one fetched the update within {Describe(timeout)}. {WhyNotPolled()}");
+                var within = Describe(webhookSet ? listening : timeout);
+                throw new TimeoutException($"No one fetched the update within {within}. {WhyNotPolled()}");
             }
 
             var updateId = _api.Enqueue(compose());

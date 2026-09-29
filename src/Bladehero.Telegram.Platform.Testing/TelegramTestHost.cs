@@ -32,6 +32,9 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     // The key the app's own error handler moves to, so the recording one can hand it every error.
     private static readonly object AppsErrorHandler = new();
 
+    // How long an app started with the wrong host method gets to show it, e.g. by polling instead of setting a webhook.
+    private static readonly TimeSpan WrongHostGrace = TimeSpan.FromSeconds(1);
+
     private readonly IRunningBot _bot;
     private readonly ErrorLog _errors;
     private TimeSpan _updateTimeout = Debugger.IsAttached ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(30);
@@ -431,6 +434,10 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     }
 
     // "500 ms", "1 second", "1.5 seconds".
+    // The limit, or the cap when that comes sooner; no limit comes later than any cap.
+    private static TimeSpan AtMost(TimeSpan limit, TimeSpan cap) =>
+        limit == Timeout.InfiniteTimeSpan || limit > cap ? cap : limit;
+
     internal static string Describe(TimeSpan duration) =>
         duration < TimeSpan.FromSeconds(1)
             ? string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:0.###} ms")

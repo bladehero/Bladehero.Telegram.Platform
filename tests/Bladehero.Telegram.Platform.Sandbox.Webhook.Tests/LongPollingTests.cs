@@ -85,18 +85,24 @@ public sealed class LongPollingTests
         await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
             SandboxBot.Configure(web, BotMode.Webhook)
         );
-        bot.UpdateTimeout = TimeSpan.FromSeconds(1);
+        var clock = Stopwatch.StartNew();
 
-        // Act
-        var act = () => bot.PrivateChat("Nick").SendsAsync("hello");
+        // Act: with the default UpdateTimeout of 30 seconds.
+        var failure = await Record.ExceptionAsync(() => bot.PrivateChat("Nick").SendsAsync("hello"));
 
         // Assert
-        await act.Should()
-            .ThrowAsync<TimeoutException>()
-            .WithMessage(
-                $"*The app set a webhook, {SandboxBot.BaseUrl}/telegram/updates, and does not poll; start it with "
-                    + "ForWebhookAsync<Program>."
-            );
+        using (new AssertionScope())
+        {
+            failure
+                .Should()
+                .BeOfType<TimeoutException>()
+                .Which.Message.Should()
+                .EndWith(
+                    $"The app set a webhook, {SandboxBot.BaseUrl}/telegram/updates, and does not poll; start it "
+                        + "with ForWebhookAsync<Program>."
+                );
+            clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+        }
     }
 
     // A background service of the app's that fails when told to.

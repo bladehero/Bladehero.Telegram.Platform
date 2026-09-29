@@ -20,7 +20,6 @@ public sealed partial class TelegramTestHost
         private const string SecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token";
 
         private static readonly TimeSpan AbandonedGrace = TimeSpan.FromSeconds(5);
-        private static readonly TimeSpan PollGrace = TimeSpan.FromSeconds(1);
 
         // Updates the test stopped waiting for; the bot may still be handling them.
         private readonly List<Task> _abandoned = [];
@@ -110,7 +109,7 @@ public sealed partial class TelegramTestHost
         {
             try
             {
-                var grace = timeout == Timeout.InfiniteTimeSpan || timeout > PollGrace ? PollGrace : timeout;
+                var grace = AtMost(timeout, WrongHostGrace);
                 await api.PolledAsync(pollsBefore).WaitAsync(grace, token);
 
                 return "The app polls for updates instead of setting a webhook; start it with "
