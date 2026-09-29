@@ -130,6 +130,14 @@ public sealed partial class FakeBotApi
 
     internal Task HandledAsync(int updateId) => _updates.HandledAsync(updateId);
 
+    internal int Polls => _updates.Polls;
+
+    internal Task PolledAsync(int polls) => _updates.PolledAsync(polls);
+
+    internal (bool Fetched, bool BusyBefore) Progress(int updateId) => _updates.Progress(updateId);
+
+    internal int PollsInFlight => _updates.InFlight;
+
     // The same first name is the same user in every chat.
     internal JsonObject Person(string firstName)
     {

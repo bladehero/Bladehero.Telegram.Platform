@@ -1,4 +1,5 @@
 using System.Text;
+using Bladehero.Telegram.Platform.Receiving.Background;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
@@ -18,19 +19,44 @@ internal static class TestBot
     // A test's own registrations come after the bot's, so they win.
     public static Task<TelegramTestHost> StartAsync(
         FakeBotApi? api = null,
-        Action<IServiceCollection>? services = null
+        Action<IServiceCollection>? services = null,
+        Action<TelegramReceiverConfiguration>? receiver = null
     ) =>
         TelegramTestHost.ForLongPollingAsync(
             collection =>
             {
                 collection.AddTelegramLongPollingReceiving(
-                    receiver => receiver.Token = "unused",
+                    configuration =>
+                    {
+                        configuration.Token = "unused";
+                        receiver?.Invoke(configuration);
+                    },
                     typeof(TestBot).Assembly
                 );
                 services?.Invoke(collection);
             },
             api
         );
+
+    // Never finishes, and ignores cancellation too.
+    private sealed class HangCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/hang"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            new TaskCompletionSource().Task;
+    }
+
+    // Finishes only when the bot stops.
+    private sealed class WaitCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/wait"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.Delay(Timeout.InfiniteTimeSpan, token);
+    }
 
     private sealed class EchoCommand : MessageCommand
     {

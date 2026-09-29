@@ -423,6 +423,9 @@ nick.Messages.Select(x => x.ToString())
 Each action returns once the bot is done. Chats show both sides, with edits applied and deletions gone. A name is one
 user everywhere.
 
+An action waits up to `bot.UpdateTimeout` (30 s, no limit under a debugger), then says whether the bot never fetched
+the update or is stuck in a command. If the bot's host stops, the action fails at once with the cause.
+
 An error belongs to the action that caused it: each action rethrows the first error its own update raised, even when
 users act at once, and the app's own `ITelegramErrorHandler` still runs, so what it does (an apology to the user, say)
 can be checked. A failed poll is rethrown by the next action; an update the test stopped waiting for fails nothing.

@@ -6,6 +6,7 @@ using Bladehero.Telegram.Platform.Receiving.Errors;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -350,6 +351,152 @@ public sealed class TelegramTestHostTests
     }
 
     [Fact]
+    public async Task SendAsync_RightAfterStart_WithDropPendingUpdates_ShouldReachTheBot()
+    {
+        // Arrange
+        var replies = new List<string>();
+
+        // Act
+        for (var round = 0; round < 20; round++)
+        {
+            await using var bot = await TestBot.StartAsync(receiver: receiver => receiver.DropPendingUpdates = true);
+            await bot.SendAsync(Text("hello"));
+            replies.Add(string.Join(", ", RepliesIn(bot.Api)));
+        }
+
+        // Assert
+        replies.Should().AllBeEquivalentTo("hello");
+    }
+
+    [Fact]
+    public async Task SendAsync_AfterARestartOnTheSameFake_ShouldReachTheNewBot()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        await using (
+            var first = await TestBot.StartAsync(api, receiver: receiver => receiver.DropPendingUpdates = true)
+        )
+        {
+            await first.SendAsync(Text("hello"));
+        }
+
+        await using var second = await TestBot.StartAsync(
+            api,
+            receiver: receiver => receiver.DropPendingUpdates = true
+        );
+
+        // Act
+        await second.SendAsync(Text("hello again"));
+
+        // Assert
+        RepliesIn(api).Should().Equal("hello", "hello again");
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenACommandHangs_ShouldSayTheBotTookTheUpdateButDidNotFinish()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        bot.UpdateTimeout = TimeSpan.FromSeconds(1);
+
+        // Act
+        var act = () => bot.SendAsync(Text("/hang"));
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<TimeoutException>()
+            .WithMessage("The bot fetched update 1 but did not finish it within 1 second. A command may be hanging*");
+    }
+
+    [Fact]
+    public async Task SendAsync_WithASubSecondTimeout_ShouldGiveItInMilliseconds()
+    {
+        // Arrange: nothing polls.
+        await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
+            services.AddTelegramReceiving(typeof(TestBot).Assembly)
+        );
+        bot.UpdateTimeout = TimeSpan.FromMilliseconds(300);
+
+        // Act
+        var act = () => bot.SendAsync(Text("hello"));
+
+        // Assert
+        await act.Should().ThrowAsync<TimeoutException>().WithMessage("No one fetched the update within 300 ms.*");
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WhenACommandHangs_ShouldNotWaitOutTheShutdownTimeout()
+    {
+        // Arrange
+        var bot = await TestBot.StartAsync();
+        bot.UpdateTimeout = TimeSpan.FromSeconds(1);
+        await ((Func<Task>)(() => bot.SendAsync(Text("/hang")))).Should().ThrowAsync<TimeoutException>();
+        var stopwatch = Stopwatch.StartNew();
+
+        // Act
+        await bot.DisposeAsync();
+
+        // Assert
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the host's default shutdown timeout is 30 s");
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenTheHostStops_ShouldFailFastWithTheCause()
+    {
+        // Arrange
+        var importer = new FailingImporter();
+        await using var bot = await TestBot.StartAsync(services: services => services.AddHostedService(_ => importer));
+        var waiting = bot.SendAsync(Text("/wait"));
+        var stopwatch = Stopwatch.StartNew();
+        var cause = new InvalidOperationException("The import queue is gone");
+
+        // Act
+        importer.Fail(cause);
+        var failure = await Record.ExceptionAsync(() => waiting);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            failure.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Contain("host stopped");
+            failure?.InnerException.Should().BeSameAs(cause);
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "the update timeout is 30 s");
+        }
+    }
+
+    [Fact]
+    public async Task ForLongPollingAsync_WhenStartupFails_ShouldStopPolling()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+
+        // Act
+        var act = () =>
+            TestBot.StartAsync(api, services: services => services.AddHostedService(_ => new FailingStartup(api)));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("The cache could not warm up");
+            api.PollsInFlight.Should().Be(0);
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-2)]
+    public async Task UpdateTimeout_WhenZeroOrNegative_ShouldBeRefused(int milliseconds)
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+
+        // Act
+        var act = () => bot.UpdateTimeout = TimeSpan.FromMilliseconds(milliseconds);
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public async Task DisposeAsync_ShouldStopThePollingLoopWithoutWaitingOutItsLongPoll()
     {
         // Arrange
@@ -362,6 +509,9 @@ public sealed class TelegramTestHostTests
         // Assert
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
     }
+
+    private static IEnumerable<string> RepliesIn(FakeBotApi api) =>
+        api.Calls.Where(x => x.Method == "sendMessage").Select(x => x.Parameters["text"]!.GetValue<string>());
 
     // Twenty rounds of both actions at once, each read as "first's outcome | second's outcome".
     private static async Task<List<string>> RoundsAtOnceAsync(Func<Task> first, Func<Task> second)
@@ -423,6 +573,28 @@ public sealed class TelegramTestHostTests
                 From = new User { Id = 42, FirstName = "Nick" },
             },
         };
+
+    // A background service of the app's that fails when told to.
+    private sealed class FailingImporter : BackgroundService
+    {
+        private readonly TaskCompletionSource _failure = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Fail(Exception cause) => _failure.SetException(cause);
+
+        protected override Task ExecuteAsync(CancellationToken stoppingToken) => _failure.Task.WaitAsync(stoppingToken);
+    }
+
+    // Fails to start once the bot already polls, so there is a polling loop to leak.
+    private sealed class FailingStartup(FakeBotApi api) : IHostedService
+    {
+        public async Task StartAsync(CancellationToken cancellationToken)
+        {
+            await api.PolledAsync(0).WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            throw new InvalidOperationException("The cache could not warm up");
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
 
     // The app's own error handler, and what it saw.
     private sealed class SeenErrors

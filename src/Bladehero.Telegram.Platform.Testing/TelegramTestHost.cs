@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Text;
@@ -24,11 +26,17 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// </remarks>
 public sealed class TelegramTestHost : IAsyncDisposable
 {
+    private const string MayBeHanging = "A command may be hanging, e.g. on a stub that never completes.";
+
+    // Stopping the bot waits no longer for a command that ignores cancellation.
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(5);
+
     // The key the app's own error handler moves to, so the recording one can hand it every error.
     private static readonly object AppsErrorHandler = new();
 
     private readonly IRunningBot _bot;
     private readonly ErrorLog _errors;
+    private TimeSpan _updateTimeout = Debugger.IsAttached ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(30);
 
     private TelegramTestHost(IRunningBot bot, FakeBotApi api, ErrorLog errors)
     {
@@ -43,7 +51,30 @@ public sealed class TelegramTestHost : IAsyncDisposable
     /// <summary>The bot's root services.</summary>
     public IServiceProvider Services => _bot.Services;
 
-    internal TimeSpan UpdateTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// How long each action waits for the bot to finish its update before failing with a
+    /// <see cref="TimeoutException"/>: 30 seconds, or no limit when a debugger was attached as the host started.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Zero, or negative other than <see cref="Timeout.InfiniteTimeSpan"/>.
+    /// </exception>
+    public TimeSpan UpdateTimeout
+    {
+        get => _updateTimeout;
+        set
+        {
+            if (value <= TimeSpan.Zero && value != Timeout.InfiniteTimeSpan)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value),
+                    value,
+                    "The bot needs some time for an update; use Timeout.InfiniteTimeSpan to wait without a limit."
+                );
+            }
+
+            _updateTimeout = value;
+        }
+    }
 
     /// <summary>
     /// Starts a long-polling bot: <paramref name="configureServices"/> registers it as its composition root does, and
@@ -72,16 +103,26 @@ public sealed class TelegramTestHost : IAsyncDisposable
         );
         configureServices(builder.Services);
         TalkToTheFake(builder.Services, api, errors);
+        BoundShutdown(builder.Services);
         builder.ConfigureContainer(
             new DefaultServiceProviderFactory(
                 new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true }
             )
         );
 
-        var host = builder.Build();
-        await host.StartAsync(token);
+        var bot = new PollingBot(builder.Build(), api);
+        try
+        {
+            await bot.StartAsync(token);
+        }
+        catch
+        {
+            // Stops the polling loop that may already run.
+            await bot.DisposeAsync().AsTask().ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            throw;
+        }
 
-        return new TelegramTestHost(new PollingBot(host, api), api, errors);
+        return new TelegramTestHost(bot, api, errors);
     }
 
     /// <summary>
@@ -112,7 +153,11 @@ public sealed class TelegramTestHost : IAsyncDisposable
         var app = factory.WithWebHostBuilder(web =>
         {
             configureWebHost?.Invoke(web);
-            web.ConfigureTestServices(services => TalkToTheFake(services, api, errors));
+            web.ConfigureTestServices(services =>
+            {
+                TalkToTheFake(services, api, errors);
+                BoundShutdown(services);
+            });
         });
 
         try
@@ -162,9 +207,11 @@ public sealed class TelegramTestHost : IAsyncDisposable
     /// Delivers a raw <paramref name="update"/> (it is not added to any <see cref="TestChat"/>) and returns once it is
     /// handled, rethrowing the first error it raised.
     /// </summary>
-    /// <exception cref="TimeoutException">The bot never finished the update.</exception>
+    /// <exception cref="TimeoutException">
+    /// The bot did not finish the update within <see cref="UpdateTimeout"/>.
+    /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// Webhook mode: no webhook is set, or it answered with a failure.
+    /// Long polling: the bot's host stopped. Webhook mode: no webhook is set, or it answered with a failure.
     /// </exception>
     public Task SendAsync(Update update, CancellationToken token = default) =>
         DeliverAsync(JsonSerializer.SerializeToNode(update, JsonBotAPI.Options)!.AsObject(), token);
@@ -229,6 +276,16 @@ public sealed class TelegramTestHost : IAsyncDisposable
         }
     }
 
+    private static void BoundShutdown(IServiceCollection services) =>
+        services.Configure<HostOptions>(options => options.ShutdownTimeout = ShutdownTimeout);
+
+    // "500 ms", "1 second", "1.5 seconds".
+    private static string Describe(TimeSpan duration) =>
+        duration < TimeSpan.FromSeconds(1)
+            ? string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:0.###} ms")
+        : duration == TimeSpan.FromSeconds(1) ? "1 second"
+        : string.Create(CultureInfo.InvariantCulture, $"{duration.TotalSeconds:0.###} seconds");
+
     // Keeps the registration's lifetime, so the handler is built and disposed as in the app.
     private static ServiceDescriptor KeyedAs(object key, ServiceDescriptor descriptor) =>
         descriptor switch
@@ -257,9 +314,45 @@ public sealed class TelegramTestHost : IAsyncDisposable
     }
 
     // An update is handled once the polling loop asks for the next offset.
-    private sealed class PollingBot(IHost host, FakeBotApi api) : IRunningBot
+    private sealed class PollingBot : IRunningBot
     {
-        public IServiceProvider Services => host.Services;
+        private readonly IHost _host;
+        private readonly FakeBotApi _api;
+
+        // Polls from before this host, such as an earlier one's on the same fake.
+        private readonly int _pollsBefore;
+        private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private BackgroundService[] _backgroundServices = [];
+
+        public PollingBot(IHost host, FakeBotApi api)
+        {
+            _host = host;
+            _api = api;
+            _pollsBefore = api.Polls;
+        }
+
+        public IServiceProvider Services => _host.Services;
+
+        public async Task StartAsync(CancellationToken token)
+        {
+            _host
+                .Services.GetRequiredService<IHostApplicationLifetime>()
+                .ApplicationStopping.Register(() => _stopped.TrySetResult());
+
+            await _host.StartAsync(token);
+
+            // A failed background service stops the bot, even where the host is set to carry on without it.
+            _backgroundServices = [.. _host.Services.GetServices<IHostedService>().OfType<BackgroundService>()];
+            foreach (var service in _backgroundServices)
+            {
+                service.ExecuteTask?.ContinueWith(
+                    _ => _stopped.TrySetResult(),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted,
+                    TaskScheduler.Default
+                );
+            }
+        }
 
         public async Task DeliverAsync(
             JsonObject update,
@@ -268,40 +361,106 @@ public sealed class TelegramTestHost : IAsyncDisposable
             CancellationToken token
         )
         {
-            var updateId = api.Enqueue(update);
+            var clock = Stopwatch.StartNew();
+
+            // An update queued before the loop listens can be dropped as pending, as DropPendingUpdates does.
+            if (!await UntilAsync(_api.PolledAsync(_pollsBefore), Left(timeout, clock), token))
+            {
+                throw new TimeoutException($"No one fetched the update within {Describe(timeout)}. {WhyNotPolled()}");
+            }
+
+            var updateId = _api.Enqueue(update);
             numbered(updateId);
 
-            try
+            if (!await UntilAsync(_api.HandledAsync(updateId), Left(timeout, clock), token))
             {
-                await api.HandledAsync(updateId).WaitAsync(timeout, token);
-            }
-            catch (TimeoutException)
-            {
-                var cause =
-                    api.RefusedPolling && api.WebhookUrl is { } webhook
-                        ? $"Telegram still has a webhook for the bot, {webhook}, so it refuses every getUpdates with 409. "
-                            + "Did deleting it fail? Api.Calls shows what the bot asked Telegram."
-                        : "Is long polling registered, for example with AddTelegramLongPollingReceiving?";
-
-                throw new TimeoutException(
-                    $"The bot did not finish update {updateId} within {timeout.TotalSeconds:0} seconds. {cause}"
-                );
+                throw new TimeoutException(Unfinished(updateId, timeout));
             }
         }
 
         public async ValueTask DisposeAsync()
         {
-            await host.StopAsync();
-
-            if (host is IAsyncDisposable disposable)
+            try
             {
-                await disposable.DisposeAsync();
+                await _host.StopAsync();
             }
-            else
+            finally
             {
-                host.Dispose();
+                if (_host is IAsyncDisposable disposable)
+                {
+                    await disposable.DisposeAsync();
+                }
+                else
+                {
+                    _host.Dispose();
+                }
             }
         }
+
+        private static TimeSpan Left(TimeSpan timeout, Stopwatch clock)
+        {
+            if (timeout == Timeout.InfiniteTimeSpan)
+            {
+                return timeout;
+            }
+
+            var left = timeout - clock.Elapsed;
+            return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+        }
+
+        // False once the time is up; throws if the host stops first.
+        private async Task<bool> UntilAsync(Task done, TimeSpan timeout, CancellationToken token)
+        {
+            try
+            {
+                await Task.WhenAny(done, _stopped.Task).WaitAsync(timeout, token);
+            }
+            catch (TimeoutException)
+            {
+                return false;
+            }
+
+            if (!done.IsCompleted)
+            {
+                throw Stopped();
+            }
+
+            return true;
+        }
+
+        private InvalidOperationException Stopped()
+        {
+            var failed = _backgroundServices.FirstOrDefault(x => x.ExecuteTask is { IsFaulted: true });
+
+            return failed is null
+                ? new InvalidOperationException(
+                    "The bot's host stopped, so the bot will not finish the update. Did the app call "
+                        + "IHostApplicationLifetime.StopApplication?"
+                )
+                : new InvalidOperationException(
+                    $"The bot's host stopped because {failed.GetType().Name} failed, so the bot will not finish the "
+                        + "update. The inner exception is its failure.",
+                    failed.ExecuteTask!.Exception!.InnerException
+                );
+        }
+
+        private string Unfinished(int updateId, TimeSpan timeout)
+        {
+            var (fetched, busyBefore) = _api.Progress(updateId);
+            var within = Describe(timeout);
+
+            return fetched ? $"The bot fetched update {updateId} but did not finish it within {within}. {MayBeHanging}"
+                : busyBefore
+                    ? $"The bot did not fetch update {updateId} within {within}: it is still busy with updates it "
+                        + $"fetched earlier. {MayBeHanging}"
+                : $"No one fetched update {updateId} within {within}. {WhyNotPolled()}";
+        }
+
+        private string WhyNotPolled() =>
+            _api.RefusedPolling && _api.WebhookUrl is { } webhook
+                ? $"Telegram still has a webhook for the bot, {webhook}, so it refuses every getUpdates with 409. "
+                    + "Did deleting it fail? Api.Calls shows what the bot asked Telegram."
+                : "Is long polling registered, for example with AddTelegramLongPollingReceiving?";
     }
 
     private sealed class WebhookBot(
@@ -383,8 +542,8 @@ public sealed class TelegramTestHost : IAsyncDisposable
                 if (exception is TimeoutException)
                 {
                     throw new TimeoutException(
-                        $"The bot did not answer the update posted to {webhook.Url} within "
-                            + $"{timeout.TotalSeconds:0} seconds."
+                        $"The bot did not answer update {updateId}, posted to {webhook.Url}, within "
+                            + $"{Describe(timeout)}. {MayBeHanging}"
                     );
                 }
 
