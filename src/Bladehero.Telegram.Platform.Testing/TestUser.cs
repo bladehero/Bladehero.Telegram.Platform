@@ -41,22 +41,13 @@ public sealed class TestUser
     public TestMessage LastMessage => Chat.LastMessage;
 
     /// <summary>Sends <paramref name="text"/>, trimmed as Telegram does.</summary>
+    /// <returns>The message as posted: a snapshot that stays valid even if the bot then deletes it.</returns>
     /// <exception cref="ArgumentException">
     /// <paramref name="text"/> is blank, or longer than the 4096 characters of a Telegram message.
     /// </exception>
-    public Task SendsAsync(string text, CancellationToken token = default)
+    public Task<TestMessage> SendsAsync(string text, CancellationToken token = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
-
-        text = text.Trim();
-        if (text.Length > FakeBotApi.TextLimit)
-        {
-            throw new ArgumentException(
-                $"Telegram takes at most {FakeBotApi.TextLimit} characters in a message, and this text has "
-                    + $"{text.Length}: the Telegram app splits longer text into several messages; send them one by one.",
-                nameof(text)
-            );
-        }
+        text = CheckedText(text);
 
         return DeliverAsync(() => _host.Api.Receive(Chat.Id, _person, text), token);
     }
@@ -65,39 +56,22 @@ public sealed class TestUser
     /// Sends a photo in two sizes, smallest first, as Telegram does; the largest downloads as <paramref name="photo"/>.
     /// Any bytes will do; the reported dimensions are nominal.
     /// </summary>
+    /// <returns>The message as posted: a snapshot that stays valid even if the bot then deletes it.</returns>
     /// <exception cref="ArgumentException">
     /// <paramref name="photo"/> is empty, or <paramref name="caption"/> longer than the 1024 characters of a caption.
     /// </exception>
-    public Task SendsPhotoAsync(byte[] photo, string? caption = null, CancellationToken token = default)
+    public Task<TestMessage> SendsPhotoAsync(byte[] photo, string? caption = null, CancellationToken token = default)
     {
         ThrowIfEmpty(photo);
 
-        return SendsFileAsync(
-            () =>
-            {
-                var thumbnail = _host.Api.StoreFile(
-                    FileKind.Photo,
-                    Thumbnail,
-                    new JsonObject { ["width"] = 90, ["height"] = 68 }
-                )["photo"]![0]!;
-
-                var content = _host.Api.StoreFile(
-                    FileKind.Photo,
-                    photo,
-                    new JsonObject { ["width"] = 1280, ["height"] = 960 }
-                );
-                content["photo"]!.AsArray().Insert(0, thumbnail.DeepClone());
-                return content;
-            },
-            caption,
-            token
-        );
+        return SendsFileAsync(PhotoOf(photo), CheckedCaption(caption), token);
     }
 
     /// <summary>Sends a voice message of <paramref name="duration"/> (one second by default).</summary>
+    /// <returns>The message as posted: a snapshot that stays valid even if the bot then deletes it.</returns>
     /// <exception cref="ArgumentException"><paramref name="voice"/> is empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="duration"/> is negative.</exception>
-    public Task SendsVoiceAsync(byte[] voice, TimeSpan? duration = null, CancellationToken token = default)
+    public Task<TestMessage> SendsVoiceAsync(byte[] voice, TimeSpan? duration = null, CancellationToken token = default)
     {
         ThrowIfEmpty(voice);
         ArgumentOutOfRangeException.ThrowIfLessThan(duration ?? TimeSpan.Zero, TimeSpan.Zero, nameof(duration));
@@ -123,11 +97,12 @@ public sealed class TestUser
     /// (pdf, txt, csv, json, xml, zip, jpg/jpeg, png, webp, gif, heic, ogg/oga, mp3, mp4, docx, xlsx; otherwise
     /// octet-stream) unless <paramref name="mimeType"/> is given.
     /// </summary>
+    /// <returns>The message as posted: a snapshot that stays valid even if the bot then deletes it.</returns>
     /// <exception cref="ArgumentException">
     /// <paramref name="document"/> is empty, <paramref name="fileName"/> blank, or <paramref name="caption"/> longer
     /// than the 1024 characters of a caption.
     /// </exception>
-    public Task SendsDocumentAsync(
+    public Task<TestMessage> SendsDocumentAsync(
         byte[] document,
         string fileName,
         string? caption = null,
@@ -138,20 +113,7 @@ public sealed class TestUser
         ThrowIfEmpty(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
 
-        return SendsFileAsync(
-            () =>
-                _host.Api.StoreFile(
-                    FileKind.Document,
-                    document,
-                    new JsonObject
-                    {
-                        ["file_name"] = fileName,
-                        ["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypes.Of(fileName) : mimeType,
-                    }
-                ),
-            caption,
-            token
-        );
+        return SendsFileAsync(DocumentOf(document, fileName, mimeType), CheckedCaption(caption), token);
     }
 
     /// <summary>Taps the inline button <paramref name="button"/> on the newest message showing it.</summary>
@@ -210,8 +172,26 @@ public sealed class TestUser
 
     public override string ToString() => FirstName;
 
-    // As Telegram: captions are trimmed, empty ones dropped, and a leading /command is marked.
-    private Task SendsFileAsync(Func<JsonObject> file, string? caption, CancellationToken token)
+    // Trimmed as Telegram does, and within a message's limit.
+    private static string CheckedText(string text, [CallerArgumentExpression(nameof(text))] string? name = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text, name);
+
+        text = text.Trim();
+        if (text.Length > FakeBotApi.TextLimit)
+        {
+            throw new ArgumentException(
+                $"Telegram takes at most {FakeBotApi.TextLimit} characters in a message, and this text has "
+                    + $"{text.Length}: the Telegram app splits longer text into several messages; send them one by one.",
+                name
+            );
+        }
+
+        return text;
+    }
+
+    // Trimmed as Telegram does, null when empty, and within a caption's limit.
+    private static string? CheckedCaption(string? caption)
     {
         caption = caption?.Trim();
         if (caption?.Length > FakeBotApi.CaptionLimit)
@@ -223,11 +203,46 @@ public sealed class TestUser
             );
         }
 
-        return DeliverAsync(
+        return string.IsNullOrEmpty(caption) ? null : caption;
+    }
+
+    private Func<JsonObject> PhotoOf(byte[] photo) =>
+        () =>
+        {
+            var thumbnail = _host.Api.StoreFile(
+                FileKind.Photo,
+                Thumbnail,
+                new JsonObject { ["width"] = 90, ["height"] = 68 }
+            )["photo"]![0]!;
+
+            var content = _host.Api.StoreFile(
+                FileKind.Photo,
+                photo,
+                new JsonObject { ["width"] = 1280, ["height"] = 960 }
+            );
+            content["photo"]!.AsArray().Insert(0, thumbnail.DeepClone());
+            return content;
+        };
+
+    private Func<JsonObject> DocumentOf(byte[] document, string fileName, string? mimeType = null) =>
+        () =>
+            _host.Api.StoreFile(
+                FileKind.Document,
+                document,
+                new JsonObject
+                {
+                    ["file_name"] = fileName,
+                    ["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypes.Of(fileName) : mimeType,
+                }
+            );
+
+    // As Telegram: a caption, already checked, carries a leading /command marked.
+    private Task<TestMessage> SendsFileAsync(Func<JsonObject> file, string? caption, CancellationToken token) =>
+        DeliverAsync(
             () =>
             {
                 var content = file();
-                if (!string.IsNullOrEmpty(caption))
+                if (caption is not null)
                 {
                     content["caption"] = caption;
 
@@ -241,11 +256,24 @@ public sealed class TestUser
             },
             token
         );
-    }
 
-    // The message is posted only once the bot can take it.
-    private Task DeliverAsync(Func<JsonObject> message, CancellationToken token) =>
-        _host.DeliverAsync("message", () => new JsonObject { ["message"] = message() }, token);
+    // The message is posted only once the bot can take it; returns it as posted.
+    private async Task<TestMessage> DeliverAsync(Func<JsonObject> message, CancellationToken token)
+    {
+        TestMessage? posted = null;
+        await _host.DeliverAsync(
+            "message",
+            () =>
+            {
+                var json = message();
+                posted = new TestMessage(json.DeepClone().AsObject(), _host.Api);
+                return new JsonObject { ["message"] = json };
+            },
+            token
+        );
+
+        return posted!;
+    }
 
     private static void ThrowIfEmpty(byte[] content, [CallerArgumentExpression(nameof(content))] string? name = null)
     {

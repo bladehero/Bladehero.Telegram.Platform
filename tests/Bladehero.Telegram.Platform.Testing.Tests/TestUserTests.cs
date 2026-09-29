@@ -24,6 +24,61 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task SendsAsync_ShouldReturnTheMessageAsPosted()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var sent = await nick.SendsAsync(" hello ");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Id.Should().Be(nick.Messages[0].Id);
+            sent.Text.Should().Be("hello");
+            sent.Message.From!.Id.Should().Be(nick.Id);
+        }
+    }
+
+    [Fact]
+    public async Task SendsAsync_WhenTheBotDeletesTheMessage_ShouldStillReturnIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var sent = await nick.SendsAsync("/tidy");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Text.Should().Be("/tidy");
+            nick.Messages.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task SendsPhotoAsync_ShouldReturnTheMessageWithItsPhoto()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var sent = await nick.SendsPhotoAsync("jpeg bytes"u8.ToArray(), caption: "Lunch");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Caption.Should().Be("Lunch");
+            sent.Photo!.Content.Should().Equal("jpeg bytes"u8.ToArray());
+        }
+    }
+
+    [Fact]
     public async Task SendsAsync_WhenTheBotAsksOnlyForMessages_ShouldReachIt()
     {
         // Arrange
