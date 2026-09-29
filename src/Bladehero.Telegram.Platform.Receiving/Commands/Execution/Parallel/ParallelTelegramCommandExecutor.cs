@@ -10,6 +10,10 @@ internal sealed class ParallelTelegramCommandExecutor(
     public Task ExecuteAsync(CommandRequest request, CancellationToken token = default) =>
         ExecuteAsync(commandAccessor, request, token);
 
+    // Whether any regular command took the update.
+    internal Task<bool> ExecuteRegularAsync(CommandRequest request, CancellationToken token) =>
+        ExecuteAsync(commandAccessor, request, token);
+
     internal async Task<bool> ExecuteAsync(
         CommandPriorityAccessor commands,
         CommandRequest request,

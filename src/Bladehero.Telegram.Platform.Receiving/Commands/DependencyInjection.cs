@@ -1,4 +1,5 @@
 using System.Reflection;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
@@ -50,6 +51,9 @@ internal static class DependencyInjection
             ))
             .OrderBy(x => x.Priority, CommandPriority.Comparer)
             .ToArray();
+
+        // Thrown here, at registration, listing every problem.
+        services.AddSingleton(ButtonCatalog.Scan(assemblies.SelectMany(x => x.DefinedTypes), commands));
 
         foreach (var command in commands)
         {

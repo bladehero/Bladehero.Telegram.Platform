@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
@@ -151,7 +152,64 @@ public sealed class DependencyInjectionTests
         store.Should().BeSameAs(custom);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AddTelegramReceiving_WithACustomButtonRefusalHandler_ShouldUseItWhicheverOrderItIsRegisteredIn(
+        bool registeredFirst
+    )
+    {
+        // Arrange
+        var services = new ServiceCollection();
+
+        if (registeredFirst)
+        {
+            services.AddScoped<IButtonRefusalHandler, DiRefusalHandler>();
+        }
+
+        services.AddTelegramReceiving(typeof(DependencyInjectionTests).Assembly);
+
+        if (!registeredFirst)
+        {
+            services.AddScoped<IButtonRefusalHandler, DiRefusalHandler>();
+        }
+
+        using var scope = services.BuildServiceProvider().CreateScope();
+
+        // Act
+        var handler = scope.ServiceProvider.GetRequiredService<IButtonRefusalHandler>();
+
+        // Assert
+        handler.Should().BeOfType<DiRefusalHandler>();
+    }
+
+    [Fact]
+    public void AddTelegramCommands_ShouldRegisterTheButtonsOfTheScannedAssembly()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramCommands([typeof(DependencyInjectionTests).Assembly]);
+
+        // Act
+        var buttons = services.BuildServiceProvider().GetRequiredService<ButtonCatalog>();
+
+        // Assert
+        using (new AssertionScope())
+        {
+            buttons.TryFind("di-pick:1", out var codec).Should().BeTrue();
+            codec!.Type.Should().Be<DiPick>();
+        }
+    }
+
     private sealed record DiTestUser(string Name);
+
+    [Button("di-pick")]
+    private readonly record struct DiPick(int Id);
+
+    private sealed class DiRefusalHandler : IButtonRefusalHandler
+    {
+        public Task HandleAsync(ButtonRefusal refusal, CancellationToken token) => Task.CompletedTask;
+    }
 
     private sealed class DiTestResolver : ITelegramUserResolver<DiTestUser>
     {
