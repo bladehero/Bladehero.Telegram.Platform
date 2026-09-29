@@ -36,8 +36,9 @@ and it participates.
 | [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | `TelegramBotConfiguration`, `ITelegramSender`, and the `IServiceCollection` wiring behind both. |
 | [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | The command model: `ITelegramCommand`, typed base commands, assembly scanning, the parallel executor, multi-step conversations, the command menu, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Hosting: a long-polling `BackgroundService` and an ASP.NET Core webhook endpoint that keeps the Telegram webhook registration in sync, plus the startup sync of the command menu. |
+| [`Bladehero.Telegram.Platform.Testing`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Testing/) | [Component tests](#component-tests): your bot end to end against an in-memory Telegram, with test users who send messages and files and tap buttons. For test projects. |
 
-Referencing `.Receiving.Background` pulls in the other two. Target framework is **.NET 10**.
+Referencing `.Receiving.Background` pulls in the rest of the runtime packages. Target framework is **.NET 10**.
 
 ```sh
 dotnet add package Bladehero.Telegram.Platform.Receiving.Background
@@ -469,16 +470,107 @@ services.AddTelegramLongPollingReceiving(
 );
 ```
 
+## Component tests
+
+`Bladehero.Telegram.Platform.Testing` runs your bot end to end without Telegram: your own registrations and
+hosting, with an in-memory Bot API standing in for Telegram. A test plays the people in the chat and checks
+what they see — no token, no network, no sleeps.
+
+```sh
+dotnet add package Bladehero.Telegram.Platform.Testing
+```
+
+### Starting the bot
+
+For a long-polling bot, register it as its composition root does; the real polling loop pulls updates from the
+fake:
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
+    services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(Program).Assembly)
+);
+```
+
+For a webhook bot, start its ASP.NET Core app through `WebApplicationFactory`, giving it the webhook
+configuration its secrets would hold. The app sets its webhook with the fake as it starts, and every update is
+posted to that endpoint as Telegram would post it:
+
+```csharp
+await using var bot = await TelegramTestHost.ForWebhookAsync<Program>(web =>
+    web.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["TelegramWebhookConfiguration:BaseUrl"] = "https://bot.example.com",
+        ["TelegramWebhookConfiguration:UpdateEndpoint"] = "telegram/updates",
+    }))
+);
+```
+
+Only the bot client is swapped, so the token is never used. Both return once the bot has started, so what it did
+on startup — its webhook, its command menu — can be checked straight away.
+
+### Talking to the bot
+
+```csharp
+var nick = bot.PrivateChat("Nick");
+
+await nick.SendsAsync("/coffee");
+await nick.TapsAsync("Medium");   // the button the bot actually sent
+await nick.SendsAsync("Nicky");
+await nick.TapsAsync("Confirm");
+
+nick.Messages.Select(x => x.ToString()).Should().Equal(
+    "Nick: /coffee",
+    "Bot: Size: Medium ✓",
+    "Bot: Whose name goes on the cup?",
+    "Nick: Nicky",
+    "Bot: Order placed ☕ — a Medium coffee for Nicky."
+);
+```
+
+Each action returns once the bot has finished handling it, and rethrows whatever a command threw, so a crash
+fails the test. The chat reads as its members see it: both sides, the bot's edits applied, deleted messages gone.
+
+- **Groups** — `bot.GroupChat("Family").Member("Anna")`. A name is one person throughout the test: Nick in a
+  group is the same Telegram user as Nick in his private chat.
+- **Buttons** — `TapsAsync` presses the newest message showing the button, or the one passed as `on:`, and returns
+  how the bot answered: `Notification: …`, `Alert: …`, or an answer that never came. Tapping a button nobody
+  sees fails with the buttons that are there.
+- **Files** — `SendsPhotoAsync`, `SendsVoiceAsync` and `SendsDocumentAsync` send the bytes; the bot downloads them
+  through `getFile`, as from Telegram. What the bot sends is on `message.Photo`, `.Document` and `.Voice`, with its
+  name, MIME type and bytes.
+
+### Checking what Telegram saw
+
+`bot.Api` is the fake Telegram:
+
+| Member | |
+| --- | --- |
+| `Calls` | Every Bot API call the bot made, with its parameters. |
+| `CommandMenu(scope?)` | The command menu the bot published. |
+| `WebhookUrl` | Where the bot asked Telegram to deliver its updates. |
+| `Fail(method, error, times?)` | Makes Telegram refuse a method — `BotApiError.BotBlocked`, `ChatNotFound`, `TooManyRequests(retryAfter)`, or any code and description. |
+
+The fake answers like Telegram, errors included: editing a deleted or unchanged message, answering a tap twice,
+fetching a file over the 20 MB bots may download. A method it does not know yet fails the test with an error
+naming it rather than passing silently. To fail a call the bot makes as it starts, arrange a `FakeBotApi` first
+and pass it to `ForLongPollingAsync` or `ForWebhookAsync`; for updates the chats do not cover, `bot.SendAsync`
+delivers any `Update`.
+
+Webhook tests run your app through `WebApplicationFactory`, so its usual rules apply: the test project references
+the app's project, and if the factory cannot find the app's content root, reference
+`Microsoft.AspNetCore.Mvc.Testing` from the test project too.
+
 ## Samples
 
-Two runnable projects live in this repository:
+Two runnable projects live in this repository, each with component tests next to it in `tests/`:
 
 - [`src/Bladehero.Telegram.Platform.Sandbox`](src/Bladehero.Telegram.Platform.Sandbox) — long-polling console
   host with a command that logs `MyChatMember` updates, and a `/coffee` [conversation](#conversations), listed in the
   bot's [command menu](#the-command-menu), that exercises every routing rule: text and button steps, a Cancel button at any step, `/cancel` falling through
   mid-flow, and stale buttons answered after the order closes.
 - [`src/Bladehero.Telegram.Platform.Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook) —
-  ASP.NET Core webhook host with a command that echoes messages back.
+  ASP.NET Core webhook host with a command that echoes messages back, and an Again button that answers the tap and
+  sends the reply once more.
 
 Set a token and run:
 

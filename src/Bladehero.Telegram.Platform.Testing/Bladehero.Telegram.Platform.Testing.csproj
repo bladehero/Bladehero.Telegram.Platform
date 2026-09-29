@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>Bladehero.Telegram.Platform.Testing</PackageId>
     <Title>Bladehero.Telegram.Platform.Testing</Title>
-    <Description>Component tests for Telegram bots built on Bladehero.Telegram.Platform: an in-memory Bot API that answers and records every request, so a bot runs end to end without reaching Telegram.</Description>
+    <Description>Component tests for Telegram bots built on Bladehero.Telegram.Platform: runs the bot's real long-polling or webhook hosting against an in-memory Bot API that answers and records every request, with test users who send messages and files and tap buttons — no Telegram needed.</Description>
   </PropertyGroup>
 
   <!-- Hosting for both modes: the generic host for long polling, and the bot's own ASP.NET Core app, run through
