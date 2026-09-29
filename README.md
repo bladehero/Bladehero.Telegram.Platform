@@ -301,9 +301,9 @@ Only this canonical form decodes.
 - **Size:** Telegram takes 64 bytes of callback data. It's checked when the button is built, with an
   `ArgumentException` giving the data and its size. Test users have Telegram-sized ids, so tests hit the limit where
   production would.
-- **Checked when the receiving services are added**, listing every problem: prefixes (1–32 of `a-z0-9_-`, unique),
-  field types, one regular command per button type (or one per step), and that a command for a type without
-  `[Button]` overrides `Parse`, as hand-written data still can:
+- **Checked when the receiving services are added**, listing every problem: prefixes (1–32 of `a-z0-9_-`, unique);
+  field types, and that every settable value is a constructor parameter; one regular command per button type (or one
+  per step); and that a command for a type without `[Button]` overrides `Parse`, as hand-written data still can:
 
 ```csharp
 // In a CallbackQueryCommand<(string Field, int Step)>

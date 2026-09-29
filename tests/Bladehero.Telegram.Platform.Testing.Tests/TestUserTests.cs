@@ -1084,9 +1084,29 @@ public sealed class TestUserTests
         answer.ToString().Should().Be("Notification: Cups 1");
     }
 
+    [Fact]
+    public async Task TapsAsync_ByANonButtonType_ShouldThrowAtOnce()
+    {
+        // Arrange: the chat has no buttons at all.
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/whoami");
+
+        // Act
+        var act = () => nick.TapsAsync<NotAButton>();
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("NotAButton isn't button data: mark it [Button(\"prefix\")].");
+    }
+
     // The bot's answers to album items only; its file command answers them too.
     private static IEnumerable<string?> AlbumReplies(TestUser user) =>
         user
             .Messages.Where(x => x.Text?.StartsWith("Album item:", StringComparison.Ordinal) is true)
             .Select(x => x.Text);
+
+    // No [Button], so it can't be button data.
+    private readonly record struct NotAButton(int Value);
 }

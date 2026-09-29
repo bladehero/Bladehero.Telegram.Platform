@@ -96,7 +96,7 @@ public sealed class ButtonCodecTests
     }
 
     [Fact]
-    public void TryCreate_WithoutAPublicConstructorWithParameters_ShouldHaveNoFields()
+    public void TryCreate_WithoutFields_ShouldWriteOnlyThePrefix()
     {
         // Act
         var created = ButtonCodec.TryCreate(typeof(Bare), "codec", out var codec, out _);
@@ -106,6 +106,28 @@ public sealed class ButtonCodecTests
         {
             created.Should().BeTrue();
             codec!.Encode(new Bare()).Should().Be("codec");
+        }
+    }
+
+    [Theory]
+    [InlineData(typeof(InitOnly), "Size")]
+    [InlineData(typeof(PagedWithSize), "Size")]
+    [InlineData(typeof(WithField), "Count")]
+    public void TryCreate_WithValuesOutsideTheConstructor_ShouldFail(Type type, string member)
+    {
+        // Act
+        var created = ButtonCodec.TryCreate(type, "codec", out _, out var problem);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            created.Should().BeFalse();
+            problem
+                .Should()
+                .Be(
+                    $"{type.Name} can't be button data: {member} isn't a constructor parameter, so its value would be "
+                        + "lost; make it one."
+                );
         }
     }
 
@@ -165,6 +187,23 @@ public sealed class ButtonCodecTests
 
     private readonly struct Bare
     {
-        public int Ignored { get; init; }
+        public string Label => "x";
+    }
+
+    private readonly struct InitOnly
+    {
+        public int Size { get; init; }
+    }
+
+    private readonly record struct PagedWithSize(int Page)
+    {
+        public int Size { get; init; }
+    }
+
+    private struct WithField
+    {
+        public int Count;
+
+        public WithField() => Count = 1;
     }
 }

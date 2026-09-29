@@ -300,6 +300,9 @@ public sealed class TestUser
     )
         where TButton : struct
     {
+        // Resolves the codec, which throws at once for a type that can't be button data.
+        ButtonData.TryDecode<TButton>(null, out _);
+
         var type = typeof(TButton).Name;
         var what = which is null ? $"{type} button" : $"{type} button matching the predicate";
 

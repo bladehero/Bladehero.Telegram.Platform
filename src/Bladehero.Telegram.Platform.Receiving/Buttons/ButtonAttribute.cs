@@ -4,8 +4,9 @@ namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 /// <remarks>
 /// <c>[Button("redeem")] record struct Redeem(long OwnerId, int Points)</c> writes <c>redeem:123:10</c>. The fields are
 /// the parameters of the one public constructor that matches the struct's properties, and each is a string, an
-/// integer, a bool, a <see cref="Guid"/>, an enum or a <see cref="DateOnly"/>, or a nullable one. Prefixes, fields and
-/// the commands handling each button type are checked when the receiving services are added.
+/// integer, a bool, a <see cref="Guid"/>, an enum or a <see cref="DateOnly"/>, or a nullable one; every value it
+/// carries must be a constructor parameter. Prefixes, fields and the commands handling each button type are checked
+/// when the receiving services are added.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Struct)]
 public sealed class ButtonAttribute : Attribute

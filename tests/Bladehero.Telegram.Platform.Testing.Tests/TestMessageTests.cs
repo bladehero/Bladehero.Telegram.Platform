@@ -20,6 +20,23 @@ public sealed class TestMessageTests
     }
 
     [Fact]
+    public async Task ButtonsOf_ForANonButtonType_ShouldThrow()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/cups");
+
+        // Act
+        var act = () => nick.LastMessage.ButtonsOf<NotAButton>();
+
+        // Assert
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("NotAButton isn't button data: mark it [Button(\"prefix\")].");
+    }
+
+    [Fact]
     public async Task ButtonsOf_ShouldSkipOtherData()
     {
         // Arrange
@@ -185,4 +202,7 @@ public sealed class TestMessageTests
             message.Voice.Should().BeNull();
         }
     }
+
+    // No [Button], so it can't be button data.
+    private readonly record struct NotAButton(int Value);
 }

@@ -288,8 +288,31 @@ internal sealed class ButtonCodec
             );
         }
 
+        // A value set any other way would be lost: the data carries only the constructor's fields.
+        if (SettableOutsideTheConstructor(type, built) is { } lost)
+        {
+            return $"{lost.Name} isn't a constructor parameter, so its value would be lost; make it one.";
+        }
+
         fields = [.. built];
         return null;
+    }
+
+    // The first public property with a setter or init accessor that isn't a field, or else the first public field.
+    private static MemberInfo? SettableOutsideTheConstructor(Type type, List<Field> fields)
+    {
+        var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(property =>
+                property.SetMethod?.IsPublic is true
+                && property.GetIndexParameters().Length == 0
+                && fields.All(field => field.Name != property.Name)
+            )
+            .OrderBy(property => property.MetadataToken);
+
+        var publicFields = type.GetFields(BindingFlags.Public | BindingFlags.Instance)
+            .OrderBy(field => field.MetadataToken);
+
+        return properties.Cast<MemberInfo>().Concat(publicFields).FirstOrDefault();
     }
 
     private static Segment? SegmentOf(Type type) =>

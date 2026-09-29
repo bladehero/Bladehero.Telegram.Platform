@@ -58,6 +58,9 @@ public sealed class TestMessage
     public IReadOnlyList<TButton> ButtonsOf<TButton>()
         where TButton : struct
     {
+        // Resolves the codec, which throws at once for a type that can't be button data.
+        ButtonData.TryDecode<TButton>(null, out _);
+
         var buttons = new List<TButton>();
         foreach (var button in Keyboard)
         {
