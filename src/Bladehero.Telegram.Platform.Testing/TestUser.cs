@@ -179,6 +179,58 @@ public sealed class TestUser
         );
     }
 
+    /// <summary>
+    /// Edits <paramref name="message"/>, the user's own text message as it now stands, to <paramref name="text"/>
+    /// trimmed as Telegram does: the chat shows the edit, and the bot gets an <c>edited_message</c> update.
+    /// </summary>
+    /// <param name="message">The user's text message; captions cannot be edited this way.</param>
+    /// <param name="text">The new text.</param>
+    /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>The edited message.</returns>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="text"/> is blank, longer than the 4096 characters of a message, or unchanged.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// The message is not the user's, is no longer in the chat, or has no text.
+    /// </exception>
+    public async Task<TestMessage> EditsAsync(TestMessage message, string text, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        text = CheckedText(text);
+
+        var current = Current(message, Messages);
+        if (current.Message.From?.Id != Id)
+        {
+            throw new InvalidOperationException($"{Quote(current)} is not {FirstName}'s: only its sender can edit it.");
+        }
+
+        if (current.Text is null)
+        {
+            throw new InvalidOperationException(
+                $"{Quote(current)} has no text to edit; EditsAsync edits text, and captions cannot be edited this way."
+            );
+        }
+
+        if (current.Text == text)
+        {
+            throw new ArgumentException("Telegram sends no edit for an unchanged message.", nameof(text));
+        }
+
+        TestMessage? edited = null;
+        await _host.DeliverAsync(
+            "edited_message",
+            () =>
+            {
+                var json = _host.Api.EditByUser(Chat.Id, current.Id, text);
+                edited = new TestMessage(json.DeepClone().AsObject(), _host.Api);
+                return new JsonObject { ["edited_message"] = json };
+            },
+            token
+        );
+
+        return edited!;
+    }
+
     /// <summary>Taps the inline button <paramref name="button"/> on the newest message showing it.</summary>
     /// <param name="button">The button's exact text.</param>
     /// <param name="on">A specific message to tap it on, as that message now stands.</param>

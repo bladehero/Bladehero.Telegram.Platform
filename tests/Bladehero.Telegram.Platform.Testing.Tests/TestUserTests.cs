@@ -192,6 +192,105 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task EditsAsync_ShouldReachTheBotAsAnEdit()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        var sent = await nick.SendsAsync("hello");
+
+        // Act
+        await nick.EditsAsync(sent, "hello there");
+
+        // Assert
+        nick.LastMessage.ToString().Should().Be("Bot: You changed it to: hello there");
+    }
+
+    [Fact]
+    public async Task EditsAsync_ShouldShowTheEditInTheChat()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        var sent = await nick.SendsAsync("hello");
+
+        // Act
+        var edited = await nick.EditsAsync(sent, " hello there\n");
+
+        // Assert
+        var inChat = nick.Messages.Single(x => x.Id == sent.Id);
+        using (new AssertionScope())
+        {
+            edited.Id.Should().Be(sent.Id);
+            edited.IsEdited.Should().BeTrue();
+            inChat.Text.Should().Be("hello there");
+            inChat.IsEdited.Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public async Task EditsAsync_OnSomeoneElsesMessage_ShouldSaySo()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("hello");
+
+        // Act
+        var act = () => nick.EditsAsync(nick.LastMessage, "bye");
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("\"hello\" is not Nick's: only its sender can edit it.");
+    }
+
+    [Fact]
+    public async Task EditsAsync_OnADeletedMessage_ShouldSaySo()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        var sent = await nick.SendsAsync("/tidy");
+
+        // Act
+        var act = () => nick.EditsAsync(sent, "/tidy please");
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("\"/tidy\" is no longer in the chat with Nick.");
+    }
+
+    [Fact]
+    public async Task EditsAsync_WhenTheBotAsksOnlyForMessages_ShouldSayTelegramWouldNotSendIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(receiver: receiver =>
+            receiver.AllowedUpdates = [UpdateType.Message]
+        );
+        var nick = bot.PrivateChat("Nick");
+        var sent = await nick.SendsAsync("hello");
+        var before = nick.Messages.Select(x => x.ToString()).ToArray();
+
+        // Act
+        var act = () => nick.EditsAsync(sent, "hello there");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should()
+                .ThrowAsync<InvalidOperationException>()
+                .WithMessage(
+                    "Telegram would not send this edited_message to the bot: it asked only for message "
+                        + "(allowed_updates). Add UpdateType.EditedMessage to AllowedUpdates."
+                );
+            nick.Messages.Select(x => x.ToString()).Should().Equal(before);
+            nick.Messages.Single(x => x.Id == sent.Id).IsEdited.Should().BeFalse();
+        }
+    }
+
+    [Fact]
     public async Task SendsAsync_WhenTheBotAsksOnlyForMessages_ShouldReachIt()
     {
         // Arrange

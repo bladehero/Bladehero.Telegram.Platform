@@ -277,6 +277,22 @@ public sealed partial class FakeBotApi
         }
     }
 
+    // A user's edit of their own text message: the new text, its command entity recomputed, and edit_date.
+    internal JsonObject EditByUser(long chatId, int messageId, string text)
+    {
+        lock (_gate)
+        {
+            var chat = _chats[chatId];
+            var message =
+                chat.Find(messageId) ?? throw new InvalidOperationException("The message is no longer in the chat.");
+
+            message["text"] = text;
+            SetOrRemove(message, "entities", BotCommandEntities(text));
+            message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            return message.DeepClone().AsObject();
+        }
+    }
+
     internal IReadOnlyList<JsonObject> MessagesIn(long chatId)
     {
         lock (_gate)

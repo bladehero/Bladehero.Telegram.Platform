@@ -5,6 +5,7 @@ using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.ChatMembers;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.EditedMessages;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
@@ -301,6 +302,20 @@ internal static class TestBot
 
         protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
             request.Client.SendMessage(request.Payload.Chat, "Pick one", replyMarkup: Menu, cancellationToken: token);
+    }
+
+    // Answers a user's edit.
+    private sealed class EditedCommand : EditedMessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.Text is not null);
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                $"You changed it to: {request.Payload.Text}",
+                cancellationToken: token
+            );
     }
 
     // Answers each album item with its caption, and cannot read broken.csv.
