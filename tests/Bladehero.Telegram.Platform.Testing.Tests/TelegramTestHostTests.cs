@@ -133,6 +133,27 @@ public sealed class TelegramTestHostTests
     }
 
     [Fact]
+    public async Task SendAsync_WhenTheAppsErrorHandlerFails_ShouldRethrowBothErrors()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(services: services =>
+            services.AddScoped<ITelegramErrorHandler, FailingErrorHandler>()
+        );
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var thrown = await Record.ExceptionAsync(() => nick.SendsAsync("/boom"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            var both = thrown.Should().BeOfType<AggregateException>().Subject;
+            both.Message.Should().StartWith("The app's ITelegramErrorHandler failed while handling update 1's error.");
+            both.InnerExceptions.Select(x => x.Message).Should().Equal("boom from Nick", "The error log is full");
+        }
+    }
+
+    [Fact]
     public async Task SendAsync_AfterACommandThrew_ShouldKeepHandlingUpdates()
     {
         // Arrange
@@ -628,5 +649,11 @@ public sealed class TelegramTestHostTests
             seen.Add(telegramError);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FailingErrorHandler : ITelegramErrorHandler
+    {
+        public Task HandleAsync(TelegramError telegramError) =>
+            throw new InvalidOperationException("The error log is full");
     }
 }

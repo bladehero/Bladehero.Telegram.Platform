@@ -18,7 +18,8 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// <remarks>
 /// An error belongs to the action that caused it: each action rethrows the first error raised by its own update, even
 /// when several users act at once. The app's own <see cref="ITelegramErrorHandler"/> still runs, so what it does, such
-/// as apologizing to the user, can be checked. An error with no update, such as a failed poll, is rethrown by the next
+/// as apologizing to the user, can be checked; if it throws, the action throws an <see cref="AggregateException"/> of
+/// the error and then the handler's failure. An error with no update, such as a failed poll, is rethrown by the next
 /// action; the errors of an update the test stopped waiting for are dropped.
 /// </remarks>
 public sealed partial class TelegramTestHost : IAsyncDisposable

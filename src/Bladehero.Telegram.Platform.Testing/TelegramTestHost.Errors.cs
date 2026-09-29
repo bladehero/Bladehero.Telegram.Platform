@@ -26,19 +26,41 @@ public sealed partial class TelegramTestHost
             }
         }
 
+        // The app's own handler threw while handling `exception`.
+        public void AddHandlerFailure(Exception exception, Exception failure)
+        {
+            lock (_errors)
+            {
+                if (_errors.Find(x => x.Exception == exception) is { } recorded)
+                {
+                    recorded.HandlerFailure ??= failure;
+                }
+            }
+        }
+
         // Rethrows the first error of the update, else the first with no update; the update's errors are forgotten.
         public void ThrowFor(long? updateId)
         {
-            Exception? first;
+            Recorded? first;
             lock (_errors)
             {
                 first = updateId is { } id ? Forget(id) : null;
                 first ??= Forget(x => x.UpdateId is null);
             }
 
+            if (first is { HandlerFailure: { } failure })
+            {
+                var whose = first.UpdateId is { } id ? $"update {id}'s error" : "an error with no update";
+                throw new AggregateException(
+                    $"The app's ITelegramErrorHandler failed while handling {whose}.",
+                    first.Exception,
+                    failure
+                );
+            }
+
             if (first is not null)
             {
-                ExceptionDispatchInfo.Capture(first).Throw();
+                ExceptionDispatchInfo.Capture(first.Exception).Throw();
             }
         }
 
@@ -50,20 +72,23 @@ public sealed partial class TelegramTestHost
             }
         }
 
-        private Exception? Forget(long updateId)
+        private Recorded? Forget(long updateId)
         {
             _over.Add(updateId);
             return Forget(x => x.UpdateId == updateId);
         }
 
-        private Exception? Forget(Predicate<Recorded> match)
+        private Recorded? Forget(Predicate<Recorded> match)
         {
-            var first = _errors.Find(match)?.Exception;
+            var first = _errors.Find(match);
             _errors.RemoveAll(match);
             return first;
         }
 
-        private sealed record Recorded(long? UpdateId, Exception Exception);
+        private sealed record Recorded(long? UpdateId, Exception Exception)
+        {
+            public Exception? HandlerFailure { get; set; }
+        }
     }
 
     // Records each error for the action that caused it, then hands it to the app's own handler in the same scope.
@@ -71,8 +96,7 @@ public sealed partial class TelegramTestHost
     {
         public async Task HandleAsync(TelegramError telegramError)
         {
-            var updateId = telegramError.Update?.Id;
-            errors.Add(updateId, telegramError.Exception);
+            errors.Add(telegramError.Update?.Id, telegramError.Exception);
 
             try
             {
@@ -81,9 +105,9 @@ public sealed partial class TelegramTestHost
                     await appsOwn.HandleAsync(telegramError);
                 }
             }
-            catch (Exception exception)
+            catch (Exception failure)
             {
-                errors.Add(updateId, exception);
+                errors.AddHandlerFailure(telegramError.Exception, failure);
             }
         }
     }

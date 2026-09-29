@@ -428,7 +428,8 @@ the update or is stuck in a command. If the bot's host stops, the action fails a
 
 An error belongs to the action that caused it: each action rethrows the first error its own update raised, even when
 users act at once, and the app's own `ITelegramErrorHandler` still runs, so what it does (an apology to the user, say)
-can be checked. A failed poll is rethrown by the next action; an update the test stopped waiting for fails nothing.
+can be checked. If that handler throws too, the action throws an `AggregateException` of the error and then the
+handler's failure. A failed poll is rethrown by the next action; an update the test stopped waiting for fails nothing.
 
 ### Tap buttons
 
