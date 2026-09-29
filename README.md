@@ -370,8 +370,9 @@ For more than text (editing, deleting, sending files), inject the bot's `ITelegr
 library receives and replies with. To build it differently, e.g. for a local Bot API server, register your own
 `ITelegramBotClient` as a singleton, before or after these calls, and the library uses that one too:
 
-- The library resolves it once and keeps it. A scoped registration fails when scopes are validated, and a typed
-  `IHttpClientFactory` client is captured once (set `PooledConnectionLifetime` on its handler if DNS changes matter).
+- Each of the library's services resolves it once and keeps it (the webhook endpoint per request). A scoped
+  registration fails when scopes are validated, and a typed `IHttpClientFactory` client is captured once per service
+  (set `PooledConnectionLifetime` on its handler if DNS changes matter).
 - `httpClientFactory` applies only to the client the library builds; configure your own client's `HttpClient` yourself.
 - Register it as `ITelegramBotClient`: one registered only as `TelegramBotClient` leaves the library building a second.
 - A client for another bot goes under a key (`AddKeyedSingleton<ITelegramBotClient>("alerts", …)`), or it becomes this
