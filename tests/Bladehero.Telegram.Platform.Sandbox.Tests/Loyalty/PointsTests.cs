@@ -177,6 +177,20 @@ public sealed class PointsTests
     }
 
     [Fact]
+    public async Task PointsCard_ShouldWriteItsButtonDataAsBefore()
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40));
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("/points");
+
+        // Assert
+        DataOf(nick.LastMessage).Should().Equal($"redeem:{nick.Id}:10", $"redeem:{nick.Id}:50");
+    }
+
+    [Fact]
     public async Task Coffee_ConfirmedByAMember_ShouldEarnTenPoints()
     {
         // Arrange
@@ -204,6 +218,9 @@ public sealed class PointsTests
         await customer.SendsAsync(customer.FirstName);
         await customer.TapsAsync("Confirm");
     }
+
+    private static string?[] DataOf(TestMessage message) =>
+        [.. message.Message.ReplyMarkup!.InlineKeyboard.SelectMany(row => row).Select(button => button.CallbackData)];
 
     private static TestMessage[] Cards(TestUser member) =>
         [.. member.Messages.Where(x => x.Buttons.Contains("Redeem 10"))];

@@ -2,6 +2,7 @@ using Bladehero.Telegram.Platform.Sandbox.Loyalty;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Tests.Loyalty;
 
@@ -123,7 +124,7 @@ public sealed class RedeemTests
     }
 
     [Fact]
-    public async Task RedeemButton_AfterLeaving_ShouldGoUnanswered()
+    public async Task RedeemButton_AfterLeaving_ShouldBeAnsweredSilently()
     {
         // Arrange
         await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40));
@@ -138,8 +139,61 @@ public sealed class RedeemTests
         // Assert
         using (new AssertionScope())
         {
-            answer.ToString().Should().Be("No answer");
+            answer.ToString().Should().Be("Answered silently");
             nick.Messages.Single(x => x.Id == card.Id).ToString().Should().Be(card.ToString());
+        }
+    }
+
+    [Fact]
+    public async Task RedeemButton_WithDataFromAnOlderVersion_ShouldSayItIsNoLongerActive()
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40));
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/points");
+        var card = nick.LastMessage;
+
+        // Act
+        await bot.SendAsync(
+            new Update
+            {
+                CallbackQuery = new CallbackQuery
+                {
+                    Id = "old-tap",
+                    From = new User { Id = nick.Id, FirstName = nick.FirstName },
+                    Message = card.Message,
+                    ChatInstance = nick.Chat.Id.ToString(),
+                    Data = "redeem:abc",
+                },
+            }
+        );
+
+        // Assert
+        var answer = bot.Api.Calls.Last(x => x.Method == "answerCallbackQuery").Parameters;
+        using (new AssertionScope())
+        {
+            answer["callback_query_id"]!.GetValue<string>().Should().Be("old-tap");
+            answer["text"]!.GetValue<string>().Should().Be("That button is no longer active.");
+            nick.Messages.Single(x => x.Id == card.Id).ToString().Should().Be(card.ToString());
+        }
+    }
+
+    [Fact]
+    public async Task RedeemButton_PickedByItsData_ShouldRedeemThosePoints()
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 60));
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/points");
+
+        // Act
+        var answer = await nick.TapsAsync<Redeem>(x => x.Points == 50);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            answer.ToString().Should().Be("Notification: Redeemed 50 points");
+            nick.LastMessage.Text.Should().Be("Nick, you have 10 points.");
         }
     }
 

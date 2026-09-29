@@ -1,4 +1,4 @@
-using System.Globalization;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Sandbox.Loyalty;
@@ -7,37 +7,29 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
-// An album prompt's "album:{ownerId}:{groupId}" button: reads every page at once, and shows the receipt on the prompt.
+// An album prompt's button, "album:{ownerId}:{groupId}".
+[Button("album")]
+internal readonly record struct ReadAlbum(long OwnerId, string GroupId);
+
+// Reads every page of the album at once, and shows the receipt on the prompt.
 internal sealed class ReadAlbumButton(ReceiptAlbums albums, IReceiptReader reader, ReceiptCard card)
-    : KnownUserCallbackQueryCommand<Member, (long OwnerId, string GroupId)>
+    : KnownUserCallbackQueryCommand<Member, ReadAlbum>
 {
-    private const string Prefix = "album";
-
-    public static string Data(long ownerId, string groupId) =>
-        string.Create(CultureInfo.InvariantCulture, $"{Prefix}:{ownerId}:{groupId}");
-
-    protected override (long OwnerId, string GroupId)? Parse(string data) =>
-        data.Split(':') is [Prefix, var owner, var groupId]
-        && long.TryParse(owner, NumberStyles.None, CultureInfo.InvariantCulture, out var ownerId)
-            ? (ownerId, groupId)
-            : null;
+    protected override Task<ButtonCheck> CheckAsync(
+        TypedCommandRequest<CallbackQuery> request,
+        CancellationToken token
+    ) =>
+        Task.FromResult(
+            Parsed.OwnerId == User.UserId
+                ? ButtonCheck.Accept
+                : ButtonCheck.Reject("This receipt isn't yours.", showAlert: true)
+        );
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {
         var (_, query, client) = request;
         var prompt = query.Message!;
         var (ownerId, groupId) = Parsed;
-
-        if (ownerId != User.UserId)
-        {
-            await client.AnswerCallbackQuery(
-                query.Id,
-                "This receipt isn't yours.",
-                showAlert: true,
-                cancellationToken: token
-            );
-            return;
-        }
 
         // Read already, by a tap just before, or lost to a restart. The prompt may be a receipt card by now, so its
         // buttons stay.

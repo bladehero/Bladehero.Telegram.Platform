@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -43,12 +44,9 @@ internal sealed class PointsCard
     }
 
     private static InlineKeyboardMarkup Buttons(long ownerId) =>
-        new([
-            [
-                InlineKeyboardButton.WithCallbackData("Redeem 10", RedeemButton.Data(ownerId, 10)),
-                InlineKeyboardButton.WithCallbackData("Redeem 50", RedeemButton.Data(ownerId, 50)),
-            ],
-        ]);
+        new InlineKeyboardMarkup()
+            .AddButton("Redeem 10", new Redeem(ownerId, 10))
+            .AddButton("Redeem 50", new Redeem(ownerId, 50));
 
     // A card that cannot be edited is replaced; one that cannot be deleted either stays behind.
     private static async Task DeleteAsync(ITelegramBotClient client, Chat chat, int cardId, CancellationToken token)
