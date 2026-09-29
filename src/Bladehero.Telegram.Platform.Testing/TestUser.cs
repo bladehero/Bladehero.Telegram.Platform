@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing;
@@ -279,6 +280,51 @@ public sealed class TestUser
         return TapAsync(Find(button, "button matching the predicate", on), token);
     }
 
+    /// <summary>
+    /// Taps the button whose data decodes as <typeparamref name="TButton"/> and that <paramref name="which"/> accepts
+    /// (any, when <c>null</c>), on the newest message showing a match.
+    /// </summary>
+    /// <typeparam name="TButton">A <c>[Button]</c> struct.</typeparam>
+    /// <param name="which">Picks the button by its data, e.g. <c>x =&gt; x.Points == 50</c>.</param>
+    /// <param name="on">A specific message to tap it on, as that message now stands.</param>
+    /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>The bot's answer: the notification or alert the user sees, if any.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// No button matches, more than one on the message does (the message lists them), or
+    /// <typeparamref name="TButton"/> isn't button data.
+    /// </exception>
+    public Task<TestCallbackAnswer> TapsAsync<TButton>(
+        Func<TButton, bool>? which = null,
+        TestMessage? on = null,
+        CancellationToken token = default
+    )
+        where TButton : struct
+    {
+        var type = typeof(TButton).Name;
+        var what = which is null ? $"{type} button" : $"{type} button matching the predicate";
+
+        return TapAsync(
+            Find(
+                button => Decode(button, out TButton data) && (which?.Invoke(data) ?? true),
+                what,
+                on,
+                (message, matches) =>
+                    $"{Quote(message)} shows more than one {what}, so which one {FirstName} taps is ambiguous: "
+                    + $"{string.Join(", ", matches.Select(ValueOf))}. Pick one with TapsAsync<{type}>(b => …)."
+            ),
+            token
+        );
+
+        static bool Decode(InlineKeyboardButton button, out TButton data)
+        {
+            data = default;
+            return button.CallbackData is { } callbackData && ButtonData.TryDecode(callbackData, out data);
+        }
+
+        static string? ValueOf(InlineKeyboardButton button) =>
+            Decode(button, out TButton data) ? data.ToString() : null;
+    }
+
     private async Task<TestCallbackAnswer> TapAsync((TestMessage Message, string Data) tap, CancellationToken token)
     {
         var (message, data) = tap;
@@ -459,11 +505,13 @@ public sealed class TestUser
 
     private static string Quote(TestMessage message) => $"\"{message.Content}\"";
 
-    // The one button `match` picks on `on`, or on the newest message showing a match; `what` names it in errors.
+    // The one button `match` picks on `on`, or on the newest message showing a match; `what` names it in errors, and
+    // `ambiguous`, when given, describes several matches on one message.
     private (TestMessage Message, string Data) Find(
         Func<InlineKeyboardButton, bool> match,
         string what,
-        TestMessage? on
+        TestMessage? on,
+        Func<TestMessage, InlineKeyboardButton[], string>? ambiguous = null
     )
     {
         var messages = Messages;
@@ -471,7 +519,8 @@ public sealed class TestUser
 
         foreach (var message in candidates)
         {
-            switch (message.Keyboard.Where(match).ToArray())
+            var matches = message.Keyboard.Where(match).ToArray();
+            switch (matches)
             {
                 case []:
                     continue;
@@ -482,6 +531,8 @@ public sealed class TestUser
                         $"The \"{button.Text}\" button is not a callback button: the Telegram app handles it, and the "
                             + "bot never hears of the tap."
                     );
+                case [_, _, ..] when ambiguous is not null:
+                    throw new InvalidOperationException(ambiguous(message, matches));
                 case [var first, ..]:
                     throw new InvalidOperationException(
                         $"{Quote(message)} shows more than one {what}, so which one {FirstName} taps is ambiguous. "

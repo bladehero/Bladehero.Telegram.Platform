@@ -1,6 +1,7 @@
 using System.Text;
 using Bladehero.Telegram.Platform.Receiving.Background;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
@@ -39,6 +40,10 @@ internal static class TestBot
             },
             api
         );
+
+    // How many cups: the data of the buttons /cups shows.
+    [Button("t-cups")]
+    internal readonly record struct Cups(int Count);
 
     // Greets whoever joins a group.
     private sealed class WelcomeCommand : ChatMemberCommand
@@ -416,6 +421,33 @@ internal static class TestBot
                 cancellationToken: token
             );
         }
+    }
+
+    // Two typed Cups buttons, and a hand-written one beside them.
+    private sealed class CupsMenuCommand : MessageCommand
+    {
+        private static readonly InlineKeyboardMarkup Menu = new InlineKeyboardMarkup()
+            .AddButton("1 cup", new Cups(1))
+            .AddButton("2 cups", new Cups(2))
+            .AddButton("Other", "cups-other");
+
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/cups"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "How many cups?",
+                replyMarkup: Menu,
+                cancellationToken: token
+            );
+    }
+
+    // Answers "Cups 2" and the like.
+    private sealed class CupsCommand : CallbackQueryCommand<Cups>
+    {
+        protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
+            request.Client.AnswerCallbackQuery(request.Payload.Id, $"Cups {Parsed.Count}", cancellationToken: token);
     }
 
     private sealed class DismissCommand : CallbackQueryCommand

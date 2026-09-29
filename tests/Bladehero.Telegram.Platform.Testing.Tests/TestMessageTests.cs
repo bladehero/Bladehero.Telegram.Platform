@@ -6,6 +6,38 @@ namespace Bladehero.Telegram.Platform.Testing.Tests;
 public sealed class TestMessageTests
 {
     [Fact]
+    public async Task ButtonsOf_ShouldDecodeTheButtonsOfThatTypeInKeyboardOrder()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("/cups");
+
+        // Assert
+        nick.LastMessage.ButtonsOf<TestBot.Cups>().Should().Equal(new TestBot.Cups(1), new TestBot.Cups(2));
+    }
+
+    [Fact]
+    public async Task ButtonsOf_ShouldSkipOtherData()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("/menu");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            nick.LastMessage.Buttons.Should().NotBeEmpty();
+            nick.LastMessage.ButtonsOf<TestBot.Cups>().Should().BeEmpty();
+        }
+    }
+
+    [Fact]
     public async Task Document_ShouldHoldWhatTheBotUploaded()
     {
         // Arrange

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -47,6 +48,27 @@ public sealed class TestMessage
 
     /// <summary>The inline keyboard's button texts, row by row.</summary>
     public IReadOnlyList<string> Buttons => [.. Keyboard.Select(button => button.Text)];
+
+    /// <summary>
+    /// The data of the inline buttons whose callback data decodes as <typeparamref name="TButton"/>, row by row; other
+    /// buttons are skipped.
+    /// </summary>
+    /// <typeparam name="TButton">A <c>[Button]</c> struct.</typeparam>
+    /// <exception cref="InvalidOperationException"><typeparamref name="TButton"/> isn't button data.</exception>
+    public IReadOnlyList<TButton> ButtonsOf<TButton>()
+        where TButton : struct
+    {
+        var buttons = new List<TButton>();
+        foreach (var button in Keyboard)
+        {
+            if (button.CallbackData is { } data && ButtonData.TryDecode(data, out TButton decoded))
+            {
+                buttons.Add(decoded);
+            }
+        }
+
+        return buttons;
+    }
 
     /// <summary>The raw Telegram.Bot message.</summary>
     public Message Message { get; }

@@ -25,7 +25,7 @@ public sealed partial class FakeBotApi
     internal const string Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
 
     private const long BotId = 1234567;
-    private const long FirstPersonId = 1001;
+    private const long FirstPersonId = 7_000_000_001;
     private const long FirstGroupId = -1000000000001;
     private const string DefaultScope = """{"type":"default"}""";
     private const string FilePathPrefix = $"/file/bot{Token}/";
@@ -86,7 +86,8 @@ public sealed partial class FakeBotApi
 
     /// <summary>
     /// The Telegram user id of the test user named <paramref name="firstName"/>, which is also their private chat's
-    /// id: reserved now for a new name, and the one <c>PrivateChat</c> and <c>Member</c> use later.
+    /// id: reserved now for a new name, and the one <c>PrivateChat</c> and <c>Member</c> use later. Telegram-sized,
+    /// from 7 000 000 001 (beyond <see cref="int"/>), so data carrying ids is as long as in production.
     /// </summary>
     /// <remarks>
     /// For seeding an app's users before the host starts. The bot can write to the user only once the test opens
