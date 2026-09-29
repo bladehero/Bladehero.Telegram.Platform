@@ -5,29 +5,21 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands;
 /// </summary>
 /// <remarks>
 /// Commands with equal priority run in parallel, up to <c>ParallelCount</c> at a time. An attribute cannot take an
-/// <c>int?</c>, so leaving the group out is its own constructor.
+/// <c>int?</c>, so leaving the group out is its own constructor. A negative value compiles but fails when the
+/// attribute is read, at startup.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class CommandPriorityAttribute : Attribute
 {
     public CommandPriority Priority { get; }
 
-    /// <param name="global">Global priority; 0 is the highest you can set. The command runs after grouped ones.</param>
-    public CommandPriorityAttribute(int global) => Priority = Create(global, group: null);
+    /// <summary>Runs after the commands with the same global priority that set a group.</summary>
+    /// <param name="global">Global priority; 0 is the highest you can set.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="global"/> is negative.</exception>
+    public CommandPriorityAttribute(int global) => Priority = new CommandPriority(global);
 
     /// <param name="global">Global priority; 0 is the highest you can set.</param>
     /// <param name="group">Order within the global priority; lower runs first.</param>
-    public CommandPriorityAttribute(int global, int group) => Priority = Create(global, group);
-
-    private static CommandPriority Create(int global, int? group)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(global);
-
-        if (group.HasValue)
-        {
-            ArgumentOutOfRangeException.ThrowIfNegative(group.Value);
-        }
-
-        return new CommandPriority(global, group);
-    }
+    /// <exception cref="ArgumentOutOfRangeException">Either value is negative.</exception>
+    public CommandPriorityAttribute(int global, int group) => Priority = new CommandPriority(global, group);
 }

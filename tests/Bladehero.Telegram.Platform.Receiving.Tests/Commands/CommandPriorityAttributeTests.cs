@@ -47,6 +47,16 @@ public sealed class CommandPriorityAttributeTests
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
+    [Fact]
+    public void Attribute_WithANegativeGlobalPriorityOnly_ShouldThrow()
+    {
+        // Act
+        var act = () => new CommandPriorityAttribute(-1);
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
     [CommandPriority(2)]
     private sealed class Ungrouped;
 
