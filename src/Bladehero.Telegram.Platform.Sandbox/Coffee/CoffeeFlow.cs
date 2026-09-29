@@ -50,6 +50,9 @@ internal static class CoffeeFlow
             ],
         ]);
 
+    public static string ConfirmText(CoffeeOrder order) =>
+        $"A {order.Size} coffee for {order.CupName}. Place the order?";
+
     public static CoffeeSize? ParseSize(string? text) =>
         Enum.TryParse<CoffeeSize>(text, ignoreCase: true, out var size) && Enum.IsDefined(size) ? size : null;
 
@@ -100,5 +103,11 @@ internal enum CoffeeSize
     Large,
 }
 
-// The conversation's data: the order, and the card showing its buttons now.
-internal sealed record CoffeeOrder(string OrderId, int CardId, CoffeeSize? Size = null, string? CupName = null);
+// The conversation's data: the order, the card showing its buttons now, and the message the cup name came in.
+internal sealed record CoffeeOrder(
+    string OrderId,
+    int CardId,
+    CoffeeSize? Size = null,
+    string? CupName = null,
+    int? NameMessageId = null
+);

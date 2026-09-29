@@ -17,7 +17,11 @@ internal sealed class WriteNameStep(IConversation conversation) : MessageCommand
     protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
     {
         var (_, message, client) = request;
-        var order = (await conversation.GetDataAsync<CoffeeOrder>(token))! with { CupName = message.Text };
+        var order = (await conversation.GetDataAsync<CoffeeOrder>(token))! with
+        {
+            CupName = message.Text,
+            NameMessageId = message.Id,
+        };
 
         // The prompt's Cancel moves to the confirmation card.
         try
@@ -36,7 +40,7 @@ internal sealed class WriteNameStep(IConversation conversation) : MessageCommand
 
         var card = await client.SendMessage(
             message.Chat,
-            $"A {order.Size} coffee for {order.CupName}. Place the order?",
+            CoffeeFlow.ConfirmText(order),
             replyMarkup: CoffeeFlow.ConfirmKeyboard(message.From!.Id, order.OrderId),
             cancellationToken: token
         );
