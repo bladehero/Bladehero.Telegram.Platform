@@ -95,13 +95,14 @@ app.Run();
   "TelegramWebhookConfiguration": {
     "Token": "123456:ABC-DEF...",
     "BaseUrl": "https://bot.example.com",
-    "UpdateEndpoint": "telegram/updates"
+    "UpdateEndpoint": "telegram/updates",
+    "SecretToken": "a-long-random-string"
   }
 }
 ```
 
-Startup calls `setWebhook` only when the URL or settings changed. Keep the token in user secrets or environment
-variables.
+Startup calls `setWebhook` only when the URL or settings changed, or on every start with a secret token, which
+Telegram never shows back. Keep the tokens in user secrets or environment variables.
 
 ### Configuration
 
@@ -126,6 +127,7 @@ services.AddTelegramLongPollingReceiving<ISecrets>(
 | `CommandMenuScope` | both | `Default`, `AllPrivateChats`, `AllGroupChats` or `AllChatAdministrators`. |
 | `Offset`, `Limit` | polling | Update id to resume from; max updates per poll. |
 | `BaseUrl`, `UpdateEndpoint` | webhook | Public origin and endpoint path. **Required.** |
+| `SecretToken` | webhook | Optional, recommended: 1-256 characters of `A-Z a-z 0-9 _ -`. Sent to Telegram with the webhook; other requests to the endpoint get 401. |
 
 ## Commands
 
@@ -595,7 +597,8 @@ dotnet user-secrets set "TelegramReceiverConfiguration:Token" "123456:ABC-DEF...
 dotnet run
 ```
 
-`Sandbox.Webhook` reads `Telegram:Token`, and for a webhook also `Telegram:BaseUrl` and `Telegram:UpdateEndpoint`.
+`Sandbox.Webhook` reads `Telegram:Token`, and for a webhook also `Telegram:BaseUrl`, `Telegram:UpdateEndpoint` and,
+optionally, `Telegram:SecretToken`.
 
 ## License
 

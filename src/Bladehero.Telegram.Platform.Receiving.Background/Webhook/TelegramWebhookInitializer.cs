@@ -25,21 +25,28 @@ internal sealed class TelegramWebhookInitializer(
             var webhook = await client.GetWebhookInfo(cancellationToken);
             logger.LogDebug("Current webhook info: {@Info}", webhook);
 
-            if (webhook.HasNoChangesBasedOn(configuration))
+            // getWebhookInfo never shows the secret token, so with one configured the webhook is set on every start;
+            // Telegram takes an identical setWebhook as a no-op, so nothing is deleted then.
+            var changed = webhook.HasChangesBasedOn(configuration);
+            if (!changed && !configuration.HasSecretToken)
             {
                 logger.LogInformation("No webhook changes detected, keeping as it was...");
                 return;
             }
 
-            logger.LogInformation("Webhook will be re-applied now");
-            await client.DeleteWebhook(cancellationToken: cancellationToken);
+            if (changed)
+            {
+                logger.LogInformation("Webhook will be re-applied now");
+                await client.DeleteWebhook(cancellationToken: cancellationToken);
+                logger.LogInformation("Webhook has been deleted");
+            }
 
-            logger.LogInformation("Webhook has been deleted");
             // Unset asks for Telegram's default explicitly: an omitted list would keep one set before.
             await client.SetWebhook(
                 configuration.WebhookUri.AbsoluteUri,
                 allowedUpdates: configuration.AllowedUpdates ?? [],
                 dropPendingUpdates: configuration.DropPendingUpdates,
+                secretToken: configuration.HasSecretToken ? configuration.SecretToken : null,
                 cancellationToken: cancellationToken
             );
 

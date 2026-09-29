@@ -33,6 +33,9 @@ internal static class SandboxBot
     {
         web.UseSetting("Telegram:Token", "unused");
 
+        // A key the test does not set comes from the developer's user secrets; `configure` may set one.
+        web.UseSetting("Telegram:SecretToken", "");
+
         if (mode == BotMode.Webhook)
         {
             web.UseSetting("Telegram:BaseUrl", baseUrl);

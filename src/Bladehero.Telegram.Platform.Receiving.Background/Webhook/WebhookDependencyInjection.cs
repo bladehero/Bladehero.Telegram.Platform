@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using Bladehero.Configuration.Extensions;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Builder;
@@ -16,11 +18,18 @@ namespace Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 
 public static class WebhookDependencyInjection
 {
+    private const string SecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token";
+
     public static void UseTelegramWebhook(this IEndpointRouteBuilder builder)
     {
         var configuration = builder.ServiceProvider.GetRequiredService<IOptions<TelegramWebhookConfiguration>>().Value;
         var endpoint = NormalizeEndpointPath(configuration.UpdateEndpoint);
-        Console.WriteLine("[{0}]: Set bot update endpoint `{1}`", nameof(UseTelegramWebhook), endpoint);
+        var secretToken = configuration.HasSecretToken ? Encoding.UTF8.GetBytes(configuration.SecretToken!) : null;
+
+        builder
+            .ServiceProvider.GetRequiredService<ILogger<WebhookEndpoints>>()
+            .LogInformation("Receiving Telegram updates at {Endpoint}", endpoint);
+
         builder.MapPost(
             endpoint,
             async (
@@ -32,10 +41,17 @@ public static class WebhookDependencyInjection
                 CancellationToken token
             ) =>
             {
+                if (secretToken is not null && !CarriesSecretToken(context.Request, secretToken))
+                {
+                    logger.LogWarning("Refused a request to {Endpoint} without the webhook's secret token", endpoint);
+                    return Results.Unauthorized();
+                }
+
                 var client = accessor.Client;
                 try
                 {
-                    logger.LogInformation("Received webhook update: {@Update}", update);
+                    // Debug, as updates carry personal data.
+                    logger.LogDebug("Received webhook update: {@Update}", update);
                     await handler.HandleUpdateAsync(client, update, token);
                 }
                 catch (Exception ex)
@@ -44,9 +60,18 @@ public static class WebhookDependencyInjection
                     var errorHandler = context.RequestServices.GetRequiredService<ITelegramErrorHandler>();
                     await errorHandler.HandleAsync(new TelegramError(ex, client, update));
                 }
+
+                return Results.Ok();
             }
         );
     }
+
+    // Compared in constant time, so the response time tells nothing about the token.
+    private static bool CarriesSecretToken(HttpRequest request, byte[] secretToken) =>
+        CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(request.Headers[SecretTokenHeader].ToString()),
+            secretToken
+        );
 
     public static IServiceCollection AddTelegramWebhookReceiving(
         this IServiceCollection services,
@@ -153,6 +178,10 @@ public static class WebhookDependencyInjection
             httpClientFactory
         );
         services.AddTelegramReceiving(assemblies);
+        services
+            .AddOptions<TelegramWebhookConfiguration>()
+            .Validate(configuration => configuration.SecretTokenIsValid, TelegramWebhookConfiguration.SecretTokenRule)
+            .ValidateOnStart();
         services.AddHostedService<TelegramWebhookInitializer>();
         services.AddHostedService<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>();
     }

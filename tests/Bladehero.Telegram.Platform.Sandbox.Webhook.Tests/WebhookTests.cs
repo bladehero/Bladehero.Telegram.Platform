@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 
@@ -243,6 +244,77 @@ public sealed class WebhookTests
     }
 
     [Fact]
+    public async Task Update_WithTheConfiguredSecretToken_ShouldBeHandled()
+    {
+        // Arrange
+        await using var bot = await StartWithSecretTokenAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("hello");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            nick.LastMessage.Text.Should().Be("Reply: hello");
+            bot.Api.Calls.Last(x => x.Method == "setWebhook").Parameters["secret_token"]!
+                .GetValue<string>()
+                .Should()
+                .Be("s3cret");
+        }
+    }
+
+    [Fact]
+    public async Task Update_WithAWrongSecretToken_ShouldBeRefusedWith401()
+    {
+        // Arrange
+        await using var bot = await StartWithSecretTokenAsync();
+        await bot.Api.CreateClient().SetWebhook(bot.Api.WebhookUrl!, secretToken: "other");
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsAsync("hello");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*with 401*");
+            nick.Messages.Where(x => x.IsFromBot).Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task Update_WithoutTheSecretToken_ShouldBeRefusedWith401()
+    {
+        // Arrange
+        await using var bot = await StartWithSecretTokenAsync();
+        await bot.Api.CreateClient().SetWebhook(bot.Api.WebhookUrl!);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsAsync("hello");
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*with 401*");
+    }
+
+    [Fact]
+    public async Task Startup_WithAnInvalidSecretToken_ShouldFail()
+    {
+        // Act
+        var act = () =>
+            SandboxBot.StartAsync(
+                BotMode.Webhook,
+                configure: web => web.UseSetting("Telegram:SecretToken", "my secret!")
+            );
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<OptionsValidationException>()
+            .WithMessage("*SecretToken must be 1-256 characters of A-Z, a-z, 0-9, _ and -*");
+    }
+
+    [Fact]
     public async Task ForWebhookAsync_WhenTheAppPolls_ShouldSayToStartItWithLongPolling()
     {
         // Arrange: without a base URL the app polls.
@@ -261,6 +333,9 @@ public sealed class WebhookTests
                 "The app polls for updates instead of setting a webhook; start it with ForLongPollingAsync<Program>."
             );
     }
+
+    private static Task<TelegramTestHost> StartWithSecretTokenAsync() =>
+        SandboxBot.StartAsync(BotMode.Webhook, configure: web => web.UseSetting("Telegram:SecretToken", "s3cret"));
 
     private static Task<TelegramTestHost> StartWatchedAsync(WebhookRequests requests) =>
         SandboxBot.StartAsync(
