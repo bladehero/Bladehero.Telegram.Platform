@@ -28,7 +28,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Commands](#commands): [typed](#typed-commands) · [raw](#raw-commands) · [slash commands](#slash-commands) ·
   [command menu](#command-menu) · [known users](#known-users) · [buttons with typed data](#buttons-with-typed-data)
 - [Execution](#execution): [priorities](#priorities) · [parallelism](#parallelism) · [scopes](#scopes)
-- [Conversations](#conversations)
+- [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation)
 - [Sending on your own](#sending-on-your-own)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
@@ -394,7 +394,8 @@ public sealed class SignupNameStep(IConversation conversation, IUserRepository u
 ```
 
 - **Steps go first** while a conversation is active; regular commands run only if every step declines.
-- `[ConversationStep("signup")]` without a step runs at any step of the flow.
+- `[ConversationStep("signup")]` without a step runs at any step of the flow. A blank flow or step in
+  `[ConversationStep]` fails at startup.
 - **Data:** `StartAsync(flow, step, data)`, `MoveToAsync(step, data)` (or `MoveToAsync(step)` to keep it),
   `GetDataAsync<T>()`, all as JSON.
 - **Per user per chat:** each group member has their own conversation.
@@ -405,6 +406,38 @@ public sealed class SignupNameStep(IConversation conversation, IUserRepository u
 ```csharp
 await store.SaveAsync(new ConversationKey(chatId, userId), new ConversationState("import", "describe"), token);
 ```
+
+### Buttons bound to a conversation
+
+Bind the buttons a step shows to the conversation's run, and the library checks every tap on them before any step
+runs:
+
+```csharp
+await conversation.StartAsync("coffee", "size", order, token);
+var binding = await conversation.BindAsync(token);
+var card = await client.SendMessage(chat, "What size?",
+    replyMarkup: new InlineKeyboardMarkup().AddButton("Large", new PickSize(CoffeeSize.Large), binding),
+    cancellationToken: token);
+await conversation.MoveToAsync("size", order with { CardId = card.Id }, token);
+```
+
+- The button carries its user and the conversation's run (`@7000000001.k3j9x2ab`), about 20 bytes of the 64.
+- Before any step runs, a tap by someone else is answered "That button isn't yours."
+- A tap from an ended or replaced run, or one no step of the run takes, is answered "That button is no longer active."
+- Nothing is edited.
+- Override the answers with an `IButtonRefusalHandler`; `ButtonRefusal.AnswerAsync` ignores answers that came too
+  late.
+- A typed button handled by a step must be bound. An unbound one never reaches the step, and a warning says how to
+  bind it.
+- Bind the buttons you show for one run of a flow. Pagers, lasting notices, and buttons meant for someone else's chat
+  stay unbound.
+- **Persistence:** the run id lives in `ConversationState.Id`. A store must keep it, or bound buttons stop working
+  after a reload. The in-memory store loses it on restart, which makes old buttons "no longer active".
+- **Background jobs:** save `new ConversationState(flow, step, data) { Id = ConversationState.NewId() }` and bind with
+  `new ConversationBinding(userId, id)`.
+- **Concurrency:** within one process, bound taps on one conversation are handled one after another, which matters
+  for concurrent webhook requests. Several instances of the app still race.
+- A custom `ITelegramCommandExecutor` makes none of these checks.
 
 ## Sending on your own
 
@@ -884,8 +917,10 @@ are checked for this at startup.
   - receipts for points: photos, PDFs, and photo and PDF albums read by a stand-in for an AI reader, too-big and
     unsupported files turned down, and `/history` sending a CSV file; the receipt and album buttons are typed, with the
     same owner check;
-  - a `/coffee` [conversation](#conversations) bound to its card and its customer, which a voice message can start too,
-    through a stand-in for a transcriber, and whose cup name the customer can fix by editing their message;
+  - a `/coffee` [conversation](#conversations), which a voice message can start too, through a stand-in for a
+    transcriber, and whose cup name the customer can fix by editing their message; its buttons are
+    [bound](#buttons-bound-to-a-conversation) to the order, so only its customer can use them, and only while it is in
+    progress;
   - stale, foreign and double-tapped buttons: an earlier order's, another member's card, a receipt taken already, and
     a tap from a view that missed an edit;
   - a barista telling each customer when their coffee is ready, [sent on its own](#sending-on-your-own) through
@@ -903,7 +938,9 @@ are checked for this at startup.
   - `/translate` through an `ITranslator` that the tests [replace](#configure-the-app-under-test) with
     `ConfigureTestServices`;
   - a photo sent back by its file id, without uploading it again;
-  - a `/remember` [conversation](#conversations), with `/recall`;
+  - a `/remember` [conversation](#conversations), with `/recall`, whose prompt has a Cancel
+    [bound](#buttons-bound-to-a-conversation) to it, so a second tap at once, or one after the note is saved, is told
+    the button is no longer active;
   - the [command menu](#command-menu), and a webhook guarded by its secret token.
 
 Their component tests live in `tests/`. To run a sample against Telegram:
@@ -950,6 +987,11 @@ optionally, `Telegram:SecretToken`.
 - Startup fails when a known-user command's resolver isn't registered. Before, every update failed.
 - Taps on typed buttons that no command takes are answered. Hand-written data is untouched.
 - Test users have Telegram-sized ids.
+- `ConversationState` has a new `Id`, and `IConversation` a default `Key` member. A custom store must persist `Id` to
+  use bound buttons.
+- Taps on bound buttons are checked before steps run: someone else's gets "That button isn't yours.", and a finished
+  run's gets "That button is no longer active." A step no longer sees a typed button that isn't bound.
+- A custom `ITelegramCommandExecutor` makes none of these checks.
 
 ## License
 
