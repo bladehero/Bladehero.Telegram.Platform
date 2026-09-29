@@ -59,7 +59,19 @@ internal static class TestBot
             Task.FromResult(request.Payload.IsCommand("/boom"));
 
         protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-            throw new InvalidOperationException("boom");
+            throw new InvalidOperationException($"boom from {request.Payload.From!.FirstName}");
+    }
+
+    private sealed class SlowBoomCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/slowboom"));
+
+        protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(300), CancellationToken.None);
+            throw new InvalidOperationException("slow boom");
+        }
     }
 
     // Fails as a timed-out HTTP call does: with a cancellation nobody asked for.

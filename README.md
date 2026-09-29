@@ -420,8 +420,12 @@ nick.Messages.Select(x => x.ToString())
     .Should().Equal("Nick: /coffee", "Bot: What size? [Small] [Medium] [Large] [Cancel]");
 ```
 
-Each action returns once the bot is done and rethrows what a command threw. Chats show both sides, with edits applied
-and deletions gone. A name is one user everywhere.
+Each action returns once the bot is done. Chats show both sides, with edits applied and deletions gone. A name is one
+user everywhere.
+
+An error belongs to the action that caused it: each action rethrows the first error its own update raised, even when
+users act at once, and the app's own `ITelegramErrorHandler` still runs, so what it does (an apology to the user, say)
+can be checked. A failed poll is rethrown by the next action; an update the test stopped waiting for fails nothing.
 
 ### Tap buttons
 

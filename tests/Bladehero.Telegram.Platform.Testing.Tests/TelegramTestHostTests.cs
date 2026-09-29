@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Bladehero.Telegram.Platform.Receiving;
 using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
+using Bladehero.Telegram.Platform.Receiving.Errors;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,7 +53,82 @@ public sealed class TelegramTestHostTests
         var act = () => bot.SendAsync(Text("/boom"));
 
         // Assert
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom from Nick");
+    }
+
+    [Fact]
+    public async Task SendAsync_ByTwoUsersAtOnce_ShouldRethrowOnlyTheSendersError()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        var anna = bot.PrivateChat("Anna");
+
+        // Act
+        var rounds = await RoundsAtOnceAsync(() => nick.SendsAsync("/boom"), () => anna.SendsAsync("/whoami"));
+
+        // Assert
+        rounds.Should().AllBeEquivalentTo("boom from Nick | no error");
+    }
+
+    [Fact]
+    public async Task SendAsync_BothFailingAtOnce_ShouldEachRethrowTheirOwnError()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        var anna = bot.PrivateChat("Anna");
+
+        // Act
+        var rounds = await RoundsAtOnceAsync(() => nick.SendsAsync("/boom"), () => anna.SendsAsync("/boom"));
+
+        // Assert
+        rounds.Should().AllBeEquivalentTo("boom from Nick | boom from Anna");
+    }
+
+    [Fact]
+    public async Task SendAsync_AfterGivingUpOnAFailingUpdate_ShouldNotRethrowItsErrorLater()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("hi");
+        using var impatient = new CancellationTokenSource();
+        var givenUp = nick.SendsAsync("/slowboom", impatient.Token);
+        await impatient.CancelAsync();
+        await ((Func<Task>)(() => givenUp)).Should().ThrowAsync<OperationCanceledException>();
+
+        // Act: the bot takes this update only once it has finished the one given up on.
+        var act = () => nick.SendsAsync("hello");
+
+        // Assert
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenACommandThrows_ShouldAlsoRunTheAppsOwnErrorHandler()
+    {
+        // Arrange
+        var seen = new SeenErrors();
+        await using var bot = await TestBot.StartAsync(services: services =>
+        {
+            services.AddSingleton(seen);
+            services.AddScoped<ITelegramErrorHandler, SeenErrorsHandler>();
+        });
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var thrown = await Record.ExceptionAsync(() => nick.SendsAsync("/boom"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            thrown.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("boom from Nick");
+            var error = seen.All.Should().ContainSingle().Subject;
+            error.Exception.Should().BeSameAs(thrown);
+            error.Update!.Id.Should().Be(1);
+            error.Update.Message!.Chat.Id.Should().Be(nick.Chat.Id);
+        }
     }
 
     [Fact]
@@ -287,6 +363,31 @@ public sealed class TelegramTestHostTests
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
     }
 
+    // Twenty rounds of both actions at once, each read as "first's outcome | second's outcome".
+    private static async Task<List<string>> RoundsAtOnceAsync(Func<Task> first, Func<Task> second)
+    {
+        var rounds = new List<string>();
+        for (var round = 0; round < 20; round++)
+        {
+            rounds.Add(string.Join(" | ", await Task.WhenAll(OutcomeOf(first()), OutcomeOf(second()))));
+        }
+
+        return rounds;
+    }
+
+    private static async Task<string> OutcomeOf(Task action)
+    {
+        try
+        {
+            await action;
+            return "no error";
+        }
+        catch (Exception exception)
+        {
+            return exception.Message;
+        }
+    }
+
     private static void RegisterOwnClient(IServiceCollection services, string registration)
     {
         const string realLookingToken = "7654321:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
@@ -322,4 +423,38 @@ public sealed class TelegramTestHostTests
                 From = new User { Id = 42, FirstName = "Nick" },
             },
         };
+
+    // The app's own error handler, and what it saw.
+    private sealed class SeenErrors
+    {
+        private readonly List<TelegramError> _all = [];
+
+        public IReadOnlyList<TelegramError> All
+        {
+            get
+            {
+                lock (_all)
+                {
+                    return [.. _all];
+                }
+            }
+        }
+
+        public void Add(TelegramError error)
+        {
+            lock (_all)
+            {
+                _all.Add(error);
+            }
+        }
+    }
+
+    private sealed class SeenErrorsHandler(SeenErrors seen) : ITelegramErrorHandler
+    {
+        public Task HandleAsync(TelegramError telegramError)
+        {
+            seen.Add(telegramError);
+            return Task.CompletedTask;
+        }
+    }
 }

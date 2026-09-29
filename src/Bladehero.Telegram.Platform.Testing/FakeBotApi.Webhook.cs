@@ -37,13 +37,14 @@ public sealed partial class FakeBotApi
         }
     }
 
-    internal JsonObject StampForWebhook(JsonObject update)
+    internal (JsonObject Update, long Id) StampForWebhook(JsonObject update)
     {
+        var id = Interlocked.Increment(ref _lastWebhookUpdateId);
         var stamped = update.DeepClone().AsObject();
-        stamped["update_id"] = Interlocked.Increment(ref _lastWebhookUpdateId);
+        stamped["update_id"] = id;
 
         ExpectAnswerTo(stamped);
-        return stamped;
+        return (stamped, id);
     }
 
     private bool HasWebhook

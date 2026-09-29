@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using Bladehero.Telegram.Platform.Receiving.Errors;
+using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.AspNetCore.Builder;
@@ -8,6 +10,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests;
@@ -260,10 +263,73 @@ public sealed class WebhookTests
             .Equal("Nick: hello", "Bot: Reply: hello [Again]", "Bot: Your limit is near");
     }
 
+    [Fact]
+    public async Task Error_ShouldReachTheAppsOwnErrorHandlerWithItsUpdate()
+    {
+        // Arrange
+        var seen = new SeenErrors();
+        await using var bot = await WebhookBot.StartAsync(configure: web =>
+            web.ConfigureTestServices(services =>
+            {
+                services.AddSingleton(seen);
+                services.AddScoped<ITelegramErrorHandler, SeenErrorsHandler>();
+            })
+        );
+        var nick = bot.PrivateChat("Nick");
+        bot.Api.Fail("sendMessage", BotApiError.BotBlocked);
+
+        // Act
+        var thrown = await Record.ExceptionAsync(() => nick.SendsAsync("hello"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            thrown.Should().BeOfType<ApiRequestException>().Which.ErrorCode.Should().Be(403);
+            var error = seen.All.Should().ContainSingle().Subject;
+            error.Exception.Should().BeSameAs(thrown);
+            error.Update!.Id.Should().Be(1);
+            error.Update.Message!.Chat.Id.Should().Be(nick.Chat.Id);
+        }
+    }
+
     private static Task<Testing.TelegramTestHost> StartWatchedAsync(WebhookRequests requests) =>
         WebhookBot.StartAsync(configure: web =>
             web.ConfigureTestServices(services => services.AddSingleton<IStartupFilter>(requests))
         );
+
+    // The app's own error handler, and what it saw.
+    private sealed class SeenErrors
+    {
+        private readonly List<TelegramError> _all = [];
+
+        public IReadOnlyList<TelegramError> All
+        {
+            get
+            {
+                lock (_all)
+                {
+                    return [.. _all];
+                }
+            }
+        }
+
+        public void Add(TelegramError error)
+        {
+            lock (_all)
+            {
+                _all.Add(error);
+            }
+        }
+    }
+
+    private sealed class SeenErrorsHandler(SeenErrors seen) : ITelegramErrorHandler
+    {
+        public Task HandleAsync(TelegramError telegramError)
+        {
+            seen.Add(telegramError);
+            return Task.CompletedTask;
+        }
+    }
 
     private sealed record SeenRequest(
         string Host,

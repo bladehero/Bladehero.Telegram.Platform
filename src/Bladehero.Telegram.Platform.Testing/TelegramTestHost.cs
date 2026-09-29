@@ -16,8 +16,17 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Testing;
 
 /// <summary>Your bot, running on its real hosting against <see cref="FakeBotApi"/> instead of Telegram.</summary>
+/// <remarks>
+/// An error belongs to the action that caused it: each action rethrows the first error raised by its own update, even
+/// when several users act at once. The app's own <see cref="ITelegramErrorHandler"/> still runs, so what it does, such
+/// as apologizing to the user, can be checked. An error with no update, such as a failed poll, is rethrown by the next
+/// action; the errors of an update the test stopped waiting for are dropped.
+/// </remarks>
 public sealed class TelegramTestHost : IAsyncDisposable
 {
+    // The key the app's own error handler moves to, so the recording one can hand it every error.
+    private static readonly object AppsErrorHandler = new();
+
     private readonly IRunningBot _bot;
     private readonly ErrorLog _errors;
 
@@ -45,9 +54,9 @@ public sealed class TelegramTestHost : IAsyncDisposable
     /// <param name="token">Stops waiting for the bot to start.</param>
     /// <remarks>
     /// Only the bot client, including one the app registers itself as <see cref="ITelegramBotClient"/> or
-    /// <see cref="TelegramBotClient"/> (the token is never used), and the error handler (errors fail the test) are
-    /// swapped. Returns once the host has started, so startup work such as the command menu can be checked right away.
-    /// The container is validated on build.
+    /// <see cref="TelegramBotClient"/> (the token is never used), and the error handler (errors fail the test, after
+    /// the app's own handler has seen them) are swapped. Returns once the host has started, so startup work such as the
+    /// command menu can be checked right away. The container is validated on build.
     /// </remarks>
     public static async Task<TelegramTestHost> ForLongPollingAsync(
         Action<IServiceCollection> configureServices,
@@ -151,7 +160,7 @@ public sealed class TelegramTestHost : IAsyncDisposable
 
     /// <summary>
     /// Delivers a raw <paramref name="update"/> (it is not added to any <see cref="TestChat"/>) and returns once it is
-    /// handled, rethrowing what a command threw.
+    /// handled, rethrowing the first error it raised.
     /// </summary>
     /// <exception cref="TimeoutException">The bot never finished the update.</exception>
     /// <exception cref="InvalidOperationException">
@@ -162,8 +171,18 @@ public sealed class TelegramTestHost : IAsyncDisposable
 
     internal async Task DeliverAsync(JsonObject update, CancellationToken token)
     {
-        await _bot.DeliverAsync(update, UpdateTimeout, token);
-        _errors.ThrowIfAny();
+        long? updateId = null;
+        try
+        {
+            await _bot.DeliverAsync(update, UpdateTimeout, id => updateId = id, token);
+        }
+        catch when (updateId is not null)
+        {
+            _errors.Abandon(updateId.Value);
+            throw;
+        }
+
+        _errors.ThrowFor(updateId);
     }
 
     public ValueTask DisposeAsync() => _bot.DisposeAsync();
@@ -172,7 +191,23 @@ public sealed class TelegramTestHost : IAsyncDisposable
     {
         var client = (TelegramBotClient)api.CreateClient();
         services.Replace(ServiceDescriptor.Singleton(new TelegramBotClientAccessor(client)));
-        services.Replace(ServiceDescriptor.Scoped<ITelegramErrorHandler>(_ => new RecordingErrorHandler(errors)));
+
+        // The app's effective error handler moves to a key, and the recording one hands it every error it records.
+        var errorHandlers = services
+            .Where(x => x.ServiceType == typeof(ITelegramErrorHandler) && !x.IsKeyedService)
+            .ToArray();
+
+        foreach (var descriptor in errorHandlers)
+        {
+            services.Remove(descriptor);
+        }
+
+        if (errorHandlers is [.., var appsOwn])
+        {
+            services.Add(KeyedAs(AppsErrorHandler, appsOwn));
+        }
+
+        services.AddScoped<ITelegramErrorHandler>(provider => new RecordingErrorHandler(errors, provider));
 
         // A client the app registers itself, e.g. for messages it starts, talks to the fake as well.
         var ownClients = services
@@ -194,11 +229,31 @@ public sealed class TelegramTestHost : IAsyncDisposable
         }
     }
 
+    // Keeps the registration's lifetime, so the handler is built and disposed as in the app.
+    private static ServiceDescriptor KeyedAs(object key, ServiceDescriptor descriptor) =>
+        descriptor switch
+        {
+            { ImplementationInstance: { } instance } => new ServiceDescriptor(descriptor.ServiceType, key, instance),
+            { ImplementationFactory: { } factory } => new ServiceDescriptor(
+                descriptor.ServiceType,
+                key,
+                (provider, _) => factory(provider),
+                descriptor.Lifetime
+            ),
+            _ => new ServiceDescriptor(
+                descriptor.ServiceType,
+                key,
+                descriptor.ImplementationType!,
+                descriptor.Lifetime
+            ),
+        };
+
     private interface IRunningBot : IAsyncDisposable
     {
         IServiceProvider Services { get; }
 
-        Task DeliverAsync(JsonObject update, TimeSpan timeout, CancellationToken token);
+        // Returns once the bot has finished the update, passing its id to `numbered` as soon as it has one.
+        Task DeliverAsync(JsonObject update, TimeSpan timeout, Action<long> numbered, CancellationToken token);
     }
 
     // An update is handled once the polling loop asks for the next offset.
@@ -206,9 +261,15 @@ public sealed class TelegramTestHost : IAsyncDisposable
     {
         public IServiceProvider Services => host.Services;
 
-        public async Task DeliverAsync(JsonObject update, TimeSpan timeout, CancellationToken token)
+        public async Task DeliverAsync(
+            JsonObject update,
+            TimeSpan timeout,
+            Action<long> numbered,
+            CancellationToken token
+        )
         {
             var updateId = api.Enqueue(update);
+            numbered(updateId);
 
             try
             {
@@ -259,7 +320,12 @@ public sealed class TelegramTestHost : IAsyncDisposable
 
         public IServiceProvider Services => services;
 
-        public async Task DeliverAsync(JsonObject update, TimeSpan timeout, CancellationToken token)
+        public async Task DeliverAsync(
+            JsonObject update,
+            TimeSpan timeout,
+            Action<long> numbered,
+            CancellationToken token
+        )
         {
             var webhook =
                 api.Webhook()
@@ -269,13 +335,12 @@ public sealed class TelegramTestHost : IAsyncDisposable
                         + "its setWebhook succeed? Api.Calls shows what the bot asked Telegram."
                 );
 
+            var (stamped, updateId) = api.StampForWebhook(update);
+            numbered(updateId);
+
             var request = new HttpRequestMessage(HttpMethod.Post, webhook.Url)
             {
-                Content = new StringContent(
-                    api.StampForWebhook(update).ToJsonString(),
-                    Encoding.UTF8,
-                    "application/json"
-                ),
+                Content = new StringContent(stamped.ToJsonString(), Encoding.UTF8, "application/json"),
             };
 
             if (webhook.SecretToken is { } secretToken)
@@ -378,25 +443,33 @@ public sealed class TelegramTestHost : IAsyncDisposable
         }
     }
 
+    // Errors by the update that raised them; a null update is a failed poll.
     private sealed class ErrorLog
     {
-        private readonly List<Exception> _errors = [];
+        private readonly List<Recorded> _errors = [];
 
-        public void Add(Exception exception)
+        // Updates whose action is over: it returned, or the test stopped waiting for it.
+        private readonly HashSet<long> _over = [];
+
+        public void Add(long? updateId, Exception exception)
         {
             lock (_errors)
             {
-                _errors.Add(exception);
+                if (updateId is not { } id || !_over.Contains(id))
+                {
+                    _errors.Add(new Recorded(updateId, exception));
+                }
             }
         }
 
-        public void ThrowIfAny()
+        // Rethrows the first error of the update, else the first with no update; the update's errors are forgotten.
+        public void ThrowFor(long? updateId)
         {
             Exception? first;
             lock (_errors)
             {
-                first = _errors.FirstOrDefault();
-                _errors.Clear();
+                first = updateId is { } id ? Forget(id) : null;
+                first ??= Forget(x => x.UpdateId is null);
             }
 
             if (first is not null)
@@ -404,14 +477,50 @@ public sealed class TelegramTestHost : IAsyncDisposable
                 ExceptionDispatchInfo.Capture(first).Throw();
             }
         }
+
+        public void Abandon(long updateId)
+        {
+            lock (_errors)
+            {
+                Forget(updateId);
+            }
+        }
+
+        private Exception? Forget(long updateId)
+        {
+            _over.Add(updateId);
+            return Forget(x => x.UpdateId == updateId);
+        }
+
+        private Exception? Forget(Predicate<Recorded> match)
+        {
+            var first = _errors.Find(match)?.Exception;
+            _errors.RemoveAll(match);
+            return first;
+        }
+
+        private sealed record Recorded(long? UpdateId, Exception Exception);
     }
 
-    private sealed class RecordingErrorHandler(ErrorLog errors) : ITelegramErrorHandler
+    // Records each error for the action that caused it, then hands it to the app's own handler in the same scope.
+    private sealed class RecordingErrorHandler(ErrorLog errors, IServiceProvider services) : ITelegramErrorHandler
     {
-        public Task HandleAsync(TelegramError telegramError)
+        public async Task HandleAsync(TelegramError telegramError)
         {
-            errors.Add(telegramError.Exception);
-            return Task.CompletedTask;
+            var updateId = telegramError.Update?.Id;
+            errors.Add(updateId, telegramError.Exception);
+
+            try
+            {
+                if (services.GetKeyedService<ITelegramErrorHandler>(AppsErrorHandler) is { } appsOwn)
+                {
+                    await appsOwn.HandleAsync(telegramError);
+                }
+            }
+            catch (Exception exception)
+            {
+                errors.Add(updateId, exception);
+            }
         }
     }
 }
