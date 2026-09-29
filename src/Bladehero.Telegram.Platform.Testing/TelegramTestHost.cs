@@ -1,3 +1,4 @@
+using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
@@ -50,11 +51,12 @@ public sealed class TelegramTestHost : IAsyncDisposable
     /// </param>
     /// <param name="token">Stops waiting for the bot to start.</param>
     /// <remarks>
-    /// Only the bot client is swapped, for one talking to <see cref="Api"/>, so the token in your configuration is
-    /// never used. Every hosted service starts, as in production, and the host has finished starting when this
-    /// returns — so what the bot does as it starts, such as publishing its command menu, can be checked straight
-    /// away. The container is validated on build, so a registration that cannot be resolved fails here rather than in
-    /// the middle of a test.
+    /// Two registrations are swapped: the bot client, for one talking to <see cref="Api"/>, so the token in your
+    /// configuration is never used; and the error handler, so a command's exception fails the test instead of reaching
+    /// your <c>ITelegramErrorHandler</c>. Every hosted service starts, as in production, and the host has finished
+    /// starting when this returns — so what the bot does as it starts, such as publishing its command menu, can be
+    /// checked straight away. The container is validated on build, so a registration that cannot be resolved fails
+    /// here rather than in the middle of a test.
     /// </remarks>
     public static async Task<TelegramTestHost> ForLongPollingAsync(
         Action<IServiceCollection> configureServices,
@@ -97,10 +99,11 @@ public sealed class TelegramTestHost : IAsyncDisposable
     /// <c>null</c>.
     /// </param>
     /// <remarks>
-    /// Only the bot client is swapped, for one talking to <see cref="Api"/>, so the token in your configuration is
-    /// never used. The app runs in the Development environment and has finished starting when this returns, so the
-    /// webhook it set is in <see cref="FakeBotApi.WebhookUrl"/>. Updates are posted to that URL's path on the in-memory
-    /// server, with the secret token header when the bot set one.
+    /// Two registrations are swapped, as for long polling: the bot client, so the token in your configuration is never
+    /// used, and the error handler, so a command's exception fails the test. The app runs in the Development
+    /// environment and has finished starting when this returns, so the webhook it set is in
+    /// <see cref="FakeBotApi.WebhookUrl"/>. Updates are posted to that very URL on the in-memory server — its host,
+    /// scheme and path — with the secret token header when the bot set one.
     /// </remarks>
     public static async Task<TelegramTestHost> ForWebhookAsync<TEntryPoint>(
         Action<IWebHostBuilder>? configureWebHost = null,
@@ -111,7 +114,9 @@ public sealed class TelegramTestHost : IAsyncDisposable
         api ??= new FakeBotApi();
         var errors = new ErrorLog();
 
-        var factory = new WebApplicationFactory<TEntryPoint>().WithWebHostBuilder(web =>
+        // Disposing the factory disposes the one derived from it, which runs the app.
+        var factory = new WebApplicationFactory<TEntryPoint>();
+        var app = factory.WithWebHostBuilder(web =>
         {
             configureWebHost?.Invoke(web);
             web.ConfigureTestServices(services => TalkToTheFake(services, api, errors));
@@ -120,8 +125,8 @@ public sealed class TelegramTestHost : IAsyncDisposable
         try
         {
             // Creating the client starts the app, and with it every hosted service — the one setting the webhook too.
-            var client = await Task.Run(factory.CreateClient);
-            return new TelegramTestHost(new WebhookBot(factory, factory.Services, client, api), api, errors);
+            var client = await Task.Run(app.CreateClient);
+            return new TelegramTestHost(new WebhookBot(factory, app.Services, client, api), api, errors);
         }
         catch
         {
@@ -255,8 +260,8 @@ public sealed class TelegramTestHost : IAsyncDisposable
                         + "its setWebhook succeed? Api.Calls shows what the bot asked Telegram."
                 );
 
-            var path = new Uri(webhook.Url).PathAndQuery;
-            using var request = new HttpRequestMessage(HttpMethod.Post, path)
+            // Posted to the webhook URL itself, so the app sees the host and scheme Telegram would call it on.
+            var request = new HttpRequestMessage(HttpMethod.Post, webhook.Url)
             {
                 Content = new StringContent(
                     api.StampForWebhook(update).ToJsonString(),
@@ -270,29 +275,68 @@ public sealed class TelegramTestHost : IAsyncDisposable
                 request.Headers.Add(SecretTokenHeader, secretToken);
             }
 
+            // Like Telegram, the test only stops waiting when it gives up: aborting the request would cancel the bot
+            // in the middle of the update, and the error that leaves behind would fail the next one.
+            var sending = client.SendAsync(request, CancellationToken.None);
             HttpResponseMessage response;
             try
             {
-                response = await client.SendAsync(request, token).WaitAsync(timeout, token);
+                response = await sending.WaitAsync(timeout, token);
             }
-            catch (TimeoutException)
+            catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
             {
-                throw new TimeoutException(
-                    $"The bot did not answer the update posted to {path} within {timeout.TotalSeconds:0} seconds."
+                _ = sending.ContinueWith(
+                    sent =>
+                    {
+                        if (sent.IsCompletedSuccessfully)
+                        {
+                            sent.Result.Dispose();
+                        }
+
+                        request.Dispose();
+                    },
+                    TaskScheduler.Default
                 );
+
+                if (exception is TimeoutException)
+                {
+                    throw new TimeoutException(
+                        $"The bot did not answer the update posted to {webhook.Url} within "
+                            + $"{timeout.TotalSeconds:0} seconds."
+                    );
+                }
+
+                throw;
             }
 
+            using (request)
             using (response)
             {
                 if (!response.IsSuccessStatusCode)
                 {
-                    throw new InvalidOperationException(
-                        $"The bot answered the update posted to {path} with {(int)response.StatusCode} "
-                            + $"{response.ReasonPhrase}, which Telegram takes as a failed delivery. Is the update "
-                            + "endpoint mapped there, for example with UseTelegramWebhook?"
-                    );
+                    throw new InvalidOperationException(await FailedDeliveryAsync(webhook.Url, response));
                 }
             }
+        }
+
+        // Says why a delivery failed: a missing endpoint for 404 and 405, and otherwise what the app answered.
+        private static async Task<string> FailedDeliveryAsync(string url, HttpResponseMessage response)
+        {
+            const int longestBody = 1000;
+
+            var failure =
+                $"The bot answered the update posted to {url} with {(int)response.StatusCode} "
+                + $"{response.ReasonPhrase}, which Telegram takes as a failed delivery.";
+
+            if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+            {
+                return failure + " Is the update endpoint mapped there, for example with UseTelegramWebhook?";
+            }
+
+            var body = await response.Content.ReadAsStringAsync();
+            return body.Length == 0 ? failure
+                : body.Length <= longestBody ? $"{failure} It said:\n{body}"
+                : $"{failure} It said:\n{body[..longestBody]}…";
         }
 
         public async ValueTask DisposeAsync()

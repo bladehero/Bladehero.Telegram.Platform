@@ -74,11 +74,12 @@ public sealed partial class FakeBotApi
             throw Refuse(400, "Bad Request: bad webhook: Webhook can be set up only on ports 80, 88, 443 or 8443");
         }
 
+        // Left out, allowed_updates keeps the list the bot gave before, as the Bot API documents.
         _webhook = new JsonObject
         {
             ["url"] = url,
             ["secret_token"] = parameters["secret_token"]?.DeepClone(),
-            ["allowed_updates"] = parameters["allowed_updates"]?.DeepClone(),
+            ["allowed_updates"] = (parameters["allowed_updates"] ?? _webhook?["allowed_updates"])?.DeepClone(),
         };
         return true;
     }

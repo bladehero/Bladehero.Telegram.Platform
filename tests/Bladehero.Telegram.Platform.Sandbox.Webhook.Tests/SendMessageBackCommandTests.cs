@@ -17,7 +17,7 @@ public sealed class SendMessageBackCommandTests
         await nick.SendsAsync("hello");
 
         // Assert
-        nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: hello", "Bot: Reply: hello");
+        nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: hello", "Bot: Reply: hello [Again]");
     }
 
     [Fact]
@@ -31,7 +31,7 @@ public sealed class SendMessageBackCommandTests
         await family.Member("Anna").SendsAsync("hi all");
 
         // Assert
-        family.LastMessage.ToString().Should().Be("Bot: Reply: hi all");
+        family.LastMessage.ToString().Should().Be("Bot: Reply: hi all [Again]");
     }
 
     [Fact]

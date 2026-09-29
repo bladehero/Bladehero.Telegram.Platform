@@ -941,6 +941,22 @@ public sealed class FakeBotApiTests
     }
 
     [Fact]
+    public async Task SetWebhook_WithoutAllowedUpdates_ShouldKeepTheOnesSetBefore()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        await client.SetWebhook("https://bot.example.com/updates", allowedUpdates: [UpdateType.Message]);
+
+        // Act
+        await client.SetWebhook("https://bot.example.com/other");
+
+        // Assert
+        (await client.GetWebhookInfo())
+            .AllowedUpdates.Should()
+            .Equal(UpdateType.Message);
+    }
+
+    [Fact]
     public async Task GetUpdates_WhileAWebhookIsSet_ShouldFailLikeTelegram()
     {
         // Arrange
