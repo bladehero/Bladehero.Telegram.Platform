@@ -31,8 +31,9 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Conversations](#conversations)
 - [Sending on your own](#sending-on-your-own)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
-- [Component tests](#component-tests): [start](#start-the-bot) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
-  [files](#send-and-read-files) · [fake Telegram](#check-and-fail-telegram)
+- [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
+  [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) ·
+  [fake Telegram](#check-and-fail-telegram)
 - [Samples](#samples)
 
 ## Packages
@@ -382,29 +383,78 @@ no network, no sleeps.
 
 ### Start the bot
 
-Long polling: register the bot as its composition root does, with any type from the bot's assembly.
+A bot on a generic host that long-polls: register it as its composition root does, with any type from its assembly.
 
 ```csharp
 await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
     services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(StartCommand).Assembly));
 ```
 
-Webhook: start the ASP.NET Core app (its public Program) via WebApplicationFactory.
+Or take the whole builder, to set configuration, the environment or logging too:
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync(builder =>
+{
+    builder.Configuration.AddInMemoryCollection([new("TelegramReceiverConfiguration:Token", "unused")]);
+    builder.Services.AddTelegramLongPollingReceiving(builder.Configuration, assemblies: typeof(StartCommand).Assembly);
+});
+```
+
+An ASP.NET Core app that long-polls: start its public `Program` via WebApplicationFactory.
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
+    web.UseSetting("Telegram:Token", "unused"));
+```
+
+An ASP.NET Core app with a webhook: the same, and each update is posted to the webhook the app set.
 
 ```csharp
 await using var bot = await TelegramTestHost.ForWebhookAsync<Program>(web =>
-    web.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
-    {
-        ["TelegramWebhookConfiguration:BaseUrl"] = "https://bot.example.com",
-        ["TelegramWebhookConfiguration:UpdateEndpoint"] = "telegram/updates",
-    })));
+{
+    web.UseSetting("Telegram:BaseUrl", "https://bot.example.com");
+    web.UseSetting("Telegram:UpdateEndpoint", "telegram/updates");
+});
 ```
 
-Both return once startup (webhook, command menu) is done. For webhook tests the test project references the app; if
-the factory can't find the app's content root, also reference `Microsoft.AspNetCore.Mvc.Testing`.
+All return once startup (webhook, command menu) is done; an app started with the wrong one fails the test and names
+the right one. For the web apps the test project references the app; if the factory can't find the app's content root,
+also reference `Microsoft.AspNetCore.Mvc.Testing`.
 
 The bot's client talks to the fake, and so does an `ITelegramBotClient` or `TelegramBotClient` the app registers itself,
 e.g. for messages it starts.
+
+### Configure the app under test
+
+**Settings read before `Build()`**, such as a receiving mode, feature switches or API keys, must be set with
+`web.UseSetting(key, value)`: `ConfigureAppConfiguration` only reaches what the app reads after `Build()`.
+
+**User secrets.** `WebApplicationFactory` runs the app in Development, which loads its user secrets, so real tokens and
+API keys are in reach. The Telegram client is always swapped; anything else external must be replaced, have its
+secrets overridden, or the app runs in another environment with `web.UseEnvironment("Testing")`, where neither
+`appsettings.Development.json` nor user secrets load unless the app adds them itself.
+
+**External services**, such as an AI client, get a stand-in. On a generic host, register it after the bot's own
+registrations, as the last one wins:
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
+{
+    services.AddBudgetBot(configuration);                                     // the app's registrations
+    services.AddSingleton<IReceiptReader>(new ScriptedReader("Milk 2.50"));   // the stand-in, last
+});
+```
+
+In an ASP.NET Core app, replace it once the app has registered its own:
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
+    web.ConfigureTestServices(services =>
+        services.Replace(ServiceDescriptor.Singleton<IReceiptReader>(new ScriptedReader("Milk 2.50")))));
+```
+
+**Logs** reach a provider added with `builder.Logging.AddProvider(...)` in the builder overload, or with
+`web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
 
 ### Chat with it
 
@@ -424,7 +474,9 @@ Each action returns once the bot is done. Chats show both sides, with edits appl
 user everywhere.
 
 An action waits up to `bot.UpdateTimeout` (30 s, no limit under a debugger), then says whether the bot never fetched
-the update or is stuck in a command. If the bot's host stops, the action fails at once with the cause.
+the update or is stuck in a command. A bot that long-polls, on a generic host or in an ASP.NET Core app, fails the
+action at once with the cause if its host stops or one of its background services fails; webhook delivery has no such
+check, as a stopped app refuses the post anyway.
 
 An error belongs to the action that caused it: each action rethrows the first error its own update raised, even when
 users act at once, and the app's own `ITelegramErrorHandler` still runs, so what it does (an apology to the user, say)
@@ -498,7 +550,9 @@ doesn't support.
 
 - [`Sandbox`](src/Bladehero.Telegram.Platform.Sandbox): long polling with a `/coffee` [conversation](#conversations)
   covering text and button steps, cancelling and stale buttons, and a logger of `MyChatMember` updates.
-- [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): webhook echo with an Again button.
+- [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): an ASP.NET Core echo with an Again button. It
+  receives by webhook when `Telegram:BaseUrl` is set and by long polling otherwise, and its scenarios are tested in both
+  modes.
 
 Their component tests live in `tests/`. To run a sample against Telegram:
 
@@ -507,6 +561,8 @@ cd src/Bladehero.Telegram.Platform.Sandbox
 dotnet user-secrets set "TelegramReceiverConfiguration:Token" "123456:ABC-DEF..."
 dotnet run
 ```
+
+`Sandbox.Webhook` reads `Telegram:Token`, and for a webhook also `Telegram:BaseUrl` and `Telegram:UpdateEndpoint`.
 
 ## License
 
