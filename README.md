@@ -640,8 +640,18 @@ Telegram, with Telegram's own error texts, and fails the test on a method it doe
 
 ## Samples
 
-- [`Sandbox`](src/Bladehero.Telegram.Platform.Sandbox): long polling with a `/coffee` [conversation](#conversations)
-  covering text and button steps, cancelling and stale buttons, and a logger of `MyChatMember` updates.
+- [`Sandbox`](src/Bladehero.Telegram.Platform.Sandbox): a long-polling coffee shop, composed in one `AddCoffeeShop` that
+  Program and the tests share. It shows:
+  - `/start` answered by three commands in turn, by [priority](#priorities);
+  - the [`[BotCommand]` menu](#command-menu), and a `/help` listing it from `IBotCommandMenu`;
+  - a loyalty club of [known users](#known-users), resolved by user id and seeded from `CoffeeShop:Members`: `/join`,
+    `/leave`, `/redeem 10` with arguments, and a `/points` card that is edited in place or sent again, with
+    [typed](#buttons-with-typed-data) known-user Redeem buttons;
+  - a `/coffee` [conversation](#conversations) bound to its card and its customer, where an earlier order's or another
+    customer's buttons are turned down;
+  - a greeting when the bot is added to a group, next to a logger of `MyChatMember` updates;
+  - component tests of restarts on the same fake with and without a shared conversation store, members seeded with
+    `UserIdOf` before the host starts, and Telegram refusing calls to one chat.
 - [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): an ASP.NET Core echo with an Again button. It
   receives by webhook when `Telegram:BaseUrl` is set and by long polling otherwise, and its scenarios are tested in both
   modes.
