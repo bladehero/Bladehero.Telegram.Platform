@@ -17,6 +17,7 @@ public sealed class TestChat
         Id = id;
     }
 
+    /// <summary>The Telegram chat id: the user's id for a private chat, negative for a group.</summary>
     public long Id { get; }
 
     /// <summary>All messages, oldest first, with edits applied and deleted ones gone.</summary>
@@ -106,5 +107,6 @@ public sealed class TestChat
         return new TestUser(_host, _host.Api.Person(firstName), this);
     }
 
+    /// <summary>The group's title, or the name of the user in a private chat.</summary>
     public override string ToString() => _name;
 }

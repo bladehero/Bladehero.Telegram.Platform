@@ -21,6 +21,10 @@ public sealed class TestCallbackAnswer
     /// <summary>Whether <see cref="Text"/> is an alert rather than a notification.</summary>
     public bool IsAlert { get; }
 
+    /// <summary>
+    /// The answer as the user sees it: <c>Notification: …</c>, <c>Alert: …</c>, <c>Answered silently</c> or
+    /// <c>No answer</c>.
+    /// </summary>
     public override string ToString() =>
         !IsAnswered ? "No answer"
         : Text is null ? "Answered silently"

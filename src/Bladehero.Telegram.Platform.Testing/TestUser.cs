@@ -30,8 +30,10 @@ public sealed class TestUser
     /// <summary>The Telegram user id, the same in every chat.</summary>
     public long Id => _person["id"]!.GetValue<long>();
 
+    /// <summary>The name the user was opened with, which is one user in every chat.</summary>
     public string FirstName => _person["first_name"]!.GetValue<string>();
 
+    /// <summary>The chat the user acts in: their private chat, or the group they are a member of.</summary>
     public TestChat Chat { get; }
 
     /// <inheritdoc cref="TestChat.Messages"/>
@@ -292,6 +294,7 @@ public sealed class TestUser
         return new TestCallbackAnswer(_host.Api.CallbackAnswer(queryId));
     }
 
+    /// <summary>The user's first name.</summary>
     public override string ToString() => FirstName;
 
     // Trimmed as Telegram does, and within a message's limit.

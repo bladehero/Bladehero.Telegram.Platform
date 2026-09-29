@@ -307,6 +307,7 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
         _errors.ThrowFor(updateId);
     }
 
+    /// <summary>Stops the bot and disposes its host; the fake keeps its chats for a host started on it again.</summary>
     public ValueTask DisposeAsync() => _bot.DisposeAsync();
 
     private static void TalkToTheFake(IServiceCollection services, FakeBotApi api, ErrorLog errors)

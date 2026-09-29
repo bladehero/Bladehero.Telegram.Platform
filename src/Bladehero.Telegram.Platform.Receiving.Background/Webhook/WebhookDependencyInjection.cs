@@ -21,6 +21,10 @@ public static class WebhookDependencyInjection
 {
     private const string SecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token";
 
+    /// <summary>
+    /// Maps <c>POST {UpdateEndpoint}</c>, where Telegram posts the updates. With a <c>SecretToken</c> configured, a
+    /// request without it gets 401 before anything is read; a body that isn't an update gets 400.
+    /// </summary>
     public static void UseTelegramWebhook(this IEndpointRouteBuilder builder)
     {
         var configuration = builder.ServiceProvider.GetRequiredService<IOptions<TelegramWebhookConfiguration>>().Value;
