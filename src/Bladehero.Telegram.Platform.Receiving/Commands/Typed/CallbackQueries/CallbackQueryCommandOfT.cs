@@ -10,8 +10,10 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 public abstract class CallbackQueryCommand<TData> : CallbackQueryCommand
     where TData : struct
 {
+    /// <summary>The value <see cref="Parse"/> returned for the tapped button, set once it accepted the data.</summary>
     protected TData Parsed { get; private set; }
 
+    /// <inheritdoc/>
     protected sealed override async Task<bool> CanHandleAsync(
         TypedCommandRequest<CallbackQuery> request,
         CancellationToken token

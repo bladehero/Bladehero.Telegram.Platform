@@ -13,8 +13,12 @@ public abstract class KnownUserCommand<TUser> : MessageCommand
 {
     internal ITelegramUserResolver<TUser> UserResolver { get; init; } = null!;
 
+    /// <summary>
+    /// The user the resolver returned for the sender, set once <c>CanHandleAsync</c> has accepted the message.
+    /// </summary>
     protected TUser User { get; private set; } = null!;
 
+    /// <inheritdoc/>
     protected sealed override async Task<bool> CanHandleAsync(
         TypedCommandRequest<Message> request,
         CancellationToken token
@@ -39,5 +43,9 @@ public abstract class KnownUserCommand<TUser> : MessageCommand
         return true;
     }
 
+    /// <summary>
+    /// Whether the message is for this command, such as <c>message.IsCommand("/last")</c>; asked before the resolver,
+    /// so another command's message costs no lookup.
+    /// </summary>
     protected abstract bool Matches(Message message);
 }

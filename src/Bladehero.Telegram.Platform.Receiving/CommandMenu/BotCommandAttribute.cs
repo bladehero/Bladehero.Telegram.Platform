@@ -40,8 +40,10 @@ public sealed class BotCommandAttribute : Attribute
         Description = description;
     }
 
+    /// <summary>The command as the menu lists it, without its slash, such as <c>start</c>.</summary>
     public string Command { get; }
 
+    /// <summary>What the menu says about the command.</summary>
     public string Description { get; }
 
     /// <summary>
