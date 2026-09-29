@@ -161,7 +161,12 @@ public sealed class ScopedUpdateHandlerTests
 
         Assert.Null(escaped);
         var logged = Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Error);
-        Assert.Equal("boom", logged.Exception?.Message);
+        var both = Assert.IsType<AggregateException>(logged.Exception);
+        Assert.Collection(
+            both.InnerExceptions,
+            error => Assert.Same(log.CommandFailure, error),
+            failure => Assert.Equal("boom", failure.Message)
+        );
     }
 
     [Fact]

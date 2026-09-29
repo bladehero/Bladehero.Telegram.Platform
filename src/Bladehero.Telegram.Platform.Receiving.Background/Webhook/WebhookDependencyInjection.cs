@@ -92,11 +92,11 @@ public static class WebhookDependencyInjection
         }
         catch (Exception failure)
         {
+            // Both stacks: the error first, then the handler's failure.
             logger.LogError(
-                failure,
-                "The Telegram error handler failed on an error from update {UpdateId}: {Error}",
-                error.Update?.Id,
-                error.Exception.Message
+                new AggregateException(error.Exception, failure),
+                "The Telegram error handler failed on an error from update {UpdateId}",
+                error.Update?.Id
             );
         }
     }

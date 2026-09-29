@@ -21,10 +21,8 @@ public sealed class WebhookEndpointTests
     public async Task AThrowingErrorHandlerIsLoggedAndTheUpdateStillAnswered200()
     {
         var logs = new LogRecorder();
-        await using var app = await StartAsync(
-            new ScopeLog { CommandFailure = new InvalidOperationException("original") },
-            logs
-        );
+        var log = new ScopeLog { CommandFailure = new InvalidOperationException("original") };
+        await using var app = await StartAsync(log, logs);
         using var client = app.GetTestClient();
 
         using var response = await client.PostAsync(
@@ -34,7 +32,12 @@ public sealed class WebhookEndpointTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var logged = Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Error);
-        Assert.Equal("boom", logged.Exception?.Message);
+        var both = Assert.IsType<AggregateException>(logged.Exception);
+        Assert.Collection(
+            both.InnerExceptions,
+            error => Assert.Same(log.CommandFailure, error),
+            failure => Assert.Equal("boom", failure.Message)
+        );
     }
 
     // The ScopeLog's command and a ThrowingErrorHandler, behind UseTelegramWebhook; startup talks to a fake client.

@@ -70,13 +70,13 @@ internal sealed class ScopedUpdateHandler(
             var errorHandler = scope.ServiceProvider.GetRequiredService<ITelegramErrorHandler>();
             await errorHandler.HandleAsync(error);
         }
-        catch (Exception exception) when (!IsShutdown(exception, cancellationToken))
+        catch (Exception failure) when (!IsShutdown(failure, cancellationToken))
         {
+            // Both stacks: the error first, then the handler's failure.
             logger.LogError(
-                exception,
-                "The Telegram error handler failed on an error from update {UpdateId}: {Error}",
-                error.Update?.Id,
-                error.Exception.Message
+                new AggregateException(error.Exception, failure),
+                "The Telegram error handler failed on an error from update {UpdateId}",
+                error.Update?.Id
             );
         }
     }
