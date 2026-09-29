@@ -366,7 +366,8 @@ public sealed class LimitAlerts(ITelegramSender sender)
 
 ## Errors and the HttpClient
 
-Receiver errors go to `ITelegramErrorHandler`, which logs them and ignores the cancellation on shutdown. Each
+Receiver errors go to `ITelegramErrorHandler`. The default one logs every error: one from an update at Error, a timed-out
+call included, and a failed poll at Warning; shutdown's own cancellation isn't an error and never reaches it. Each
 `TelegramError` carries the `Exception` and the `Update` being handled (`null` for a failed poll), so a handler can
 tell the user something went wrong. Replace it by registering your own **after** the receiving services:
 
