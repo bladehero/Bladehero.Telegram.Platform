@@ -89,6 +89,35 @@ public sealed class KnownUserCommandTests
         Assert.Empty(resolver.Seen);
     }
 
+    [Theory]
+    [InlineData(136817688)] // @Channel_Bot, for a channel's post in its discussion group
+    [InlineData(1087968824)] // @GroupAnonymousBot, for an anonymous admin
+    [InlineData(777000)] // Telegram, for a post forwarded automatically from a linked channel
+    public async Task AMessageSentOnBehalfOfAChatIsDeclinedWithoutResolving(long placeholder)
+    {
+        var resolver = new Resolver();
+        var command = new ProbeCommand(resolver);
+        var request = new CommandRequest(
+            new Update
+            {
+                Id = 1,
+                Message = new Message
+                {
+                    Text = "/probe",
+                    Chat = new Chat { Id = Family },
+                    From = new User { Id = placeholder },
+                    SenderChat = new Chat { Id = -1001234567890 },
+                },
+            },
+            Client
+        );
+
+        var canHandle = await command.CanHandleAsync(request, CancellationToken.None);
+
+        Assert.False(canHandle);
+        Assert.Empty(resolver.Seen);
+    }
+
     // From the chat's own user, as in a private chat, unless a sender is given.
     private static CommandRequest RequestFrom(long chatId, string text, long? sender = null) =>
         new(

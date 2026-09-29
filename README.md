@@ -241,7 +241,8 @@ internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserC
 
 The resolver gets the chat an update came from and the user who sent it, the same id in a private chat: resolve by
 `userId` to know a person in every chat, or by `chatId` to know a chat, such as a household's group. A message without
-a sender is declined unresolved.
+a sender, or one sent on behalf of a chat (a channel's post in a group, or an anonymous admin), whose sender is only a
+placeholder, is declined unresolved.
 
 ### Buttons with typed data
 
