@@ -267,6 +267,27 @@ public sealed class TestUserTests
             .Equal("Nick: (document notes.csv)", "Bot: Got notes.csv as text/csv: a,b");
     }
 
+    [Theory]
+    [InlineData("sticker.webp", "image/webp")]
+    [InlineData("loop.gif", "image/gif")]
+    [InlineData("IMG_0001.HEIC", "image/heic")]
+    [InlineData("note.ogg", "audio/ogg")]
+    [InlineData("note.oga", "audio/ogg")]
+    [InlineData("song.mp3", "audio/mpeg")]
+    [InlineData("clip.mp4", "video/mp4")]
+    public async Task SendsDocumentAsync_WithAMediaFile_ShouldWorkOutItsType(string fileName, string mimeType)
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsDocumentAsync("bytes"u8.ToArray(), fileName);
+
+        // Assert
+        nick.Messages[0].Message.Document!.MimeType.Should().Be(mimeType);
+    }
+
     [Fact]
     public async Task SendsDocumentAsync_WithAMimeType_ShouldSendThatType()
     {

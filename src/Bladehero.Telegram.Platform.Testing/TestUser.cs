@@ -119,8 +119,8 @@ public sealed class TestUser
 
     /// <summary>
     /// Sends <paramref name="document"/> named <paramref name="fileName"/>. The MIME type comes from the extension
-    /// (pdf, txt, csv, json, xml, zip, jpg/jpeg, png, docx, xlsx; otherwise octet-stream) unless
-    /// <paramref name="mimeType"/> is given.
+    /// (pdf, txt, csv, json, xml, zip, jpg/jpeg, png, webp, gif, heic, ogg/oga, mp3, mp4, docx, xlsx; otherwise
+    /// octet-stream) unless <paramref name="mimeType"/> is given.
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="document"/> is empty, <paramref name="fileName"/> blank, or <paramref name="caption"/> longer
