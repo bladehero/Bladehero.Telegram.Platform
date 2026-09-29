@@ -10,7 +10,8 @@ public sealed class CommandPriorityAttribute : Attribute
     /// </summary>
     /// <param name="global">Global priority; 0 is the highest you can set.</param>
     /// <param name="group">
-    /// Order within the global priority; <c>null</c> last. Equal priorities run in parallel.
+    /// Order within the global priority; <c>null</c> last. Equal priorities run in parallel, up to
+    /// <c>ParallelCount</c> at a time.
     /// </param>
     public CommandPriorityAttribute(int global, int? group = null)
     {

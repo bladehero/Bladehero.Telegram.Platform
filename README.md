@@ -57,6 +57,7 @@ The bot pulls updates; no public URL needed.
 
 ```csharp
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
+using Microsoft.Extensions.Hosting;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
@@ -159,7 +160,7 @@ public sealed class StartCommand(IUserRepository users) : MessageCommand
 
 ### Raw commands
 
-Implement `ITelegramCommand` to see the whole `Update`:
+Implement `ITelegramCommand` to see the whole `Update`; `CommandRequest` deconstructs into `Update` and `Client`:
 
 ```csharp
 public sealed class AuditCommand(ILogger<AuditCommand> logger) : ITelegramCommand
@@ -320,11 +321,12 @@ public sealed class SignupNameStep(IConversation conversation, IUserRepository u
 
 - **Steps go first** while a conversation is active; regular commands run only if every step declines.
 - `[ConversationStep("signup")]` without a step runs at any step of the flow.
-- **Data:** `StartAsync(flow, step, data)`, `MoveToAsync(step, data)`, `GetDataAsync<T>()` (JSON).
+- **Data:** `StartAsync(flow, step, data)`, `MoveToAsync(step, data)` (or `MoveToAsync(step)` to keep it),
+  `GetDataAsync<T>()`, all as JSON.
 - **Per user per chat:** each group member has their own conversation.
 - A change routes the **next** update, not the current one.
-- **Storage:** in memory by default; register an `IConversationStore` to persist, or use it to start a conversation
-  from a background job:
+- **Storage:** in memory by default, and untouched by bots without steps. Register an `IConversationStore` to persist
+  conversations, or use it to start one from a background job:
 
 ```csharp
 await store.SaveAsync(new ConversationKey(chatId, userId), new ConversationState("import", "describe"), token);
@@ -376,12 +378,16 @@ no network, no sleeps.
 
 ### Start the bot
 
-```csharp
-// Long polling: register as your composition root does.
-await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
-    services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(Program).Assembly));
+Long polling: register the bot as its composition root does, with any type from the bot's assembly.
 
-// Webhook: your ASP.NET Core app via WebApplicationFactory.
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
+    services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(StartCommand).Assembly));
+```
+
+Webhook: start the ASP.NET Core app (its public Program) via WebApplicationFactory.
+
+```csharp
 await using var bot = await TelegramTestHost.ForWebhookAsync<Program>(web =>
     web.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
     {
@@ -403,7 +409,8 @@ await nick.SendsAsync("/coffee");
 
 nick.LastMessage.Text.Should().Be("What size?");
 nick.LastMessage.Buttons.Should().Equal("Small", "Medium", "Large", "Cancel");
-nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: /coffee", "Bot: What size? [Small] [Medium] [Large] [Cancel]");
+nick.Messages.Select(x => x.ToString())
+    .Should().Equal("Nick: /coffee", "Bot: What size? [Small] [Medium] [Large] [Cancel]");
 ```
 
 Each action returns once the bot is done and rethrows what a command threw. Chats show both sides, with edits applied
@@ -449,8 +456,8 @@ report.ReadAsString().Should().Be("a,b");
 | `Fail(method, error, times?)` | Makes Telegram refuse a method. |
 
 ```csharp
-bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                     // every call
-bot.Api.Fail("sendMessage", BotApiError.TooManyRequests(1), times: 1);   // once
+bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                   // every call
+bot.Api.Fail("sendPhoto", BotApiError.TooManyRequests(1), times: 1);   // only the next one
 
 await bot.SendAsync(new Update { /* … */ });   // any raw update
 ```
@@ -462,13 +469,15 @@ var api = new FakeBotApi();
 api.Fail("setMyCommands", new BotApiError(500, "Internal Server Error"));
 
 await using var bot = await TelegramTestHost.ForLongPollingAsync(
-    services => services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(Program).Assembly),
+    services =>
+        services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(StartCommand).Assembly),
     api
 );
 ```
 
-The fake answers like Telegram, errors included (editing a deleted message, answering a tap twice, files over 20 MB),
-and fails the test on a method it doesn't support.
+A method's first failure applies until its `times` run out, then the next one does. The fake answers like Telegram,
+errors included (editing a deleted message, answering a tap twice, files over 20 MB), and fails the test on a method it
+doesn't support.
 
 ## Samples
 

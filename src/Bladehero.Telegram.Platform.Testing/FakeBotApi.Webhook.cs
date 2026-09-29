@@ -13,7 +13,7 @@ public sealed partial class FakeBotApi
     private long _lastWebhookUpdateId;
     private int _refusedPolls;
 
-    /// <summary>The webhook the bot set, or <c>null</c> when it polls.</summary>
+    /// <summary>The webhook the bot set, or <c>null</c> when it has none.</summary>
     public string? WebhookUrl
     {
         get

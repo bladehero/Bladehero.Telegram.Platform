@@ -16,7 +16,7 @@ public sealed class CommandPriority
 
     /// <summary>
     /// Order within the same global priority; lower runs first, <c>null</c> last. Commands with equal priority run in
-    /// parallel.
+    /// parallel, up to <c>ParallelCount</c> at a time.
     /// </summary>
     public int? Group { get; private set; }
 

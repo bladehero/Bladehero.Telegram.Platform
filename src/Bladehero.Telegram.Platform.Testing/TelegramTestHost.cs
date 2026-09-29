@@ -83,9 +83,10 @@ public sealed class TelegramTestHost : IAsyncDisposable
     /// </param>
     /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
     /// <remarks>
-    /// Swaps the same two registrations as long polling and runs in Development. Returns once the app has started,
-    /// with <see cref="FakeBotApi.WebhookUrl"/> set. Updates go to that exact URL (host, scheme, path), with the secret
-    /// token header when the bot set one, and follow no redirects and keep no cookies, as from Telegram.
+    /// Swaps the same two registrations as long polling and runs in Development. Returns once the app has started, so
+    /// the webhook it set, if any, is in <see cref="FakeBotApi.WebhookUrl"/>. Updates go to that exact URL (host,
+    /// scheme, path), with the secret token header when the bot set one, and follow no redirects and keep no cookies,
+    /// as from Telegram.
     /// </remarks>
     public static async Task<TelegramTestHost> ForWebhookAsync<TEntryPoint>(
         Action<IWebHostBuilder>? configureWebHost = null,
