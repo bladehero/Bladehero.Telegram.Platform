@@ -2,9 +2,8 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// Serves updates to the bot's polling loop the way getUpdates does. An update counts as handled once the loop asks
-// for an offset past it: the loop only moves its offset on after it has finished with the update, which is the same
-// signal Telegram uses to forget an update.
+// getUpdates for the polling loop. An update is handled once the loop asks for an offset past it, the signal Telegram
+// uses too.
 internal sealed class UpdateQueue
 {
     private const int DefaultLimit = 100;

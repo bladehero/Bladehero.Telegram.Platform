@@ -15,10 +15,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-/// <summary>
-/// A bot running for a component test: your service registrations and the library's real hosting, with
-/// <see cref="FakeBotApi"/> standing in for Telegram.
-/// </summary>
+/// <summary>Your bot, running on its real hosting against <see cref="FakeBotApi"/> instead of Telegram.</summary>
 public sealed class TelegramTestHost : IAsyncDisposable
 {
     private readonly IRunningBot _bot;
@@ -31,32 +28,25 @@ public sealed class TelegramTestHost : IAsyncDisposable
         Api = api;
     }
 
-    /// <summary>The fake Telegram the bot talks to: every call it made, and the chats as they now stand.</summary>
+    /// <summary>The fake Telegram the bot talks to.</summary>
     public FakeBotApi Api { get; }
 
-    /// <summary>The bot's root services, for arranging state or checking it afterwards.</summary>
+    /// <summary>The bot's root services.</summary>
     public IServiceProvider Services => _bot.Services;
 
     internal TimeSpan UpdateTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Starts the bot the way long polling runs it in production: <paramref name="configureServices"/> registers the
-    /// application as its own composition root does — including <c>AddTelegramLongPollingReceiving</c> — and the
-    /// started host's real polling loop pulls updates from the fake.
+    /// Starts a long-polling bot: <paramref name="configureServices"/> registers it as its composition root does, and
+    /// its real polling loop pulls updates from the fake.
     /// </summary>
-    /// <param name="configureServices">Registers the bot, as its composition root does.</param>
-    /// <param name="api">
-    /// The fake to run against, already arranged — to fail a call the bot makes as it starts, say. A new one when
-    /// <c>null</c>.
-    /// </param>
+    /// <param name="configureServices">The bot's registrations, with <c>AddTelegramLongPollingReceiving</c>.</param>
+    /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
     /// <param name="token">Stops waiting for the bot to start.</param>
     /// <remarks>
-    /// Two registrations are swapped: the bot client, for one talking to <see cref="Api"/>, so the token in your
-    /// configuration is never used; and the error handler, so a command's exception fails the test instead of reaching
-    /// your <c>ITelegramErrorHandler</c>. Every hosted service starts, as in production, and the host has finished
-    /// starting when this returns — so what the bot does as it starts, such as publishing its command menu, can be
-    /// checked straight away. The container is validated on build, so a registration that cannot be resolved fails
-    /// here rather than in the middle of a test.
+    /// Only the bot client (the token is never used) and the error handler (errors fail the test) are swapped. Returns
+    /// once the host has started, so startup work such as the command menu can be checked right away. The container is
+    /// validated on build.
     /// </remarks>
     public static async Task<TelegramTestHost> ForLongPollingAsync(
         Action<IServiceCollection> configureServices,
@@ -85,25 +75,18 @@ public sealed class TelegramTestHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Starts the bot the way a webhook runs it in production: the ASP.NET Core app whose entry point is
-    /// <typeparamref name="TEntryPoint"/> — usually <c>Program</c> — starts in memory through
-    /// <see cref="WebApplicationFactory{TEntryPoint}"/>, sets its webhook with the fake as it starts, and every update
-    /// is posted to that webhook as Telegram would post it.
+    /// Starts a webhook bot: its ASP.NET Core app (<typeparamref name="TEntryPoint"/>, usually <c>Program</c>) runs in
+    /// memory via <see cref="WebApplicationFactory{TEntryPoint}"/>, and each update is posted to the webhook it set.
     /// </summary>
     /// <param name="configureWebHost">
-    /// Adjusts the app for the test, as <see cref="WebApplicationFactory{TEntryPoint}.WithWebHostBuilder"/> does —
-    /// typically to supply the webhook's configuration with <c>ConfigureAppConfiguration</c>.
+    /// Test tweaks, e.g. the webhook configuration via <c>ConfigureAppConfiguration</c>.
     /// </param>
-    /// <param name="api">
-    /// The fake to run against, already arranged — to fail a call the bot makes as it starts, say. A new one when
-    /// <c>null</c>.
-    /// </param>
+    /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
     /// <remarks>
-    /// Two registrations are swapped, as for long polling: the bot client, so the token in your configuration is never
-    /// used, and the error handler, so a command's exception fails the test. The app runs in the Development
-    /// environment and has finished starting when this returns, so the webhook it set is in
-    /// <see cref="FakeBotApi.WebhookUrl"/>. Updates are posted to that very URL on the in-memory server — its host,
-    /// scheme and path — with the secret token header when the bot set one.
+    /// Swaps the same two registrations as long polling and runs in Development. Returns once the app has started, so
+    /// the webhook it set, if any, is in <see cref="FakeBotApi.WebhookUrl"/>. Updates go to that exact URL (host,
+    /// scheme, path), with the secret token header when the bot set one, and follow no redirects and keep no cookies,
+    /// as from Telegram.
     /// </remarks>
     public static async Task<TelegramTestHost> ForWebhookAsync<TEntryPoint>(
         Action<IWebHostBuilder>? configureWebHost = null,
@@ -114,7 +97,7 @@ public sealed class TelegramTestHost : IAsyncDisposable
         api ??= new FakeBotApi();
         var errors = new ErrorLog();
 
-        // Disposing the factory disposes the one derived from it, which runs the app.
+        // Disposing the factory disposes the derived one that runs the app.
         var factory = new WebApplicationFactory<TEntryPoint>();
         var app = factory.WithWebHostBuilder(web =>
         {
@@ -124,8 +107,7 @@ public sealed class TelegramTestHost : IAsyncDisposable
 
         try
         {
-            // Creating the client starts the app, and with it every hosted service — the one setting the webhook too.
-            // Like Telegram, it follows no redirect and keeps no cookie, and it leaves timing out to UpdateTimeout.
+            // Creating the client starts the app; UpdateTimeout, not HttpClient.Timeout, bounds each update.
             var client = await Task.Run(() =>
                 app.CreateClient(
                     new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false }
@@ -143,13 +125,9 @@ public sealed class TelegramTestHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// <paramref name="firstName"/>, talking to the bot in a private chat. Asking for the same name again gives the
-    /// same person and chat.
+    /// <paramref name="firstName"/> in a private chat with the bot. A name is one Telegram user throughout the test,
+    /// including as a <see cref="TestChat.Member"/> of a group.
     /// </summary>
-    /// <remarks>
-    /// A name is a person throughout the test: the same name as a <see cref="TestChat.Member"/> of a group is the
-    /// same Telegram user, so the bot sees one id in both chats.
-    /// </remarks>
     public TestUser PrivateChat(string firstName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
@@ -160,8 +138,8 @@ public sealed class TelegramTestHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// The group called <paramref name="title"/>, with the bot in it. Asking for the same title again gives the same
-    /// group; add people to it with <see cref="TestChat.Member"/>.
+    /// The group <paramref name="title"/> with the bot in it (the same title is the same group); add people with
+    /// <see cref="TestChat.Member"/>.
     /// </summary>
     public TestChat GroupChat(string title)
     {
@@ -171,15 +149,12 @@ public sealed class TelegramTestHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Delivers <paramref name="update"/> to the bot and returns once the bot has finished handling it, rethrowing
-    /// whatever a command threw so a crash fails the test.
+    /// Delivers a raw <paramref name="update"/> (it is not added to any <see cref="TestChat"/>) and returns once it is
+    /// handled, rethrowing what a command threw.
     /// </summary>
-    /// <remarks>
-    /// For updates the test chats do not cover. A message sent this way is not added to any <see cref="TestChat"/>.
-    /// </remarks>
     /// <exception cref="TimeoutException">The bot never finished the update.</exception>
     /// <exception cref="InvalidOperationException">
-    /// Webhook mode only: the bot set no webhook to post the update to, or did not answer it with a success.
+    /// Webhook mode: no webhook is set, or it answered with a failure.
     /// </exception>
     public Task SendAsync(Update update, CancellationToken token = default) =>
         DeliverAsync(JsonSerializer.SerializeToNode(update, JsonBotAPI.Options)!.AsObject(), token);
@@ -192,15 +167,12 @@ public sealed class TelegramTestHost : IAsyncDisposable
 
     public ValueTask DisposeAsync() => _bot.DisposeAsync();
 
-    // Swaps the bot client, for one talking to the fake, and the error handler, for one recording the errors commands
-    // throw so the test sees them.
     private static void TalkToTheFake(IServiceCollection services, FakeBotApi api, ErrorLog errors)
     {
         services.Replace(ServiceDescriptor.Singleton(new TelegramBotClientAccessor(api.CreateClient())));
         services.Replace(ServiceDescriptor.Scoped<ITelegramErrorHandler>(_ => new RecordingErrorHandler(errors)));
     }
 
-    // How updates reach the running bot, which differs between its two ways of receiving them.
     private interface IRunningBot : IAsyncDisposable
     {
         IServiceProvider Services { get; }
@@ -208,7 +180,7 @@ public sealed class TelegramTestHost : IAsyncDisposable
         Task DeliverAsync(JsonObject update, TimeSpan timeout, CancellationToken token);
     }
 
-    // The polling loop takes the update from getUpdates, and asks for the next one only once it has finished with it.
+    // An update is handled once the polling loop asks for the next offset.
     private sealed class PollingBot(IHost host, FakeBotApi api) : IRunningBot
     {
         public IServiceProvider Services => host.Services;
@@ -250,7 +222,6 @@ public sealed class TelegramTestHost : IAsyncDisposable
         }
     }
 
-    // The update is posted to the webhook the bot set, and the endpoint answers once it has finished with it.
     private sealed class WebhookBot(
         IAsyncDisposable factory,
         IServiceProvider services,
@@ -262,7 +233,7 @@ public sealed class TelegramTestHost : IAsyncDisposable
 
         private static readonly TimeSpan AbandonedGrace = TimeSpan.FromSeconds(5);
 
-        // Updates the test stopped waiting for, which the bot may still be working on.
+        // Updates the test stopped waiting for; the bot may still be handling them.
         private readonly List<Task> _abandoned = [];
 
         public IServiceProvider Services => services;
@@ -277,7 +248,6 @@ public sealed class TelegramTestHost : IAsyncDisposable
                         + "its setWebhook succeed? Api.Calls shows what the bot asked Telegram."
                 );
 
-            // Posted to the webhook URL itself, so the app sees the host and scheme Telegram would call it on.
             var request = new HttpRequestMessage(HttpMethod.Post, webhook.Url)
             {
                 Content = new StringContent(
@@ -292,8 +262,7 @@ public sealed class TelegramTestHost : IAsyncDisposable
                 request.Headers.Add(SecretTokenHeader, secretToken);
             }
 
-            // Like Telegram, the test only stops waiting when it gives up: aborting the request would cancel the bot
-            // in the middle of the update, and the error that leaves behind would fail the next one.
+            // Giving up only stops waiting: aborting would cancel the bot mid-update and fail the next one.
             var sending = client.SendAsync(request, CancellationToken.None);
             HttpResponseMessage response;
             try
@@ -311,7 +280,7 @@ public sealed class TelegramTestHost : IAsyncDisposable
                         }
                         else
                         {
-                            // Observed, so a failure after the test moved on is not reported as unobserved.
+                            // Observed, so a later failure is not reported as an unobserved task exception.
                             _ = sent.Exception;
                         }
 
@@ -346,8 +315,6 @@ public sealed class TelegramTestHost : IAsyncDisposable
             }
         }
 
-        // Says why a delivery failed: a missing endpoint for 404 and 405, where a redirect led, and otherwise what the
-        // app answered.
         private static async Task<string> FailedDeliveryAsync(string url, HttpResponseMessage response)
         {
             const int longestBody = 1000;
@@ -372,8 +339,7 @@ public sealed class TelegramTestHost : IAsyncDisposable
                 : $"{failure} It said:\n{body[..longestBody]}…";
         }
 
-        // Disposing the client cancels the updates still in flight; they are let finish before the app goes, so none
-        // runs on against a disposed container.
+        // Lets cancelled in-flight updates finish before the app's container is disposed.
         public async ValueTask DisposeAsync()
         {
             client.Dispose();

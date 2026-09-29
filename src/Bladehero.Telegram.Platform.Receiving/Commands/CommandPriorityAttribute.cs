@@ -6,21 +6,12 @@ public sealed class CommandPriorityAttribute : Attribute
     public CommandPriority Priority { get; }
 
     /// <summary>
-    /// Defines command priority based on provided integers in format Global:Group
+    /// Sets the command's priority, global then group; lower runs first, and unmarked commands run before all.
     /// </summary>
-    /// <param name="global">
-    /// Global level of priority <br/>
-    /// The lower Global value - the higher priority: <br/>
-    /// 0 - is the highest priority
-    /// </param>
+    /// <param name="global">Global priority; 0 is the highest you can set.</param>
     /// <param name="group">
-    /// Group level of priority <br/>
-    /// If two (or more) items have the same global level of priority
-    /// Then the order of the execution is defined by this Group value <br/>
-    /// The lower Group value - the higher priority: <br/>
-    /// 0 - is the highest priority <br/>
-    /// null - means no group priority defined, and it will be the lowest priority
-    /// in that case if parallel execution enabled it could invoke both (or more in parallel)
+    /// Order within the global priority; <c>null</c> last. Equal priorities run in parallel, up to
+    /// <c>ParallelCount</c> at a time.
     /// </param>
     public CommandPriorityAttribute(int global, int? group = null)
     {

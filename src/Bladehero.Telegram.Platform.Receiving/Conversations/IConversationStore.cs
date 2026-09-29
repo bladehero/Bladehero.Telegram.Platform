@@ -1,13 +1,9 @@
 namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
-/// <summary>
-/// Keeps conversations between updates.
-/// </summary>
+/// <summary>Keeps conversations between updates; in memory by default.</summary>
 /// <remarks>
-/// The built-in store holds them in memory, so a restart forgets every conversation in progress. Register your
-/// own implementation to persist them; it replaces the built-in one whether it is registered before or after
-/// the receiving services. Use it directly to open a conversation outside of an update — after a background job
-/// finishes, say.
+/// Register your own to persist them (it replaces the default in any registration order), or use it directly to open a
+/// conversation outside an update.
 /// </remarks>
 public interface IConversationStore
 {

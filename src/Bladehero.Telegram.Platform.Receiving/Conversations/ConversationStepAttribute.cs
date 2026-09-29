@@ -1,14 +1,12 @@
 namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
 /// <summary>
-/// Makes a command a step of a conversation: it only runs while the sender's conversation is in
-/// <see cref="Flow"/> — at <see cref="Step"/>, or at any step of the flow when no step is given.
+/// Makes a command a step: it runs only while the sender's conversation is in <see cref="Flow"/>, at
+/// <see cref="Step"/> (any step when unset).
 /// </summary>
 /// <remarks>
-/// While a conversation is active its steps see the update before any regular command, and when a step handles
-/// it the regular commands are skipped. Only when every step declines does the update fall through to them — so
-/// a step accepting free text should decline bot commands, or it will swallow the <c>/cancel</c> meant to end
-/// the conversation.
+/// Steps run before regular commands, which see the update only if every step declines. A free-text step should
+/// decline bot commands so <c>/cancel</c> falls through.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class ConversationStepAttribute : Attribute

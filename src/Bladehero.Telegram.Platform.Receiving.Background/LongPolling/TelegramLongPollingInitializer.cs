@@ -5,8 +5,7 @@ using Telegram.Bot;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 
-// Telegram serves a bot through getUpdates or a webhook, never both: polling one that still has a
-// webhook registered fails with 409 on every attempt.
+// Polling a bot that still has a webhook fails with 409, so the webhook is deleted first.
 internal sealed class TelegramLongPollingInitializer(
     TelegramBotClientAccessor accessor,
     IOptions<TelegramReceiverConfiguration> options,

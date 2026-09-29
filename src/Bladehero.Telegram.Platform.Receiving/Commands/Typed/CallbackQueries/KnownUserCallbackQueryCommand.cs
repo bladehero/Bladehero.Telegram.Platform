@@ -3,14 +3,10 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 
-/// <summary>
-/// A button command with typed callback data that only runs for chats the application recognises, exposing the
-/// resolved user alongside <see cref="CallbackQueryCommand{TData}.Parsed"/>.
-/// </summary>
+/// <summary>A typed button command that runs only for known users, exposing the resolved user.</summary>
 /// <remarks>
-/// The data is parsed before the user is resolved, so a button meant for another command never costs a lookup.
-/// An unresolved chat — or a button on an inline-mode message, which has no chat — declines the update rather
-/// than throwing.
+/// Data is parsed before the user is resolved, so another command's button costs no lookup. An unresolved or missing
+/// chat declines the update.
 /// </remarks>
 public abstract class KnownUserCallbackQueryCommand<TUser, TData> : CallbackQueryCommand<TData>
     where TUser : class

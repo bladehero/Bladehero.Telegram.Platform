@@ -2,10 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-/// <summary>
-/// How the bot answered a tap on one of its buttons: the notification Telegram shows over the chat, or an alert the
-/// user has to dismiss.
-/// </summary>
+/// <summary>How the bot answered a button tap: a notification, an alert, or nothing.</summary>
 public sealed class TestCallbackAnswer
 {
     internal TestCallbackAnswer(JsonObject? answer)
@@ -15,15 +12,13 @@ public sealed class TestCallbackAnswer
         IsAlert = answer?["show_alert"]?.GetValue<bool>() is true;
     }
 
-    /// <summary>
-    /// Whether the bot answered the tap at all. Until it does, the app shows the button as loading.
-    /// </summary>
+    /// <summary>Whether the bot answered at all (until then the app shows a spinner).</summary>
     public bool IsAnswered { get; }
 
-    /// <summary>What the user is told, or <c>null</c> when the bot answered without a word.</summary>
+    /// <summary>The text shown, or <c>null</c> for a silent answer.</summary>
     public string? Text { get; }
 
-    /// <summary>Whether <see cref="Text"/> comes as an alert to dismiss rather than a passing notification.</summary>
+    /// <summary>Whether <see cref="Text"/> is an alert rather than a notification.</summary>
     public bool IsAlert { get; }
 
     public override string ToString() =>

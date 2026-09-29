@@ -5,7 +5,6 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Webhook;
 
-// The Again button under a reply: sends the reply once more.
 public sealed class SendAgainCommand : CallbackQueryCommand
 {
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>

@@ -1,8 +1,6 @@
 namespace Bladehero.Telegram.Platform.Testing;
 
-/// <summary>
-/// A chat with the bot — private, or a group — as its members see it.
-/// </summary>
+/// <summary>A private or group chat with the bot, as its members see it.</summary>
 public sealed class TestChat
 {
     private readonly TelegramTestHost _host;
@@ -19,23 +17,18 @@ public sealed class TestChat
 
     public long Id { get; }
 
-    /// <summary>
-    /// Every message in the chat, oldest first — the members' and the bot's — as they now stand: edits applied and
-    /// deleted messages gone.
-    /// </summary>
+    /// <summary>All messages, oldest first, with edits applied and deleted ones gone.</summary>
     public IReadOnlyList<TestMessage> Messages =>
         [.. _host.Api.MessagesIn(Id).Select(json => new TestMessage(json, _host.Api))];
 
-    /// <summary>The newest message in the chat, whoever sent it.</summary>
+    /// <summary>The newest message, whoever sent it.</summary>
     /// <exception cref="InvalidOperationException">The chat has no messages.</exception>
     public TestMessage LastMessage =>
         Messages.LastOrDefault() ?? throw new InvalidOperationException($"There are no messages in {Description}.");
 
     internal string Description => _isGroup ? $"the {_name} group" : $"the chat with {_name}";
 
-    /// <summary>
-    /// <paramref name="firstName"/>, a member of this group. Asking for the same name again gives the same member.
-    /// </summary>
+    /// <summary><paramref name="firstName"/> as a member of this group.</summary>
     /// <exception cref="InvalidOperationException">This is a private chat.</exception>
     public TestUser Member(string firstName)
     {

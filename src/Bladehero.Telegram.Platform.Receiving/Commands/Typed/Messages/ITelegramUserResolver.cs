@@ -1,12 +1,6 @@
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 
-/// <summary>
-/// Maps a Telegram chat onto whatever the application calls a user.
-/// </summary>
-/// <remarks>
-/// Keyed on the chat id rather than the message so the same resolver serves callback queries and any
-/// other update carrying a chat.
-/// </remarks>
+/// <summary>Maps a Telegram chat id to the application's user, for messages and buttons alike.</summary>
 public interface ITelegramUserResolver<TUser>
     where TUser : class
 {

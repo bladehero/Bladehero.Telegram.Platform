@@ -4,14 +4,12 @@ using System.Text.Json.Nodes;
 namespace Bladehero.Telegram.Platform.Testing;
 
 /// <summary>
-/// A person in a <see cref="TestChat"/>, doing what a user does in the Telegram app: typing messages, sending files and
-/// tapping the bot's buttons. Each action returns once the bot has finished handling it, and rethrows whatever a
-/// command threw.
+/// A person in a <see cref="TestChat"/> who types, sends files and taps buttons. Each action returns once the bot has
+/// handled it, rethrowing what a command threw.
 /// </summary>
 public sealed class TestUser
 {
-    // What the smaller size of a photo downloads as: not the photo, so a bot that takes the first size instead of the
-    // last gets the wrong bytes, as it would get a thumbnail from Telegram.
+    // The small photo size, so a bot reading Photo[0] instead of the largest gets the wrong bytes, as with Telegram.
     private static readonly byte[] Thumbnail = "thumbnail"u8.ToArray();
 
     private readonly TelegramTestHost _host;
@@ -24,7 +22,7 @@ public sealed class TestUser
         Chat = chat;
     }
 
-    /// <summary>The person's Telegram user id — the same in every chat they are in.</summary>
+    /// <summary>The Telegram user id, the same in every chat.</summary>
     public long Id => _person["id"]!.GetValue<long>();
 
     public string FirstName => _person["first_name"]!.GetValue<string>();
@@ -37,8 +35,8 @@ public sealed class TestUser
     /// <inheritdoc cref="TestChat.LastMessage"/>
     public TestMessage LastMessage => Chat.LastMessage;
 
-    /// <summary>Sends <paramref name="text"/> to the chat, trimmed as Telegram trims it.</summary>
-    /// <exception cref="ArgumentException"><paramref name="text"/> is blank, which the app never sends.</exception>
+    /// <summary>Sends <paramref name="text"/>, trimmed as Telegram does.</summary>
+    /// <exception cref="ArgumentException"><paramref name="text"/> is blank.</exception>
     public Task SendsAsync(string text, CancellationToken token = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
@@ -47,11 +45,10 @@ public sealed class TestUser
     }
 
     /// <summary>
-    /// Sends a photo. Like Telegram, the message carries it in two sizes, smallest first: a thumbnail, then
-    /// <paramref name="photo"/> itself, which the bot can download back byte for byte from the last, largest size.
-    /// The fake does not look inside the bytes, so any will do and the dimensions it reports are nominal.
+    /// Sends a photo in two sizes, smallest first, as Telegram does; the largest downloads as <paramref name="photo"/>.
+    /// Any bytes will do; the reported dimensions are nominal.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="photo"/> is empty, which the app never sends.</exception>
+    /// <exception cref="ArgumentException"><paramref name="photo"/> is empty.</exception>
     public Task SendsPhotoAsync(byte[] photo, string? caption = null, CancellationToken token = default)
     {
         ThrowIfEmpty(photo);
@@ -68,8 +65,8 @@ public sealed class TestUser
         return SendsFileAsync(content, caption, token);
     }
 
-    /// <summary>Sends a voice message, recorded for <paramref name="duration"/> — a second when not given.</summary>
-    /// <exception cref="ArgumentException"><paramref name="voice"/> is empty, which the app never sends.</exception>
+    /// <summary>Sends a voice message of <paramref name="duration"/> (one second by default).</summary>
+    /// <exception cref="ArgumentException"><paramref name="voice"/> is empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="duration"/> is negative.</exception>
     public Task SendsVoiceAsync(byte[] voice, TimeSpan? duration = null, CancellationToken token = default)
     {
@@ -90,13 +87,12 @@ public sealed class TestUser
     }
 
     /// <summary>
-    /// Sends <paramref name="document"/> as a file named <paramref name="fileName"/>. Its MIME type is worked out from
-    /// the name's extension, as the app does, unless <paramref name="mimeType"/> is given. Only common extensions are
-    /// known — PDF, text, CSV, JSON, XML, ZIP, JPEG, PNG, DOCX and XLSX — and any other is sent as
-    /// <c>application/octet-stream</c>.
+    /// Sends <paramref name="document"/> named <paramref name="fileName"/>. The MIME type comes from the extension
+    /// (pdf, txt, csv, json, xml, zip, jpg/jpeg, png, docx, xlsx; otherwise octet-stream) unless
+    /// <paramref name="mimeType"/> is given.
     /// </summary>
     /// <exception cref="ArgumentException">
-    /// <paramref name="document"/> is empty, which the app never sends, or <paramref name="fileName"/> is blank.
+    /// <paramref name="document"/> is empty or <paramref name="fileName"/> blank.
     /// </exception>
     public Task SendsDocumentAsync(
         byte[] document,
@@ -122,16 +118,13 @@ public sealed class TestUser
         return SendsFileAsync(content, caption, token);
     }
 
-    /// <summary>
-    /// Taps the inline button labelled <paramref name="button"/> on the newest message showing it, and the bot
-    /// receives the button's callback query.
-    /// </summary>
-    /// <param name="button">The button's text, exactly as the bot sent it.</param>
-    /// <param name="on">The message to tap the button on, when an older message shows the same button.</param>
+    /// <summary>Taps the inline button <paramref name="button"/> on the newest message showing it.</summary>
+    /// <param name="button">The button's exact text.</param>
+    /// <param name="on">A specific message to tap it on, as that message now stands.</param>
     /// <param name="token">Stops waiting for the bot.</param>
-    /// <returns>How the bot answered the tap: the notification or alert the user sees, if any.</returns>
+    /// <returns>The bot's answer: the notification or alert the user sees, if any.</returns>
     /// <exception cref="InvalidOperationException">
-    /// No message shows the button, the message shows it twice, or the button sends the bot nothing — a link, say.
+    /// No such button is shown, it is ambiguous, or it is not a callback button.
     /// </exception>
     public async Task<TestCallbackAnswer> TapsAsync(
         string button,
@@ -158,7 +151,7 @@ public sealed class TestUser
 
     public override string ToString() => FirstName;
 
-    // Telegram trims a caption and drops an empty one, and marks a bot command at its start as it does in a text.
+    // As Telegram: captions are trimmed, empty ones dropped, and a leading /command is marked.
     private Task SendsFileAsync(JsonObject content, string? caption, CancellationToken token)
     {
         caption = caption?.Trim();

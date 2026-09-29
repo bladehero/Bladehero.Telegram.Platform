@@ -148,7 +148,7 @@ public sealed class WebhookTests
     [Fact]
     public async Task Update_WhenTelegramRefusedTheWebhook_ShouldSayThereIsNowhereToPostIt()
     {
-        // Arrange — Telegram only delivers over HTTPS, so it refuses this webhook as the bot starts.
+        // Arrange: Telegram refuses an http webhook.
         await using var bot = await WebhookBot.StartAsync(baseUrl: "http://bot.example.com");
         var nick = bot.PrivateChat("Nick");
 
@@ -179,7 +179,7 @@ public sealed class WebhookTests
     [Fact]
     public async Task Update_PostedWhereOnlyGetIsMapped_ShouldSayTheEndpointIsMissing()
     {
-        // Arrange — the sandbox maps GET / for a greeting, not for updates.
+        // Arrange: the sandbox maps only GET /.
         await using var bot = await WebhookBot.StartAsync();
         await bot.Api.CreateClient().SetWebhook($"{WebhookBot.BaseUrl}/");
         var nick = bot.PrivateChat("Nick");
@@ -217,7 +217,7 @@ public sealed class WebhookTests
     [Fact]
     public async Task Update_WhenTheAppFails_ShouldSayWhatItAnswered()
     {
-        // Arrange — the update handler cannot be built, so the endpoint fails before any command runs.
+        // Arrange: the update handler cannot be built.
         await using var bot = await WebhookBot.StartAsync(configure: web =>
             web.ConfigureTestServices(services =>
                 services.AddScoped<IUpdateHandler>(_ => throw new InvalidOperationException("The database is down"))
@@ -250,9 +250,7 @@ public sealed class WebhookTests
         bool HadCookie = false
     );
 
-    // Watches every request the app receives, ahead of its own pipeline: what the request carried, and when the app
-    // finished with it. It can also hold a request up, the way a slow app would, redirect it, the way an app asking
-    // for a login would, or hand out a cookie, the way an app with sessions would.
+    // Records every request ahead of the app's pipeline, and can delay, redirect or set a cookie on it.
     private sealed class WebhookRequests : IStartupFilter
     {
         private readonly List<SeenRequest> _seen = [];
@@ -310,7 +308,7 @@ public sealed class WebhookTests
                             return;
                         }
 
-                        // A slow app does not notice the caller giving up.
+                        // A slow app that does not notice the caller giving up.
                         await Task.Delay(Delay, CancellationToken.None);
                         await proceed();
                         FirstFinished.TrySetResult();

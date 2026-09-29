@@ -147,7 +147,7 @@ public sealed class TelegramTestHostTests
     [Fact]
     public async Task SendAsync_WhenWebhookReceivingWasRegisteredInstead_ShouldSayLongPollingIsMissing()
     {
-        // Arrange — the webhook is set, but nothing ever polls, so Telegram never refused a poll.
+        // Arrange: a webhook is set, but nothing polls.
         await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
             services.AddTelegramWebhookReceiving(
                 webhook =>

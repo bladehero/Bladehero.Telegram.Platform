@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// The webhook the bot registers: where Telegram delivers its updates instead of answering getUpdates.
+// The webhook the bot registers instead of polling.
 public sealed partial class FakeBotApi
 {
     private const int LongestSecretToken = 256;
@@ -13,10 +13,7 @@ public sealed partial class FakeBotApi
     private long _lastWebhookUpdateId;
     private int _refusedPolls;
 
-    /// <summary>
-    /// The address the bot asked Telegram to deliver its updates to, or <c>null</c> when it has none and polls
-    /// instead.
-    /// </summary>
+    /// <summary>The webhook the bot set, or <c>null</c> when it has none.</summary>
     public string? WebhookUrl
     {
         get
@@ -28,7 +25,6 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // Whether a polling loop asked for updates while a webhook was set, and was refused.
     internal bool RefusedPolling => Volatile.Read(ref _refusedPolls) > 0;
 
     internal (string Url, string? SecretToken)? Webhook()
@@ -41,7 +37,6 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // Numbers an update for delivery to the webhook, as Telegram numbers every update it sends.
     internal JsonObject StampForWebhook(JsonObject update)
     {
         var stamped = update.DeepClone().AsObject();
@@ -62,7 +57,7 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // Telegram delivers only over HTTPS, on ports 443, 80, 88 or 8443. An empty URL removes the webhook.
+    // Telegram's rules: HTTPS on 443, 80, 88 or 8443; a secret token of 1-256 [A-Za-z0-9_-]; an empty URL removes it.
     private JsonNode SetWebhook(JsonObject parameters)
     {
         var url = parameters["url"]?.GetValue<string>();
@@ -82,7 +77,6 @@ public sealed partial class FakeBotApi
             throw Refuse(400, "Bad Request: bad webhook: Webhook can be set up only on ports 80, 88, 443 or 8443");
         }
 
-        // A secret token is 1 to 256 letters, digits, underscores and hyphens.
         if (
             parameters["secret_token"]?.GetValue<string>() is { } secretToken
             && (
@@ -94,7 +88,7 @@ public sealed partial class FakeBotApi
             throw Refuse(400, "Bad Request: secret token contains unallowed characters");
         }
 
-        // Left out, allowed_updates keeps the list the bot gave before, as the Bot API documents.
+        // Omitted allowed_updates keep the previous list.
         _webhook = new JsonObject
         {
             ["url"] = url,

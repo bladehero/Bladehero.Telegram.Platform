@@ -5,13 +5,12 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// Files both ways: what users send the bot, served back through getFile and a download, and what the bot sends —
-// uploaded, by the id of a file Telegram already has, or by URL.
+// Files both ways: user files served through getFile and download; bot files uploaded, reused by id, or sent by URL.
 public sealed partial class FakeBotApi
 {
     private const string AttachPrefix = "attach://";
 
-    // The fields of an upload that carry JSON rather than plain text.
+    // Upload form fields that carry JSON rather than text.
     private static readonly HashSet<string> JsonFormFields =
     [
         "reply_markup",
@@ -21,13 +20,11 @@ public sealed partial class FakeBotApi
         "allowed_updates",
     ];
 
-    // Decodes names the way the wire would, and fails rather than guessing when the bytes are not UTF-8.
     private static readonly Encoding StrictUtf8 = new UTF8Encoding(
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true
     );
 
-    // Keeps a file a person sends, returning the part of their message that carries it.
     internal JsonObject StoreFile(FileKind kind, byte[] content, JsonObject details)
     {
         lock (_gate)
@@ -55,7 +52,7 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // Bots can only download files of up to 20 MB; Telegram refuses to hand out a path to a bigger one.
+    // Bots may only download files up to 20 MB.
     private JsonObject GetFile(JsonObject parameters)
     {
         var file =
@@ -82,7 +79,7 @@ public sealed partial class FakeBotApi
         return info;
     }
 
-    // Only a path getFile handed out can be downloaded; any other is not found, as on Telegram's file server.
+    // Only paths handed out by getFile can be downloaded.
     private HttpResponseMessage Download(string path)
     {
         StoredFile? file;
@@ -123,8 +120,7 @@ public sealed partial class FakeBotApi
         return chat.Post(Bot(), content).DeepClone().AsObject();
     }
 
-    // The file a send refers to: an upload, attached to the request as attach://<part>; a URL for Telegram to fetch;
-    // or the id of a file Telegram already has, which must be of the same kind.
+    // An upload (attach://<part>), a URL, or the id of a known file of the same kind.
     private StoredFile FileFor(
         FileKind kind,
         JsonObject parameters,
@@ -149,7 +145,7 @@ public sealed partial class FakeBotApi
 
         if (Uri.TryCreate(value, UriKind.Absolute, out var url) && (url.Scheme == "http" || url.Scheme == "https"))
         {
-            // The last segment of the path, unescaped only once split off, so "%2F" or "%5C" stays part of the name.
+            // Unescaped after splitting, so "%2F" stays part of the name.
             var fileName = Uri.UnescapeDataString(url.AbsolutePath[(url.AbsolutePath.LastIndexOf('/') + 1)..]);
             return _files.Add(kind, [], DetailsOf(kind, fileName.Length == 0 ? "file" : fileName, parameters), value);
         }
@@ -158,8 +154,7 @@ public sealed partial class FakeBotApi
         return known.Kind == kind ? known : throw Refuse(400, "Bad Request: type of file mismatch");
     }
 
-    // What Telegram tells about a file the bot sends. It does not look inside the bytes, so a photo's dimensions are
-    // nominal and a voice message lasts as long as the bot says.
+    // The fake never inspects bytes: photo dimensions are nominal and a voice lasts as long as the bot says.
     private static JsonObject DetailsOf(FileKind kind, string fileName, JsonObject parameters) =>
         kind switch
         {
@@ -172,7 +167,6 @@ public sealed partial class FakeBotApi
             _ => new JsonObject { ["file_name"] = fileName, ["mime_type"] = MimeTypes.Of(fileName) },
         };
 
-    // A request's parameters: its JSON body, or the fields of an upload with the uploaded files kept apart.
     private static async Task<(JsonObject Parameters, IReadOnlyDictionary<string, Attachment> Attachments)> ReadAsync(
         HttpContent? content,
         CancellationToken token
@@ -212,10 +206,8 @@ public sealed partial class FakeBotApi
         );
     }
 
-    // Telegram.Bot writes a file name's UTF-8 bytes into the header as they are, one character per byte. On the wire
-    // that is exactly UTF-8, so Telegram reads the name right; the fake gets the header object instead, so it decodes
-    // the bytes back the same way. The raw parameter is read rather than FileName, which would also decode a name that
-    // merely looks like an RFC 2047 encoded word. A name given as filename* is already decoded.
+    // Telegram.Bot writes a name's UTF-8 bytes one char per byte, which is UTF-8 on the wire; decode them the same way.
+    // The raw parameter is read because FileName would also decode RFC 2047-looking names.
     internal static string? FileNameOf(ContentDispositionHeaderValue disposition)
     {
         if (disposition.FileNameStar is { } decoded)

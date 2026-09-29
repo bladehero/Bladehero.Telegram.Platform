@@ -11,8 +11,7 @@ public class TelegramReceiverConfiguration : TelegramBotConfiguration
     public bool DropPendingUpdates { get; set; }
 
     /// <summary>
-    /// Whether the menu declared with <c>[BotCommand]</c> is sent to Telegram on startup. Turn it off where the host
-    /// shares a bot token with another environment, so it does not overwrite that environment's menu.
+    /// Sends the <c>[BotCommand]</c> menu to Telegram on startup. Turn off where another environment shares the token.
     /// </summary>
     public bool SyncCommandMenu { get; set; } = true;
 

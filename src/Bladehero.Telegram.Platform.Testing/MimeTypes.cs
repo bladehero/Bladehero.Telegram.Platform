@@ -1,7 +1,6 @@
 namespace Bladehero.Telegram.Platform.Testing;
 
-// The MIME type Telegram gives a document, worked out from its name. Only common extensions are known; any other is
-// application/octet-stream.
+// A document's MIME type by extension; unknown ones are application/octet-stream.
 internal static class MimeTypes
 {
     public static string Of(string fileName) =>
