@@ -127,13 +127,14 @@ public sealed partial class FakeBotApi
         return _updates.Add(update);
     }
 
+    // A query id that comes again, as in a raw update, can be answered again.
     private void ExpectAnswerTo(JsonObject update)
     {
         if (update["callback_query"]?["id"]?.GetValue<string>() is { } queryId)
         {
             lock (_gate)
             {
-                _callbackAnswers.TryAdd(queryId, null);
+                _callbackAnswers[queryId] = null;
             }
         }
     }

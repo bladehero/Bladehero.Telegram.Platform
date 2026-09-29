@@ -252,6 +252,38 @@ public sealed class TelegramTestHostTests
     }
 
     [Fact]
+    public async Task SendAsync_ARawTapWithAnAnsweredQueryId_ShouldBeAnsweredAgain()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/menu");
+        var menu = nick.LastMessage;
+        await nick.TapsAsync("A");
+
+        // Act
+        await bot.SendAsync(
+            new Update
+            {
+                CallbackQuery = new CallbackQuery
+                {
+                    Id = "1",
+                    From = new User { Id = nick.Id, FirstName = "Nick" },
+                    Message = menu.Message,
+                    ChatInstance = "1",
+                    Data = "pick:B",
+                },
+            }
+        );
+
+        // Assert
+        bot.Api.CallbackAnswer("1")!["text"]!
+            .GetValue<string>()
+            .Should()
+            .Be("You picked B");
+    }
+
+    [Fact]
     public async Task SendMessage_ToAChatSeenInARawUpdate_ShouldBeAccepted()
     {
         // Arrange: no test chat opened chat 42, and no command answers /nothing.
