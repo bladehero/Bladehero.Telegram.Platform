@@ -23,7 +23,9 @@ public static class WebhookDependencyInjection
 
     /// <summary>
     /// Maps <c>POST {UpdateEndpoint}</c>, where Telegram posts the updates. With a <c>SecretToken</c> configured, a
-    /// request without it gets 401 before anything is read; a body that isn't an update gets 400.
+    /// request without it gets 401 before anything is read; a body that isn't an update gets 400, and 500 means the
+    /// update handler couldn't be built. Once handling has started the answer is 200, even when a command or the error
+    /// handler fails, so Telegram doesn't deliver the update again.
     /// </summary>
     public static void UseTelegramWebhook(this IEndpointRouteBuilder builder)
     {
@@ -65,16 +67,38 @@ public static class WebhookDependencyInjection
                     logger.LogDebug("Received webhook update: {@Update}", update);
                     await handler.HandleUpdateAsync(client, update, token);
                 }
-                catch (Exception ex)
+                catch (Exception exception)
+                    when (exception is not OperationCanceledException || !token.IsCancellationRequested)
                 {
-                    logger.LogError(ex, "An error occurred while handling telegram update");
-                    var errorHandler = context.RequestServices.GetRequiredService<ITelegramErrorHandler>();
-                    await errorHandler.HandleAsync(new TelegramError(ex, client, update));
+                    await ReportAsync(context.RequestServices, new TelegramError(exception, client, update), logger);
+                }
+                catch (OperationCanceledException)
+                {
+                    // The request is gone or the app is stopping, as at the end of polling: nothing to report.
                 }
 
+                // Once handling has started, anything but 200 would only make Telegram deliver the update again.
                 return Results.Ok();
             }
         );
+    }
+
+    // The error handler logs the error, as with polling; one that fails itself is logged here and goes no further.
+    private static async Task ReportAsync(IServiceProvider services, TelegramError error, ILogger logger)
+    {
+        try
+        {
+            await services.GetRequiredService<ITelegramErrorHandler>().HandleAsync(error);
+        }
+        catch (Exception failure)
+        {
+            logger.LogError(
+                failure,
+                "The Telegram error handler failed on an error from update {UpdateId}: {Error}",
+                error.Update?.Id,
+                error.Exception.Message
+            );
+        }
     }
 
     // Null for a body that is not an update.

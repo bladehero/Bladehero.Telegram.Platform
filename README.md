@@ -377,6 +377,10 @@ services.AddScoped<ITelegramErrorHandler, SentryTelegramErrorHandler>();
 Long polling keeps running after any failure: a command that throws, even a stray `OperationCanceledException` such as
 an `HttpClient` timeout, a command graph that can't be built, or an error handler that throws itself (that is logged).
 
+The webhook endpoint answers 200 once handling has started, even if a command or the error handler fails, so Telegram
+doesn't deliver the update again. It answers otherwise only with 401 without the secret token, 400 for a body that
+isn't an update, or 500 when the update handler can't be built.
+
 `AddTelegramBot` and the `IConfiguration` overloads of the receiving methods take an `httpClientFactory` for proxies,
 IPv4, retries or logging:
 
