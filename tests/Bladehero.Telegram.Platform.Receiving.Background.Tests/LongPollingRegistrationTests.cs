@@ -21,6 +21,14 @@ public sealed class LongPollingRegistrationTests
     }
 
     [Fact]
+    public void TheLibraryRegistersNoTimeProvider()
+    {
+        var services = FromConfiguration();
+
+        Assert.DoesNotContain(services, service => service.ServiceType == typeof(TimeProvider));
+    }
+
+    [Fact]
     public void TheWebhookIsClearedBeforeThePollingLoopStarts()
     {
         using var provider = Build(FromConfiguration());

@@ -2,7 +2,6 @@ using System.Reflection;
 using Bladehero.Configuration.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
@@ -114,7 +113,6 @@ public static class LongPollingDependencyInjection
             httpClientFactory
         );
         services.AddTelegramReceiving(assemblies);
-        services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<ScopedUpdateHandler>();
         services.AddHostedService<TelegramLongPollingInitializer>();
         services.AddHostedService<TelegramCommandMenuInitializer<TelegramReceiverConfiguration>>();

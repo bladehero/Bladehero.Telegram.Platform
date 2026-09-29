@@ -382,7 +382,7 @@ services.AddScoped<ITelegramErrorHandler, SentryTelegramErrorHandler>();
 Long polling keeps running after any failure: a command that throws, even a stray `OperationCanceledException` such as
 an `HttpClient` timeout, a command graph that can't be built, or an error handler that throws itself (that is logged).
 After a failed poll, e.g. while Telegram is unreachable, it waits 1 s before polling again, doubling up to 30 s while
-polls keep failing, on the registered `TimeProvider`.
+polls keep failing. The wait uses the app's `TimeProvider` when one is registered, and the system clock otherwise.
 
 The webhook endpoint answers 200 once handling has started, even if a command or the error handler fails, so Telegram
 doesn't deliver the update again. It answers otherwise only with 401 without the secret token, 400 for a body that

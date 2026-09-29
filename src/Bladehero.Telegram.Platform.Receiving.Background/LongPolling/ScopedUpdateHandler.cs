@@ -11,14 +11,16 @@ namespace Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 // throws, so nothing but the shutdown's own cancellation leaves here: every other failure goes to the error handler.
 internal sealed class ScopedUpdateHandler(
     IServiceScopeFactory scopeFactory,
-    TimeProvider timeProvider,
-    ILogger<ScopedUpdateHandler> logger
+    ILogger<ScopedUpdateHandler> logger,
+    TimeProvider? timeProvider = null
 ) : IUpdateHandler
 {
     private static readonly TimeSpan FirstWait = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan LongestWait = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan QuietSpell = TimeSpan.FromMinutes(1);
 
+    // The app's clock when it registered one, such as a test's FakeTimeProvider; the library registers none.
+    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
     private readonly Lock _gate = new();
     private TimeSpan _nextWait = FirstWait;
     private DateTimeOffset? _lastPollingError;
@@ -57,7 +59,7 @@ internal sealed class ScopedUpdateHandler(
         if (source == HandleErrorSource.PollingError)
         {
             // Telegram.Bot's loop polls again at once, so an outage would otherwise spin; shutdown ends the wait.
-            await Task.Delay(NextWait(), timeProvider, cancellationToken)
+            await Task.Delay(NextWait(), _time, cancellationToken)
                 .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
     }
@@ -86,7 +88,7 @@ internal sealed class ScopedUpdateHandler(
     {
         lock (_gate)
         {
-            var now = timeProvider.GetUtcNow();
+            var now = _time.GetUtcNow();
             if (now - _lastPollingError > QuietSpell)
             {
                 _nextWait = FirstWait;

@@ -266,6 +266,28 @@ public sealed class ScopedUpdateHandlerTests
     }
 
     [Fact]
+    public async Task WithoutATimeProviderPollingBacksOffOnTheSystemClock()
+    {
+        // Built and validated with no TimeProvider registered, as the library registers none.
+        await using var provider = BuildProvider(new ScopeLog(), registersAClock: false);
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+        using var shutdown = new CancellationTokenSource();
+
+        var polled = handler.HandleErrorAsync(
+            Client,
+            new HttpRequestException("Telegram is unreachable"),
+            HandleErrorSource.PollingError,
+            shutdown.Token
+        );
+        var waiting = !polled.IsCompleted;
+        await shutdown.CancelAsync();
+        await polled.WaitAsync(Patience);
+
+        // The second-long wait was scheduled on the real clock; the shutdown ended it rather than time passing.
+        Assert.True(waiting);
+    }
+
+    [Fact]
     public async Task ShutdownEndsTheWaitAtOnce()
     {
         await using var provider = BuildProvider(new ScopeLog(), time: new RecordingTimeProvider());
@@ -305,7 +327,8 @@ public sealed class ScopedUpdateHandlerTests
         bool throwing = false,
         LogRecorder? logs = null,
         Action<IServiceCollection>? configure = null,
-        TimeProvider? time = null
+        TimeProvider? time = null,
+        bool registersAClock = true
     )
     {
         var services = new ServiceCollection();
@@ -321,7 +344,11 @@ public sealed class ScopedUpdateHandlerTests
             }
         });
         services.AddSingleton(log);
-        services.AddSingleton(time ?? new FakeTimeProvider());
+        if (registersAClock)
+        {
+            services.AddSingleton(time ?? new FakeTimeProvider());
+        }
+
         services.AddScoped<ScopedDependency>();
         services.AddTelegramReceiving(typeof(ProbeCommand).Assembly);
         services.AddSingleton<ScopedUpdateHandler>();
@@ -336,6 +363,8 @@ public sealed class ScopedUpdateHandlerTests
         }
 
         configure?.Invoke(services);
-        return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        return services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }
+        );
     }
 }
