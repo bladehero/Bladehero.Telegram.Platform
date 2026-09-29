@@ -102,6 +102,34 @@ public sealed class HostingTests
     [Theory]
     [InlineData(BotMode.Webhook)]
     [InlineData(BotMode.LongPolling)]
+    public async Task Tap_AfterARestartThatNoLongerAsksOnlyForMessages_ShouldReachTheBot(BotMode mode)
+    {
+        // Arrange: the first deployment asked only for messages.
+        var api = new FakeBotApi();
+        await using (
+            var first = await SandboxBot.StartAsync(
+                mode,
+                api,
+                web => web.UseSetting("Telegram:AllowedUpdates:0", "Message")
+            )
+        )
+        {
+            await first.PrivateChat("Nick").SendsAsync("hello");
+        }
+
+        await using var bot = await SandboxBot.StartAsync(mode, api);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var answer = await nick.TapsAsync("Again");
+
+        // Assert
+        answer.ToString().Should().Be("Notification: Sent again");
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
     public async Task Updates_ByTwoUsersAtOnce_ShouldEachRethrowOnlyTheirOwnError(BotMode mode)
     {
         // Arrange: Anna blocked the bot.

@@ -17,11 +17,12 @@ public class TelegramReceiverConfiguration : TelegramBotConfiguration
 
     public CommandMenuScope CommandMenuScope { get; set; }
 
+    // Unset asks for Telegram's default explicitly: an omitted list would keep one an earlier deployment set.
     internal ReceiverOptions ToOptions() =>
         new()
         {
             Offset = Offset,
-            AllowedUpdates = AllowedUpdates,
+            AllowedUpdates = AllowedUpdates ?? [],
             Limit = Limit,
             DropPendingUpdates = DropPendingUpdates,
         };

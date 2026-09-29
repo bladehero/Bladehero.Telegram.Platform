@@ -35,9 +35,10 @@ internal sealed class TelegramWebhookInitializer(
             await client.DeleteWebhook(cancellationToken: cancellationToken);
 
             logger.LogInformation("Webhook has been deleted");
+            // Unset asks for Telegram's default explicitly: an omitted list would keep one set before.
             await client.SetWebhook(
                 configuration.WebhookUri.AbsoluteUri,
-                allowedUpdates: configuration.AllowedUpdates,
+                allowedUpdates: configuration.AllowedUpdates ?? [],
                 dropPendingUpdates: configuration.DropPendingUpdates,
                 cancellationToken: cancellationToken
             );

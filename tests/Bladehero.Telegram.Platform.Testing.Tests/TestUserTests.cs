@@ -67,6 +67,31 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task TapsAsync_AfterARestartThatNoLongerSetsAllowedUpdates_ShouldReachTheBot()
+    {
+        // Arrange: the first deployment asked only for messages.
+        var api = new FakeBotApi();
+        await using (
+            var first = await TestBot.StartAsync(
+                api,
+                receiver: receiver => receiver.AllowedUpdates = [UpdateType.Message]
+            )
+        )
+        {
+            await first.PrivateChat("Nick").SendsAsync("/menu");
+        }
+
+        await using var bot = await TestBot.StartAsync(api);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var answer = await nick.TapsAsync("A");
+
+        // Assert
+        answer.ToString().Should().Be("Notification: You picked A");
+    }
+
+    [Fact]
     public async Task TapsAsync_WithDropPendingUpdates_ShouldUseTheListTheLoopAskedFor()
     {
         // Arrange: the tap is the first update, just after the loop dropped pending ones with an empty list.

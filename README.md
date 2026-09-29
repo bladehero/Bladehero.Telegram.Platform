@@ -120,7 +120,7 @@ services.AddTelegramLongPollingReceiving<ISecrets>(
 | Property | Mode | |
 | --- | --- | --- |
 | `Token` | both | Bot token from [@BotFather](https://t.me/BotFather). **Required.** |
-| `AllowedUpdates` | both | `UpdateType`s to receive; Telegram's default set when omitted. |
+| `AllowedUpdates` | both | `UpdateType`s to receive. Unset asks for Telegram's default set (all but `ChatMember` and reactions) explicitly, so a list an earlier deployment set doesn't linger. |
 | `DropPendingUpdates` | both | Discard updates queued while the bot was down. |
 | `SyncCommandMenu` | both | Publish the [command menu](#command-menu) on startup. Default `true`. |
 | `CommandMenuScope` | both | `Default`, `AllPrivateChats`, `AllGroupChats` or `AllChatAdministrators`. |
