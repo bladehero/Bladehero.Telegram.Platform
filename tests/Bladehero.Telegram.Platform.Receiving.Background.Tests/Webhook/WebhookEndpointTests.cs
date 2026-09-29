@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Telegram.Bot;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.Tests.Webhook;
 
@@ -58,7 +59,7 @@ public sealed class WebhookEndpointTests
             },
             typeof(ProbeCommand).Assembly
         );
-        builder.Services.Replace(ServiceDescriptor.Singleton(new TelegramBotClientAccessor(new FakeBotClient())));
+        builder.Services.Replace(ServiceDescriptor.Singleton<ITelegramBotClient>(new FakeBotClient()));
         builder.Services.AddScoped<ITelegramErrorHandler, ThrowingErrorHandler>();
 
         var app = builder.Build();

@@ -80,7 +80,7 @@ public sealed class TelegramWebhookInitializerTests
 
     private static TelegramWebhookInitializer InitializerFor(ITelegramBotClient client, string? secretToken = null) =>
         new(
-            new TelegramBotClientAccessor(client),
+            client,
             Options.Create(
                 new TelegramWebhookConfiguration
                 {

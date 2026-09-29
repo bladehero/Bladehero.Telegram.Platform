@@ -40,12 +40,7 @@ public static class WebhookDependencyInjection
         // Nothing is read or built before the secret token checks out: not the body, not the update handler.
         builder.MapPost(
             endpoint,
-            async (
-                HttpContext context,
-                TelegramBotClientAccessor accessor,
-                ILogger<WebhookEndpoints> logger,
-                CancellationToken token
-            ) =>
+            async (HttpContext context, ILogger<WebhookEndpoints> logger, CancellationToken token) =>
             {
                 if (secretToken is not null && !CarriesSecretToken(context.Request, secretToken))
                 {
@@ -58,9 +53,9 @@ public static class WebhookDependencyInjection
                     return Results.BadRequest();
                 }
 
-                // Outside the reporting below, so a handler that cannot be built answers 500.
+                // Outside the reporting below, so a handler or client that cannot be built answers 500.
                 var handler = context.RequestServices.GetRequiredService<IUpdateHandler>();
-                var client = accessor.Client;
+                var client = context.RequestServices.GetRequiredService<ITelegramBotClient>();
                 try
                 {
                     // Debug, as updates carry personal data.

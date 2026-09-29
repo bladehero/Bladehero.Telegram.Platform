@@ -327,9 +327,6 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
 
     private static void TalkToTheFake(IServiceCollection services, FakeBotApi api, ErrorLog errors)
     {
-        var client = (TelegramBotClient)api.CreateClient();
-        services.Replace(ServiceDescriptor.Singleton(new TelegramBotClientAccessor(client)));
-
         // The app's effective error handler moves to a key, and the recording one hands it every error it records.
         var errorHandlers = services
             .Where(x => x.ServiceType == typeof(ITelegramErrorHandler) && !x.IsKeyedService)
@@ -355,7 +352,8 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
             )
         );
 
-        // The bot's ITelegramBotClient and any client the app registers itself talk to the fake as well.
+        // The bot's ITelegramBotClient, and any client the app registers itself, talk to the fake.
+        var client = (TelegramBotClient)api.CreateClient();
         var ownClients = services
             .Where(x => x.ServiceType == typeof(ITelegramBotClient) || x.ServiceType == typeof(TelegramBotClient))
             .ToArray();

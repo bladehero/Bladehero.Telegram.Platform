@@ -82,23 +82,12 @@ public sealed class LongPollingRegistrationTests
         Assert.Single(hosted.OfType<TelegramLongPollingBackgroundService>());
     }
 
-    [Fact]
-    public void TheBotClientIsResolvableAndIsTheOneTheLibraryUses()
-    {
-        using var provider = Build(FromConfiguration());
-
-        var client = provider.GetRequiredService<ITelegramBotClient>();
-
-        Assert.Equal(1234567, client.BotId);
-        Assert.Same(client, provider.GetRequiredService<TelegramBotClientAccessor>().Client);
-    }
-
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void AClientTheAppRegistersIsTheOneTheLibraryUsesWhicheverOrderItIsRegisteredIn(bool registeredFirst)
+    public async Task AClientTheAppRegistersIsTheOneTheLibraryUsesWhicheverOrderItIsRegisteredIn(bool registeredFirst)
     {
-        var own = new TelegramBotClient("7654321:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw");
+        var own = new FakeBotClient();
         var services = new ServiceCollection();
 
         if (registeredFirst)
@@ -120,9 +109,14 @@ public sealed class LongPollingRegistrationTests
         }
 
         using var provider = Build(services);
+        var initializer = Assert.Single(
+            provider.GetServices<IHostedService>().OfType<TelegramLongPollingInitializer>()
+        );
+
+        await initializer.StartingAsync(CancellationToken.None);
 
         Assert.Same(own, provider.GetRequiredService<ITelegramBotClient>());
-        Assert.Same(own, provider.GetRequiredService<TelegramBotClientAccessor>().Client);
+        Assert.Contains("getWebhookInfo", own.Requests);
     }
 
     [Fact]
@@ -179,9 +173,9 @@ public sealed class LongPollingRegistrationTests
     {
         using var provider = Build(FromConfiguration());
 
-        var accessor = provider.GetRequiredService<TelegramBotClientAccessor>();
+        var client = provider.GetRequiredService<ITelegramBotClient>();
 
-        Assert.Equal(1234567, accessor.Client.BotId);
+        Assert.Equal(1234567, client.BotId);
     }
 
     [Fact]
@@ -197,9 +191,9 @@ public sealed class LongPollingRegistrationTests
         );
 
         using var provider = Build(services);
-        var accessor = provider.GetRequiredService<TelegramBotClientAccessor>();
+        var client = provider.GetRequiredService<ITelegramBotClient>();
 
-        Assert.Equal(7654321, accessor.Client.BotId);
+        Assert.Equal(7654321, client.BotId);
     }
 
     [Fact]
@@ -220,9 +214,9 @@ public sealed class LongPollingRegistrationTests
         );
 
         using var provider = Build(services);
-        var accessor = provider.GetRequiredService<TelegramBotClientAccessor>();
+        var client = provider.GetRequiredService<ITelegramBotClient>();
 
-        Assert.Equal(7654321, accessor.Client.BotId);
+        Assert.Equal(7654321, client.BotId);
     }
 
     private static IServiceCollection FromConfiguration()

@@ -7,7 +7,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 
 // Polling a bot that still has a webhook fails with 409, so the webhook is deleted first.
 internal sealed class TelegramLongPollingInitializer(
-    TelegramBotClientAccessor accessor,
+    ITelegramBotClient client,
     IOptions<TelegramReceiverConfiguration> options,
     ILogger<TelegramLongPollingInitializer> logger
 ) : IHostedLifecycleService
@@ -16,7 +16,7 @@ internal sealed class TelegramLongPollingInitializer(
     {
         try
         {
-            var webhook = await accessor.Client.GetWebhookInfo(cancellationToken);
+            var webhook = await client.GetWebhookInfo(cancellationToken);
             if (string.IsNullOrEmpty(webhook.Url))
             {
                 return;
@@ -27,7 +27,7 @@ internal sealed class TelegramLongPollingInitializer(
                 webhook.Url
             );
 
-            await accessor.Client.DeleteWebhook(options.Value.DropPendingUpdates, cancellationToken);
+            await client.DeleteWebhook(options.Value.DropPendingUpdates, cancellationToken);
         }
         catch (Exception ex)
         {

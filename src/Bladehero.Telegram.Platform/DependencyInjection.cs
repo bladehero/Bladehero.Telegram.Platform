@@ -114,9 +114,6 @@ public static class DependencyInjection
             var options = new TelegramBotClientOptions(botConfiguration.Token);
             return new TelegramBotClient(options, httpClientFactory?.Invoke(provider));
         });
-        services.TryAddSingleton(provider => new TelegramBotClientAccessor(
-            provider.GetRequiredService<ITelegramBotClient>()
-        ));
         services.TryAddSingleton<ITelegramSender, TelegramSender>();
     }
 }
