@@ -7,7 +7,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox;
 
-public class LoggingTelegramCommand(ILogger<LoggingTelegramCommand> logger) : MyChatMemberCommand
+internal sealed class LoggingTelegramCommand(ILogger<LoggingTelegramCommand> logger) : MyChatMemberCommand
 {
     private static readonly JsonSerializerOptions Options = new()
     {

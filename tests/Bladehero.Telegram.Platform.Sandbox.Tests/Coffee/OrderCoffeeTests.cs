@@ -1,5 +1,3 @@
-using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
-using Bladehero.Telegram.Platform.Sandbox.Coffee;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
@@ -149,8 +147,5 @@ public sealed class OrderCoffeeTests
             );
     }
 
-    private static Task<TelegramTestHost> StartBotAsync() =>
-        TelegramTestHost.ForLongPollingAsync(services =>
-            services.AddTelegramLongPollingReceiving(receiver => receiver.Token = "unused", typeof(CoffeeFlow).Assembly)
-        );
+    private static Task<TelegramTestHost> StartBotAsync() => SandboxBot.StartAsync();
 }
