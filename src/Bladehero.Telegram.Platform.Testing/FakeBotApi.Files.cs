@@ -108,7 +108,7 @@ public sealed partial class FakeBotApi
         {
             content["caption"] = caption;
 
-            if (parameters["caption_entities"] is JsonArray entities)
+            if (parameters["caption_entities"] is JsonArray { Count: > 0 } entities)
             {
                 content["caption_entities"] = entities.DeepClone();
             }

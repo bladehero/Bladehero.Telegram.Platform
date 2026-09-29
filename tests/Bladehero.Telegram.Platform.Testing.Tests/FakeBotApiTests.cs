@@ -18,6 +18,13 @@ public sealed class FakeBotApiTests
         [InlineKeyboardButton.WithCallbackData("Yes", "yes"), InlineKeyboardButton.WithCallbackData("No", "no")],
     ]);
 
+    private static readonly MessageEntity Bold = new()
+    {
+        Type = MessageEntityType.Bold,
+        Offset = 2,
+        Length = 3,
+    };
+
     [Fact]
     public async Task SendMessage_ShouldAnswerWithTheMessageAsTelegramWould()
     {
@@ -560,14 +567,56 @@ public sealed class FakeBotApiTests
         var sent = await client.SendPhoto(
             Chat,
             InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
-            caption: "A cat"
+            caption: "A cat",
+            captionEntities: [Bold]
         );
 
         // Act
-        var edited = await client.EditMessageCaption(Chat, sent.Id, caption: null);
+        var edited = await client.EditMessageCaption(Chat, sent.Id, caption: null, captionEntities: [Bold]);
 
         // Assert
-        edited.Caption.Should().BeNull();
+        using (new AssertionScope())
+        {
+            edited.Caption.Should().BeNull();
+            edited.CaptionEntities.Should().BeNull();
+        }
+    }
+
+    [Fact]
+    public async Task SendPhoto_WithEntitiesButNoCaption_ShouldKeepNoEntities()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var sent = await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
+            captionEntities: [Bold]
+        );
+
+        // Assert
+        sent.CaptionEntities.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SendMessage_WithNoEntities_ShouldLeaveThemOutLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendMessage(Chat, "A cat", entities: []);
+
+        // Act
+        var act = () => client.EditMessageText(Chat, sent.Id, "A cat");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Entities.Should().BeNull();
+            (await act.Should().ThrowAsync<ApiRequestException>())
+                .Which.Message.Should()
+                .Contain("message is not modified");
+        }
     }
 
     [Theory]
@@ -761,6 +810,7 @@ public sealed class FakeBotApiTests
     [Theory]
     [InlineData("https://example.com/my%20report.pdf", "my report.pdf")]
     [InlineData("https://example.com/a%5Cb.pdf", "a\\b.pdf")]
+    [InlineData("https://example.com/a%2Fb.pdf", "a/b.pdf")]
     [InlineData("https://example.com/", "file")]
     public async Task SendDocument_ByUrl_ShouldNameItAfterTheUrlsPath(string url, string fileName)
     {

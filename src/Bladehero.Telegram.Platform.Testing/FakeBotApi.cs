@@ -325,7 +325,7 @@ public sealed partial class FakeBotApi
     {
         var content = new JsonObject { ["text"] = parameters["text"]?.DeepClone() };
 
-        if (parameters["entities"] is JsonArray entities)
+        if (parameters["entities"] is JsonArray { Count: > 0 } entities)
         {
             content["entities"] = entities.DeepClone();
         }
@@ -369,7 +369,11 @@ public sealed partial class FakeBotApi
         }
 
         var entitiesField = field == "caption" ? "caption_entities" : "entities";
-        var newEntities = newValue is null ? null : (parameters[entitiesField] as JsonArray)?.DeepClone();
+        // Telegram leaves empty entities out, and a removed text or caption takes its entities with it.
+        var newEntities =
+            newValue is not null && parameters[entitiesField] is JsonArray { Count: > 0 } entities
+                ? entities.DeepClone()
+                : null;
         var newMarkup = InlineKeyboardOf(parameters);
         if (
             (
