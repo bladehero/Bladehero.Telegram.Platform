@@ -35,6 +35,7 @@ No registration, no routing table: drop the class in a scanned assembly.
   [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) · [waits](#wait-for-later-messages) ·
   [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
 - [Samples](#samples)
+- [Upgrading](#upgrading)
 
 ## Packages
 
@@ -247,30 +248,87 @@ The resolver gets the chat an update came from and the user who sent it, the sam
 a sender, or one sent on behalf of a chat (a channel's post in a group, or an anonymous admin), whose sender is only a
 placeholder, is declined unresolved.
 
+Startup fails when a known-user command's `ITelegramUserResolver<TUser>` isn't registered, naming the commands.
+
 ### Buttons with typed data
 
-`CallbackQueryCommand<TData>` parses callback data once; `Parse` returns `null` for another command's buttons.
-`KnownUserCallbackQueryCommand<TUser, TData>` adds the resolved user.
+Declare a button's data as a record struct, build keyboards from it, and handle it with
+`CallbackQueryCommand<TData>`, or `KnownUserCallbackQueryCommand<TUser, TData>` to have the tapper resolved too:
 
 ```csharp
-internal sealed class ExpenseButton(IExpenses expenses) : KnownUserCallbackQueryCommand<User, (string Action, Guid Id)>
+[Button("redeem")]
+internal readonly record struct Redeem(long OwnerId, int Points);
+
+var card = new InlineKeyboardMarkup()
+    .AddButton("Redeem 10", new Redeem(member.UserId, 10))   // redeem:7000000001:10
+    .AddButton("Redeem 50", new Redeem(member.UserId, 50));
+
+internal sealed class RedeemButton(MemberDirectory members) : KnownUserCallbackQueryCommand<Member, Redeem>
 {
-    protected override (string Action, Guid Id)? Parse(string data) =>
-        data.Split(':') is [var action and ("edit" or "delete"), var id] && Guid.TryParse(id, out var expenseId)
-            ? (action, expenseId)
-            : null;
+    protected override Task<ButtonCheck> CheckAsync(
+        TypedCommandRequest<CallbackQuery> request,
+        CancellationToken token
+    ) =>
+        Task.FromResult(
+            Parsed.OwnerId == User.UserId ? ButtonCheck.Accept : ButtonCheck.Reject("Not your card.", showAlert: true)
+        );
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {
-        await request.Client.AnswerCallbackQuery(request.Payload.Id, cancellationToken: token);
-
-        if (Parsed.Action == "delete")
-        {
-            await expenses.DeleteAsync(User.Id, Parsed.Id, token);
-        }
+        var (ownerId, points) = Parsed;
+        members.Spend(ownerId, points);
+        await request.Client.AnswerCallbackQuery(request.Payload.Id, $"Redeemed {points}", cancellationToken: token);
     }
 }
 ```
+
+The data is the prefix, then `:` and each field of the constructor, in the invariant culture:
+
+| Field | Written as |
+| --- | --- |
+| integers | `-1001234567890` |
+| `bool` | `1` (or `0`) |
+| `Guid` | `0199c3…`, 32 lower-case hex digits |
+| enum | `large`, its name in lower case |
+| `DateOnly` | `2026-09-29` |
+| `string` | `a%3Ab` for `a:b`: `%`, `:` and `@` escaped |
+| nullable, `null` | an empty segment: `redeem::10` |
+
+Only this canonical form decodes.
+
+- **Building data:** `keyboard.AddButton(text, button)`, `ButtonData.Button(text, button)` for an
+  `InlineKeyboardButton`, and `ButtonData.Encode` and `TryDecode` for the data alone.
+- **Size:** Telegram takes 64 bytes of callback data. It's checked when the button is built, with an
+  `ArgumentException` giving the data and its size. Test users have Telegram-sized ids, so tests hit the limit where
+  production would.
+- **Checked when the receiving services are added**, listing every problem: prefixes (1–32 of `a-z0-9_-`, unique),
+  field types, one regular command per button type (or one per step), and that a command for a type without
+  `[Button]` overrides `Parse`, as hand-written data still can:
+
+```csharp
+// In a CallbackQueryCommand<(string Field, int Step)>
+protected override (string Field, int Step)? Parse(string data) =>
+    data.Split(':') is ["move", var field, var step] && int.TryParse(step, out var by) ? (field, by) : null;
+```
+
+**Checks on a tap.** `CheckAsync` returns `Accept`, `Decline` (the tap is another command's) or
+`Reject(answer, showAlert)`, which is answered instead of running `HandleAsync`; override `RejectedAsync` to edit or
+delete the card as well. It runs alongside other commands' checks, so keep it free of side effects.
+`KnownUserCommand<TUser>` has `AcceptsAsync` for the same, once the user is resolved.
+
+**Taps no command takes**, on a registered prefix, are answered: "That button is no longer active." when the data no
+longer decodes, and silently otherwise, e.g. for a stranger. Register an `IButtonRefusalHandler`, in any order, to
+answer differently. Hand-written data is left alone, and a custom `ITelegramCommandExecutor` does none of this.
+
+**Changing a button.** Buttons already in chats keep their data. A new trailing field with a default keeps them
+decoding; any other change makes them "no longer active", unless `Parse` accepts the old form for a while:
+
+```csharp
+protected override ExpenseButton? Parse(string data) => base.Parse(data) ?? Legacy(data);
+```
+
+Hand-written and typed data live side by side: a prefix matches the whole first segment, so `exp` never claims
+`export:1`.
 
 ## Execution
 
@@ -497,7 +555,8 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
 **Logs** reach a provider added with `builder.Logging.AddProvider(...)` in the builder overload, or with
 `web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
 
-**Seed users** the app must know before it starts with the ids Telegram will give them:
+**Seed users** the app must know before it starts with the ids Telegram will give them. The ids are Telegram-sized,
+from 7 000 000 001, so use `UserIdOf`, never hard-coded ids:
 
 ```csharp
 var api = new FakeBotApi();
@@ -532,7 +591,7 @@ user everywhere.
 | `SendsAsync`, `SendsPhotoAsync`, `SendsVoiceAsync`, `SendsDocumentAsync` | Send; return the message as posted. |
 | `SendsAlbumAsync`, `SendsDocumentAlbumAsync` | Send 2 to 10 photos or files as one album. |
 | `EditsAsync(message, text)` | Edit the user's own text message. |
-| `TapsAsync(text or predicate, on?)` | Tap an inline button; return the bot's answer. |
+| `TapsAsync(text or predicate, on?)`, `TapsAsync<TButton>(which?, on?)` | Tap an inline button; return the bot's answer. |
 | `WaitForMessageAsync(match, after?, timeout?)` | Wait for a message the bot sends later; also on `TestChat`. |
 
 A sent message is a snapshot that stays valid even if the bot deletes it. A user can edit their own text message: the
@@ -574,6 +633,13 @@ by text fails and points there:
 
 ```csharp
 await nick.TapsAsync(b => b.CallbackData == "date:next");
+```
+
+[Typed buttons](#buttons-with-typed-data) are tapped and read by their data:
+
+```csharp
+await nick.TapsAsync<Redeem>(x => x.Points == 50);
+nick.LastMessage.ButtonsOf<Redeem>().Should().Equal(new Redeem(nick.Id, 10), new Redeem(nick.Id, 50));
 ```
 
 Tapping a button nobody sees fails the test and lists the buttons that are there.
@@ -803,7 +869,8 @@ var nick = bot.PrivateChat("Nick");   // the same chat, as the bot left it
 
 **One command per button:** Telegram takes one answer per tap, and a second fails with its own "query is too old and
 response timeout expired or query ID is invalid". When two commands claim the same button both run, and the second
-answer fails the action, so give each button's data to exactly one command.
+answer fails the action, so give each button's data to exactly one command. [Typed buttons](#buttons-with-typed-data)
+are checked for this at startup.
 
 ## Samples
 
@@ -813,9 +880,10 @@ answer fails the action, so give each button's data to exactly one command.
   - the [`[BotCommand]` menu](#command-menu), and a `/help` listing it from `IBotCommandMenu`;
   - a loyalty club of [known users](#known-users), resolved by user id and seeded from `CoffeeShop:Members`: `/join`,
     `/leave`, `/redeem 10` with arguments, and a `/points` card that is edited in place or sent again, with
-    [typed](#buttons-with-typed-data) known-user Redeem buttons;
+    [typed](#buttons-with-typed-data) Redeem buttons whose `CheckAsync` refuses anyone but the card's owner;
   - receipts for points: photos, PDFs, and photo and PDF albums read by a stand-in for an AI reader, too-big and
-    unsupported files turned down, and `/history` sending a CSV file;
+    unsupported files turned down, and `/history` sending a CSV file; the receipt and album buttons are typed, with the
+    same owner check;
   - a `/coffee` [conversation](#conversations) bound to its card and its customer, which a voice message can start too,
     through a stand-in for a transcriber, and whose cup name the customer can fix by editing their message;
   - stale, foreign and double-tapped buttons: an earlier order's, another member's card, a receipt taken already, and
@@ -830,7 +898,8 @@ answer fails the action, so give each button's data to exactly one command.
     its disabled defaults.
 - [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): an ASP.NET Core app that receives by webhook
   when `Telegram:BaseUrl` is set and by long polling otherwise, with every scenario tested in both modes. It shows:
-  - an echo of plain text with an Again button and a [typed](#buttons-with-typed-data) Louder one;
+  - an echo of plain text with a [typed](#buttons-with-typed-data) Louder button next to an Again button with
+    hand-written data;
   - `/translate` through an `ITranslator` that the tests [replace](#configure-the-app-under-test) with
     `ConfigureTestServices`;
   - a photo sent back by its file id, without uploading it again;
@@ -847,6 +916,35 @@ dotnet run
 
 `Sandbox.Webhook` reads `Telegram:Token`, and for a webhook also `Telegram:BaseUrl`, `Telegram:UpdateEndpoint` and,
 optionally, `Telegram:SecretToken`.
+
+## Upgrading
+
+### From 10.0.x
+
+- `ITelegramUserResolver<TUser>.ResolveAsync(chatId, token)` is now `ResolveAsync(chatId, userId, token)`. Resolve by
+  `chatId` to keep the old behaviour.
+- Known-user commands get their resolver from the container:
+  `class X(ITelegramUserResolver<User> users) : KnownUserCommand<User>(users)` becomes
+  `class X : KnownUserCommand<User>`. Test them through `TelegramTestHost` rather than building them by hand.
+- A hand-written base that parses callback data and resolves the user, such as a
+  `ParsedCallbackQueryCommand<TUser, TParsed>`, becomes `KnownUserCallbackQueryCommand<TUser, TData>` overriding
+  `Parse`, or a `[Button]` type with no `Parse` at all. Checks that need the user go in `CheckAsync`.
+- Behaviour since 10.0.x:
+  - `IsCommand` ends a command at any whitespace.
+  - An unset `AllowedUpdates` asks for Telegram's default explicitly.
+  - The default error handler logs every error.
+  - The webhook answers 200 once handling has started.
+  - An `ITelegramBotClient` the app registers is used.
+
+### To 10.2
+
+- `CallbackQueryCommand<TData>.Parse` is no longer abstract. Overrides keep working; a command for a type without
+  `[Button]` that forgets it now fails at startup, not at compile time.
+- New hooks: `CheckAsync`, `RejectedAsync` and `AcceptsAsync`. An existing method with the same signature gets warning
+  CS0114; rename it or make it an override.
+- Startup fails when a known-user command's resolver isn't registered. Before, every update failed.
+- Taps on typed buttons that no command takes are answered. Hand-written data is untouched.
+- Test users have Telegram-sized ids.
 
 ## License
 
