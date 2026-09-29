@@ -2,6 +2,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 
+/// <summary>Reads bot commands such as <c>/last 10</c> from messages.</summary>
 public static class MessageExtensions
 {
     /// <summary>

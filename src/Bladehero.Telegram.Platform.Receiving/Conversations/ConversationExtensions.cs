@@ -2,6 +2,7 @@ using System.Text.Json;
 
 namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
+/// <summary>Starts, moves and reads an <see cref="IConversation"/>, with its data kept as JSON.</summary>
 public static class ConversationExtensions
 {
     /// <summary>

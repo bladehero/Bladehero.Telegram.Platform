@@ -9,8 +9,21 @@ using Telegram.Bot.Polling;
 
 namespace Bladehero.Telegram.Platform.Receiving;
 
+/// <summary>
+/// Registers the receiving services; <c>AddTelegramLongPollingReceiving</c> and <c>AddTelegramWebhookReceiving</c> call
+/// it for you.
+/// </summary>
 public static class DependencyInjection
 {
+    /// <summary>
+    /// Registers the commands found in <paramref name="assemblies"/>, their execution, conversations, the command menu
+    /// and the default error handler; the hosting packages call it, so an app rarely does.
+    /// </summary>
+    /// <remarks>
+    /// A command is any class, public or not, that implements <see cref="ITelegramCommand"/> and is neither abstract
+    /// nor generic; each is registered as scoped.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="assemblies"/> is empty.</exception>
     public static IServiceCollection AddTelegramReceiving(
         this IServiceCollection services,
         params Assembly[] assemblies

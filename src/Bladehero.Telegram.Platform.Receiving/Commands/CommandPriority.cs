@@ -1,5 +1,6 @@
 namespace Bladehero.Telegram.Platform.Receiving.Commands;
 
+/// <summary>A command's place in the execution order, set with <see cref="CommandPriorityAttribute"/>.</summary>
 public sealed class CommandPriority
 {
     internal static readonly CommandPriority Default = new() { Global = -1 };

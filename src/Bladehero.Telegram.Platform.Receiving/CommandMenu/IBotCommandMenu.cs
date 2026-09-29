@@ -7,5 +7,6 @@ namespace Bladehero.Telegram.Platform.Receiving.CommandMenu;
 /// </summary>
 public interface IBotCommandMenu
 {
+    /// <summary>The menu's entries in order; empty when no command has a <see cref="BotCommandAttribute"/>.</summary>
     IReadOnlyList<BotCommand> Commands { get; }
 }

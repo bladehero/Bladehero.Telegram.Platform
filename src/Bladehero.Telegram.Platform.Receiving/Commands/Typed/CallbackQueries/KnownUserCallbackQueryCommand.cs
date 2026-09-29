@@ -14,6 +14,10 @@ public abstract class KnownUserCallbackQueryCommand<TUser, TData> : CallbackQuer
 {
     internal ITelegramUserResolver<TUser> UserResolver { get; init; } = null!;
 
+    /// <summary>
+    /// The user the resolver returned for whoever tapped the button, set once <c>CanHandleAsync</c> has accepted the
+    /// update.
+    /// </summary>
     protected TUser User { get; private set; } = null!;
 
     private protected sealed override async Task<bool> AcceptsAsync(
