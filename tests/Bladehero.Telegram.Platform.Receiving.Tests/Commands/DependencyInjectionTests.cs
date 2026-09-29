@@ -84,6 +84,25 @@ public sealed class DependencyInjectionTests
         }
     }
 
+    [Fact]
+    public void AddTelegramCommands_ShouldReadThePriorityOfTheScannedCommands()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramCommands([typeof(DependencyInjectionTests).Assembly]);
+
+        // Act
+        var catalog = services.BuildServiceProvider().GetRequiredService<CommandCatalog>();
+
+        // Assert
+        var priority = catalog.Regular.Single(x => x.Type == typeof(DiPriorityCommand)).Priority;
+        using (new AssertionScope())
+        {
+            priority.Global.Should().Be(1);
+            priority.Group.Should().Be(0);
+        }
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -144,6 +163,16 @@ public sealed class DependencyInjectionTests
 
     [BotCommand("di_menu", "From the scan")]
     private sealed class DiMenuCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(false);
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.CompletedTask;
+    }
+
+    [CommandPriority(1, 0)]
+    private sealed class DiPriorityCommand : MessageCommand
     {
         protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
             Task.FromResult(false);
