@@ -355,7 +355,7 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
             )
         );
 
-        // A client the app registers itself, e.g. for messages it starts, talks to the fake as well.
+        // The bot's ITelegramBotClient and any client the app registers itself talk to the fake as well.
         var ownClients = services
             .Where(x => x.ServiceType == typeof(ITelegramBotClient) || x.ServiceType == typeof(TelegramBotClient))
             .ToArray();

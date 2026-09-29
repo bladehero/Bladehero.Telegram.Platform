@@ -366,7 +366,9 @@ public sealed class LimitAlerts(ITelegramSender sender)
 }
 ```
 
-`ITelegramBotClient` is deliberately not in the container.
+For more than text (editing, deleting, sending files), inject the bot's `ITelegramBotClient`: the same client the
+library receives and replies with. To build it differently, e.g. for a local Bot API server, register your own
+`ITelegramBotClient`, before or after these calls, and the library uses that one too.
 
 ## Errors and the HttpClient
 
@@ -444,8 +446,8 @@ All return once startup (webhook, command menu) is done; an app started with the
 the right one. For the web apps the test project references the app; if the factory can't find the app's content root,
 also reference `Microsoft.AspNetCore.Mvc.Testing`.
 
-The bot's client talks to the fake, and so does an `ITelegramBotClient` or `TelegramBotClient` the app registers itself,
-e.g. for messages it starts. A client registered in DI is swapped, by instance or by factory. One built by hand isn't:
+The bot's `ITelegramBotClient` talks to the fake, and so does an `ITelegramBotClient` or `TelegramBotClient` the app
+registers itself. A client registered in DI is swapped, by instance or by factory. One built by hand isn't:
 one in `Program`, or one inside another service's constructor or factory (e.g.
 `new MyNotifier(new TelegramBotClient(token))`) still talks to Telegram, so give the tests a dummy token.
 

@@ -83,11 +83,46 @@ public sealed class LongPollingRegistrationTests
     }
 
     [Fact]
-    public void TheRawBotClientIsNotResolvable()
+    public void TheBotClientIsResolvableAndIsTheOneTheLibraryUses()
     {
         using var provider = Build(FromConfiguration());
 
-        Assert.Null(provider.GetService<ITelegramBotClient>());
+        var client = provider.GetRequiredService<ITelegramBotClient>();
+
+        Assert.Equal(1234567, client.BotId);
+        Assert.Same(client, provider.GetRequiredService<TelegramBotClientAccessor>().Client);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AClientTheAppRegistersIsTheOneTheLibraryUsesWhicheverOrderItIsRegisteredIn(bool registeredFirst)
+    {
+        var own = new TelegramBotClient("7654321:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw");
+        var services = new ServiceCollection();
+
+        if (registeredFirst)
+        {
+            services.AddSingleton<ITelegramBotClient>(own);
+        }
+
+        services.AddLogging();
+        services.AddSingleton(new ScopeLog());
+        services.AddScoped<ScopedDependency>();
+        services.AddTelegramLongPollingReceiving(
+            configuration => configuration.Token = Token,
+            typeof(ProbeCommand).Assembly
+        );
+
+        if (!registeredFirst)
+        {
+            services.AddSingleton<ITelegramBotClient>(own);
+        }
+
+        using var provider = Build(services);
+
+        Assert.Same(own, provider.GetRequiredService<ITelegramBotClient>());
+        Assert.Same(own, provider.GetRequiredService<TelegramBotClientAccessor>().Client);
     }
 
     [Fact]

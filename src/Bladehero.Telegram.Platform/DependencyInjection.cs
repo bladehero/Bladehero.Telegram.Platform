@@ -107,13 +107,16 @@ public static class DependencyInjection
         Func<IServiceProvider, HttpClient>? httpClientFactory
     )
     {
-        services.TryAddSingleton(provider =>
+        // One client per bot: a client the app registers itself, before or after, is the one the library uses too.
+        services.TryAddSingleton<ITelegramBotClient>(provider =>
         {
             var botConfiguration = provider.GetRequiredService<IOptions<TelegramBotConfiguration>>().Value;
             var options = new TelegramBotClientOptions(botConfiguration.Token);
-            var client = httpClientFactory?.Invoke(provider);
-            return new TelegramBotClientAccessor(new TelegramBotClient(options, client));
+            return new TelegramBotClient(options, httpClientFactory?.Invoke(provider));
         });
+        services.TryAddSingleton(provider => new TelegramBotClientAccessor(
+            provider.GetRequiredService<ITelegramBotClient>()
+        ));
         services.TryAddSingleton<ITelegramSender, TelegramSender>();
     }
 }

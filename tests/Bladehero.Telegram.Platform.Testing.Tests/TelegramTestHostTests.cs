@@ -367,15 +367,19 @@ public sealed class TelegramTestHostTests
     }
 
     [Fact]
-    public async Task ForLongPollingAsync_WhenTheAppRegistersNoBotClient_ShouldNotAddOne()
+    public async Task ForLongPollingAsync_ShouldPointTheBotsOwnClientAtTheFake()
     {
-        // Act
+        // Arrange
         await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await bot.Services.GetRequiredService<ITelegramBotClient>().SendMessage(nick.Chat.Id, "Your limit is near");
 
         // Assert
         using (new AssertionScope())
         {
-            bot.Services.GetService<ITelegramBotClient>().Should().BeNull();
+            nick.LastMessage.ToString().Should().Be("Bot: Your limit is near");
             bot.Services.GetService<TelegramBotClient>().Should().BeNull();
         }
     }
