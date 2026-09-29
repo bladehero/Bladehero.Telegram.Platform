@@ -6,11 +6,13 @@ namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests;
 
 public sealed class SendMessageBackCommandTests
 {
-    [Fact]
-    public async Task Message_ShouldBeRepliedToThroughTheWebhook()
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Message_ShouldBeRepliedTo(BotMode mode)
     {
         // Arrange
-        await using var bot = await WebhookBot.StartAsync();
+        await using var bot = await SandboxBot.StartAsync(mode);
         var nick = bot.PrivateChat("Nick");
 
         // Act
@@ -20,11 +22,13 @@ public sealed class SendMessageBackCommandTests
         nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: hello", "Bot: Reply: hello [Again]");
     }
 
-    [Fact]
-    public async Task Message_InAGroup_ShouldBeRepliedToInTheGroup()
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Message_InAGroup_ShouldBeRepliedToInTheGroup(BotMode mode)
     {
         // Arrange
-        await using var bot = await WebhookBot.StartAsync();
+        await using var bot = await SandboxBot.StartAsync(mode);
         var family = bot.GroupChat("Family");
 
         // Act
@@ -34,11 +38,13 @@ public sealed class SendMessageBackCommandTests
         family.LastMessage.ToString().Should().Be("Bot: Reply: hi all [Again]");
     }
 
-    [Fact]
-    public async Task Message_WhenTelegramRefusesTheReply_ShouldFailTheTest()
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Message_WhenTelegramRefusesTheReply_ShouldFailTheTest(BotMode mode)
     {
         // Arrange
-        await using var bot = await WebhookBot.StartAsync();
+        await using var bot = await SandboxBot.StartAsync(mode);
         var nick = bot.PrivateChat("Nick");
         bot.Api.Fail("sendMessage", BotApiError.BotBlocked);
 

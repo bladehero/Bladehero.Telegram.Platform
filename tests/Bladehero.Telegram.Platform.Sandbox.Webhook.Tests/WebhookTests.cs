@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using Bladehero.Telegram.Platform.Receiving.Errors;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
@@ -10,7 +9,6 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
-using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests;
@@ -21,17 +19,17 @@ public sealed class WebhookTests
     public async Task Startup_ShouldSetTheWebhookToTheConfiguredAddress()
     {
         // Act
-        await using var bot = await WebhookBot.StartAsync();
+        await using var bot = await SandboxBot.StartAsync(BotMode.Webhook);
 
         // Assert
-        bot.Api.WebhookUrl.Should().Be($"{WebhookBot.BaseUrl}/telegram/updates");
+        bot.Api.WebhookUrl.Should().Be($"{SandboxBot.BaseUrl}/telegram/updates");
     }
 
     [Fact]
     public async Task Startup_ShouldCheckTheWebhookBeforeSettingIt()
     {
         // Act
-        await using var bot = await WebhookBot.StartAsync();
+        await using var bot = await SandboxBot.StartAsync(BotMode.Webhook);
 
         // Assert
         bot.Api.Calls.Select(x => x.Method).Should().ContainInOrder("getMe", "getWebhookInfo", "setWebhook");
@@ -77,13 +75,15 @@ public sealed class WebhookTests
     public async Task Update_ToAnAppThatAllowsOnlyItsOwnHost_ShouldGetThrough()
     {
         // Arrange
-        await using var bot = await WebhookBot.StartAsync(configure: web =>
-            web.ConfigureAppConfiguration(
-                (_, configuration) =>
-                    configuration.AddInMemoryCollection(
-                        new Dictionary<string, string?> { ["AllowedHosts"] = "bot.example.com" }
-                    )
-            )
+        await using var bot = await SandboxBot.StartAsync(
+            BotMode.Webhook,
+            configure: web =>
+                web.ConfigureAppConfiguration(
+                    (_, configuration) =>
+                        configuration.AddInMemoryCollection(
+                            new Dictionary<string, string?> { ["AllowedHosts"] = "bot.example.com" }
+                        )
+                )
         );
         var nick = bot.PrivateChat("Nick");
 
@@ -152,7 +152,7 @@ public sealed class WebhookTests
     public async Task Update_WhenTelegramRefusedTheWebhook_ShouldSayThereIsNowhereToPostIt()
     {
         // Arrange: Telegram refuses an http webhook.
-        await using var bot = await WebhookBot.StartAsync(baseUrl: "http://bot.example.com");
+        await using var bot = await SandboxBot.StartAsync(BotMode.Webhook, baseUrl: "http://bot.example.com");
         var nick = bot.PrivateChat("Nick");
 
         // Act
@@ -166,8 +166,8 @@ public sealed class WebhookTests
     public async Task Update_PostedWhereNoEndpointListens_ShouldSayTheEndpointIsMissing()
     {
         // Arrange
-        await using var bot = await WebhookBot.StartAsync();
-        await bot.Api.CreateClient().SetWebhook($"{WebhookBot.BaseUrl}/elsewhere");
+        await using var bot = await SandboxBot.StartAsync(BotMode.Webhook);
+        await bot.Api.CreateClient().SetWebhook($"{SandboxBot.BaseUrl}/elsewhere");
         var nick = bot.PrivateChat("Nick");
 
         // Act
@@ -183,8 +183,8 @@ public sealed class WebhookTests
     public async Task Update_PostedWhereOnlyGetIsMapped_ShouldSayTheEndpointIsMissing()
     {
         // Arrange: the sandbox maps only GET /.
-        await using var bot = await WebhookBot.StartAsync();
-        await bot.Api.CreateClient().SetWebhook($"{WebhookBot.BaseUrl}/");
+        await using var bot = await SandboxBot.StartAsync(BotMode.Webhook);
+        await bot.Api.CreateClient().SetWebhook($"{SandboxBot.BaseUrl}/");
         var nick = bot.PrivateChat("Nick");
 
         // Act
@@ -221,10 +221,12 @@ public sealed class WebhookTests
     public async Task Update_WhenTheAppFails_ShouldSayWhatItAnswered()
     {
         // Arrange: the update handler cannot be built.
-        await using var bot = await WebhookBot.StartAsync(configure: web =>
-            web.ConfigureTestServices(services =>
-                services.AddScoped<IUpdateHandler>(_ => throw new InvalidOperationException("The database is down"))
-            )
+        await using var bot = await SandboxBot.StartAsync(
+            BotMode.Webhook,
+            configure: web =>
+                web.ConfigureTestServices(services =>
+                    services.AddScoped<IUpdateHandler>(_ => throw new InvalidOperationException("The database is down"))
+                )
         );
         var nick = bot.PrivateChat("Nick");
 
@@ -241,95 +243,30 @@ public sealed class WebhookTests
     }
 
     [Fact]
-    public async Task Update_WhenTheAppRegistersItsOwnBotClient_ShouldTalkToTheFake()
+    public async Task ForWebhookAsync_WhenTheAppPolls_ShouldSayToStartItWithLongPolling()
     {
-        // Arrange
-        await using var bot = await WebhookBot.StartAsync(configure: web =>
-            web.ConfigureTestServices(services =>
-                services.AddSingleton<ITelegramBotClient>(
-                    new TelegramBotClient("7654321:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw")
-                )
-            )
+        // Arrange: without a base URL the app polls.
+        await using var bot = await TelegramTestHost.ForWebhookAsync<Program>(web =>
+            SandboxBot.Configure(web, BotMode.LongPolling)
         );
         var nick = bot.PrivateChat("Nick");
 
         // Act
-        await nick.SendsAsync("hello");
-        await bot.Services.GetRequiredService<ITelegramBotClient>().SendMessage(nick.Chat.Id, "Your limit is near");
+        var act = () => nick.SendsAsync("hello");
 
         // Assert
-        nick.Messages.Select(x => x.ToString())
-            .Should()
-            .Equal("Nick: hello", "Bot: Reply: hello [Again]", "Bot: Your limit is near");
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage(
+                "The app polls for updates instead of setting a webhook; start it with ForLongPollingAsync<Program>."
+            );
     }
 
-    [Fact]
-    public async Task Error_ShouldReachTheAppsOwnErrorHandlerWithItsUpdate()
-    {
-        // Arrange
-        var seen = new SeenErrors();
-        await using var bot = await WebhookBot.StartAsync(configure: web =>
-            web.ConfigureTestServices(services =>
-            {
-                services.AddSingleton(seen);
-                services.AddScoped<ITelegramErrorHandler, SeenErrorsHandler>();
-            })
+    private static Task<TelegramTestHost> StartWatchedAsync(WebhookRequests requests) =>
+        SandboxBot.StartAsync(
+            BotMode.Webhook,
+            configure: web => web.ConfigureTestServices(services => services.AddSingleton<IStartupFilter>(requests))
         );
-        var nick = bot.PrivateChat("Nick");
-        bot.Api.Fail("sendMessage", BotApiError.BotBlocked);
-
-        // Act
-        var thrown = await Record.ExceptionAsync(() => nick.SendsAsync("hello"));
-
-        // Assert
-        using (new AssertionScope())
-        {
-            thrown.Should().BeOfType<ApiRequestException>().Which.ErrorCode.Should().Be(403);
-            var error = seen.All.Should().ContainSingle().Subject;
-            error.Exception.Should().BeSameAs(thrown);
-            error.Update!.Id.Should().Be(1);
-            error.Update.Message!.Chat.Id.Should().Be(nick.Chat.Id);
-        }
-    }
-
-    private static Task<Testing.TelegramTestHost> StartWatchedAsync(WebhookRequests requests) =>
-        WebhookBot.StartAsync(configure: web =>
-            web.ConfigureTestServices(services => services.AddSingleton<IStartupFilter>(requests))
-        );
-
-    // The app's own error handler, and what it saw.
-    private sealed class SeenErrors
-    {
-        private readonly List<TelegramError> _all = [];
-
-        public IReadOnlyList<TelegramError> All
-        {
-            get
-            {
-                lock (_all)
-                {
-                    return [.. _all];
-                }
-            }
-        }
-
-        public void Add(TelegramError error)
-        {
-            lock (_all)
-            {
-                _all.Add(error);
-            }
-        }
-    }
-
-    private sealed class SeenErrorsHandler(SeenErrors seen) : ITelegramErrorHandler
-    {
-        public Task HandleAsync(TelegramError telegramError)
-        {
-            seen.Add(telegramError);
-            return Task.CompletedTask;
-        }
-    }
 
     private sealed record SeenRequest(
         string Host,
