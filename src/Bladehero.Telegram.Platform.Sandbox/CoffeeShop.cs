@@ -1,7 +1,9 @@
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Bladehero.Telegram.Platform.Sandbox.Coffee;
 using Bladehero.Telegram.Platform.Sandbox.Loyalty;
 using Bladehero.Telegram.Platform.Sandbox.Receipts;
+using Bladehero.Telegram.Platform.Sandbox.Voice;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,6 +20,7 @@ internal static class CoffeeShop
         services.AddSingleton<MemberDirectory>();
         services.AddSingleton<ITelegramUserResolver<Member>, MemberResolver>();
         services.AddSingleton<PointsCard>();
+        services.AddScoped<CoffeeOrdering>();
 
         // External services are off until a real one is registered after these.
         services.AddSingleton<IReceiptReader, DisabledReceiptReader>();
@@ -25,6 +28,7 @@ internal static class CoffeeShop
         services.AddSingleton<ReceiptCard>();
         services.AddSingleton<ReceiptHistory>();
         services.AddSingleton<ReceiptAlbums>();
+        services.AddSingleton<ITranscriber, DisabledTranscriber>();
 
         return services;
     }

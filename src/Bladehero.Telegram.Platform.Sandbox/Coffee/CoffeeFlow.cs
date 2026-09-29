@@ -53,6 +53,12 @@ internal static class CoffeeFlow
     public static CoffeeSize? ParseSize(string? text) =>
         Enum.TryParse<CoffeeSize>(text, ignoreCase: true, out var size) && Enum.IsDefined(size) ? size : null;
 
+    // The first size a sentence names, e.g. "A large one, please".
+    public static CoffeeSize? SizeIn(string text) =>
+        text.Split([' ', ',', '.', '!', '?', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(ParseSize)
+            .FirstOrDefault(size => size is not null);
+
     // Whether the button is on the tapper's own card of the order in progress; a stale or someone else's is not.
     public static async Task<bool> IsCurrentAsync(
         IConversation conversation,
