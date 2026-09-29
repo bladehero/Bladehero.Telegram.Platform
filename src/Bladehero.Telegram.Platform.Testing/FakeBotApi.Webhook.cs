@@ -5,6 +5,8 @@ namespace Bladehero.Telegram.Platform.Testing;
 // The webhook the bot registers: where Telegram delivers its updates instead of answering getUpdates.
 public sealed partial class FakeBotApi
 {
+    private static readonly TimeSpan ConflictPause = TimeSpan.FromMilliseconds(100);
+
     private JsonObject? _webhook;
     private long _lastWebhookUpdateId;
 
@@ -80,6 +82,7 @@ public sealed partial class FakeBotApi
             ["url"] = url,
             ["secret_token"] = parameters["secret_token"]?.DeepClone(),
             ["allowed_updates"] = (parameters["allowed_updates"] ?? _webhook?["allowed_updates"])?.DeepClone(),
+            ["has_custom_certificate"] = parameters["certificate"] is not null,
         };
         return true;
     }
@@ -89,7 +92,7 @@ public sealed partial class FakeBotApi
         var info = new JsonObject
         {
             ["url"] = _webhook?["url"]?.GetValue<string>() ?? "",
-            ["has_custom_certificate"] = false,
+            ["has_custom_certificate"] = _webhook?["has_custom_certificate"]?.GetValue<bool>() ?? false,
             ["pending_update_count"] = 0,
         };
 

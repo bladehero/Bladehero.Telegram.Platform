@@ -143,6 +143,44 @@ public sealed class WebhookTests
     }
 
     [Fact]
+    public async Task Update_PostedWhereOnlyGetIsMapped_ShouldSayTheEndpointIsMissing()
+    {
+        // Arrange — the sandbox maps GET / for a greeting, not for updates.
+        await using var bot = await WebhookBot.StartAsync();
+        await bot.Api.CreateClient().SetWebhook($"{WebhookBot.BaseUrl}/");
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsAsync("hello");
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*with 405*Is the update endpoint mapped there*");
+    }
+
+    [Fact]
+    public async Task Update_WhenTheAppRedirects_ShouldSayTelegramFollowsNoRedirect()
+    {
+        // Arrange
+        var requests = new WebhookRequests { RedirectTo = "/login" };
+        await using var bot = await StartWatchedAsync(requests);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var act = () => nick.SendsAsync("hello");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should()
+                .ThrowAsync<InvalidOperationException>()
+                .WithMessage("*with 302*redirects to /login*follows no redirect*");
+            requests.Seen.Should().ContainSingle();
+        }
+    }
+
+    [Fact]
     public async Task Update_WhenTheAppFails_ShouldSayWhatItAnswered()
     {
         // Arrange — the update handler cannot be built, so the endpoint fails before any command runs.
@@ -173,12 +211,15 @@ public sealed class WebhookTests
     private sealed record SeenRequest(string Host, string Scheme, string? SecretToken, long UpdateId);
 
     // Watches every request the app receives, ahead of its own pipeline: what the request carried, and when the app
-    // finished with it. It can also hold a request up, the way a slow app would.
+    // finished with it. It can also hold a request up, the way a slow app would, or redirect it, the way an app asking
+    // for a login would.
     private sealed class WebhookRequests : IStartupFilter
     {
         private readonly List<SeenRequest> _seen = [];
 
         public TimeSpan Delay { get; init; }
+
+        public string? RedirectTo { get; init; }
 
         public TaskCompletionSource FirstFinished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -213,6 +254,12 @@ public sealed class WebhookTests
                                     update!["update_id"]!.GetValue<long>()
                                 )
                             );
+                        }
+
+                        if (RedirectTo is not null)
+                        {
+                            context.Response.Redirect(RedirectTo);
+                            return;
                         }
 
                         // A slow app does not notice the caller giving up.

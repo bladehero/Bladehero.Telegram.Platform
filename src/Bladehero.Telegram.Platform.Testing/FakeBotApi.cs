@@ -490,6 +490,9 @@ public sealed partial class FakeBotApi
         {
             if (HasWebhook)
             {
+                // Answered after a pause, as Telegram's round trip would be: at once, a polling loop that cannot
+                // clear the webhook would spin, and flood the test with errors.
+                await Task.Delay(ConflictPause, token);
                 return Respond(
                     new BotApiError(
                         409,

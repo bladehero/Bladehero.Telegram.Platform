@@ -8,10 +8,10 @@ namespace Bladehero.Telegram.Platform.Sandbox.Webhook;
 
 public sealed class SendMessageBackCommand : MessageCommand
 {
-    internal const string AgainButton = "again";
+    internal const string AgainData = "again";
 
-    private static readonly InlineKeyboardMarkup Again = new(
-        InlineKeyboardButton.WithCallbackData("Again", AgainButton)
+    private static readonly InlineKeyboardMarkup AgainKeyboard = new(
+        InlineKeyboardButton.WithCallbackData("Again", AgainData)
     );
 
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
@@ -20,6 +20,11 @@ public sealed class SendMessageBackCommand : MessageCommand
     protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
     {
         var (_, message, client) = request;
-        await client.SendMessage(message.Chat, $"Reply: {message.Text}", replyMarkup: Again, cancellationToken: token);
+        await client.SendMessage(
+            message.Chat,
+            $"Reply: {message.Text}",
+            replyMarkup: AgainKeyboard,
+            cancellationToken: token
+        );
     }
 }

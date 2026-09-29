@@ -127,6 +127,23 @@ public sealed class TelegramTestHostTests
     }
 
     [Fact]
+    public async Task SendAsync_WhenTheLeftoverWebhookCannotBeDeleted_ShouldSayItBlocksPolling()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        await api.CreateClient().SetWebhook("https://bot.example.com/updates");
+        api.Fail("deleteWebhook", new BotApiError(500, "Internal Server Error"));
+        await using var bot = await TestBot.StartAsync(api);
+        bot.UpdateTimeout = TimeSpan.FromSeconds(1);
+
+        // Act
+        var act = () => bot.SendAsync(Text("hello"));
+
+        // Assert
+        await act.Should().ThrowAsync<TimeoutException>().WithMessage("*still has a webhook*409*");
+    }
+
+    [Fact]
     public async Task SendAsync_WhenLongPollingIsNotRegistered_ShouldSayWhatIsMissing()
     {
         // Arrange

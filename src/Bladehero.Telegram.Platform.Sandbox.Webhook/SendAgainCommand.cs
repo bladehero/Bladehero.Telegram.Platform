@@ -9,7 +9,7 @@ namespace Bladehero.Telegram.Platform.Sandbox.Webhook;
 public sealed class SendAgainCommand : CallbackQueryCommand
 {
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
-        Task.FromResult(request.Payload.Data == SendMessageBackCommand.AgainButton);
+        Task.FromResult(request.Payload.Data == SendMessageBackCommand.AgainData);
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {

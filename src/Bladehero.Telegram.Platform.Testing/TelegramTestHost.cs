@@ -125,7 +125,14 @@ public sealed class TelegramTestHost : IAsyncDisposable
         try
         {
             // Creating the client starts the app, and with it every hosted service — the one setting the webhook too.
-            var client = await Task.Run(app.CreateClient);
+            // Like Telegram, it follows no redirect and keeps no cookie, and it leaves timing out to UpdateTimeout.
+            var client = await Task.Run(() =>
+                app.CreateClient(
+                    new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false }
+                )
+            );
+            client.Timeout = Timeout.InfiniteTimeSpan;
+
             return new TelegramTestHost(new WebhookBot(factory, app.Services, client, api), api, errors);
         }
         catch
@@ -185,8 +192,8 @@ public sealed class TelegramTestHost : IAsyncDisposable
 
     public ValueTask DisposeAsync() => _bot.DisposeAsync();
 
-    // Swaps only the bot client, for one talking to the fake, and records the errors commands throw so the test sees
-    // them.
+    // Swaps the bot client, for one talking to the fake, and the error handler, for one recording the errors commands
+    // throw so the test sees them.
     private static void TalkToTheFake(IServiceCollection services, FakeBotApi api, ErrorLog errors)
     {
         services.Replace(ServiceDescriptor.Singleton(new TelegramBotClientAccessor(api.CreateClient())));
@@ -216,9 +223,13 @@ public sealed class TelegramTestHost : IAsyncDisposable
             }
             catch (TimeoutException)
             {
+                var cause = api.WebhookUrl is { } webhook
+                    ? $"Telegram still has a webhook for the bot, {webhook}, so it refuses every getUpdates with 409. "
+                        + "Did deleting it fail? Api.Calls shows what the bot asked Telegram."
+                    : "Is long polling registered, for example with AddTelegramLongPollingReceiving?";
+
                 throw new TimeoutException(
-                    $"The bot did not finish update {updateId} within {timeout.TotalSeconds:0} seconds. "
-                        + "Is long polling registered, for example with AddTelegramLongPollingReceiving?"
+                    $"The bot did not finish update {updateId} within {timeout.TotalSeconds:0} seconds. {cause}"
                 );
             }
         }
@@ -247,6 +258,11 @@ public sealed class TelegramTestHost : IAsyncDisposable
     ) : IRunningBot
     {
         private const string SecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token";
+
+        private static readonly TimeSpan AbandonedGrace = TimeSpan.FromSeconds(5);
+
+        // Updates the test stopped waiting for, which the bot may still be working on.
+        private readonly List<Task> _abandoned = [];
 
         public IServiceProvider Services => services;
 
@@ -285,18 +301,28 @@ public sealed class TelegramTestHost : IAsyncDisposable
             }
             catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
             {
-                _ = sending.ContinueWith(
+                var cleanup = sending.ContinueWith(
                     sent =>
                     {
                         if (sent.IsCompletedSuccessfully)
                         {
                             sent.Result.Dispose();
                         }
+                        else
+                        {
+                            // Observed, so a failure after the test moved on is not reported as unobserved.
+                            _ = sent.Exception;
+                        }
 
                         request.Dispose();
                     },
                     TaskScheduler.Default
                 );
+
+                lock (_abandoned)
+                {
+                    _abandoned.Add(cleanup);
+                }
 
                 if (exception is TimeoutException)
                 {
@@ -319,7 +345,8 @@ public sealed class TelegramTestHost : IAsyncDisposable
             }
         }
 
-        // Says why a delivery failed: a missing endpoint for 404 and 405, and otherwise what the app answered.
+        // Says why a delivery failed: a missing endpoint for 404 and 405, where a redirect led, and otherwise what the
+        // app answered.
         private static async Task<string> FailedDeliveryAsync(string url, HttpResponseMessage response)
         {
             const int longestBody = 1000;
@@ -333,15 +360,32 @@ public sealed class TelegramTestHost : IAsyncDisposable
                 return failure + " Is the update endpoint mapped there, for example with UseTelegramWebhook?";
             }
 
+            if (response.Headers.Location is { } location)
+            {
+                return $"{failure} It redirects to {location}, and Telegram follows no redirect.";
+            }
+
             var body = await response.Content.ReadAsStringAsync();
             return body.Length == 0 ? failure
                 : body.Length <= longestBody ? $"{failure} It said:\n{body}"
                 : $"{failure} It said:\n{body[..longestBody]}…";
         }
 
+        // Disposing the client cancels the updates still in flight; they are let finish before the app goes, so none
+        // runs on against a disposed container.
         public async ValueTask DisposeAsync()
         {
             client.Dispose();
+
+            Task[] abandoned;
+            lock (_abandoned)
+            {
+                abandoned = [.. _abandoned];
+            }
+
+            await Task.WhenAll(abandoned)
+                .WaitAsync(AbandonedGrace)
+                .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             await factory.DisposeAsync();
         }
     }
