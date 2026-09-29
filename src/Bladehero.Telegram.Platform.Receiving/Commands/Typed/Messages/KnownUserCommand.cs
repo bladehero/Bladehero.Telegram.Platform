@@ -14,7 +14,7 @@ public abstract class KnownUserCommand<TUser> : MessageCommand
     internal ITelegramUserResolver<TUser> UserResolver { get; init; } = null!;
 
     /// <summary>
-    /// The user the resolver returned for the sender, set once <c>CanHandleAsync</c> has accepted the message.
+    /// The user the resolver returned for the sender, set before <see cref="AcceptsAsync"/> runs.
     /// </summary>
     protected TUser User { get; private set; } = null!;
 
@@ -40,7 +40,7 @@ public abstract class KnownUserCommand<TUser> : MessageCommand
         }
 
         User = user;
-        return true;
+        return await AcceptsAsync(request, token);
     }
 
     /// <summary>
@@ -48,4 +48,15 @@ public abstract class KnownUserCommand<TUser> : MessageCommand
     /// so another command's message costs no lookup.
     /// </summary>
     protected abstract bool Matches(Message message);
+
+    /// <summary>
+    /// Whether the command takes a message from a known sender, asked once <see cref="User"/> is resolved; <c>true</c>
+    /// by default.
+    /// </summary>
+    /// <remarks>
+    /// It runs alongside other commands' checks, before any of them handles the update, so keep it free of side
+    /// effects.
+    /// </remarks>
+    protected virtual Task<bool> AcceptsAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+        Task.FromResult(true);
 }
