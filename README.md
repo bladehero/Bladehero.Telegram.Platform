@@ -608,8 +608,10 @@ the one before; its caption goes under the first photo, or under the last file a
 
 ```csharp
 await nick.SendsAlbumAsync([front, back], caption: "Receipt");
-await nick.SendsDocumentAlbumAsync([(march, "march.csv"), (april, "april.csv")], caption: "Q2");
+await nick.SendsDocumentAlbumAsync([new(march, "march.csv"), new(scan, "scan", "application/pdf")], caption: "Q2");
 ```
+
+Each `TestDocument` has its bytes, its name and, when the extension doesn't tell, its MIME type.
 
 ### Wait for later messages
 

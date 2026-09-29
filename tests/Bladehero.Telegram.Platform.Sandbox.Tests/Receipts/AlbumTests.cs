@@ -59,7 +59,10 @@ public sealed class AlbumTests
         var reader = new ScriptedReceiptReader();
         await using var bot = await StartAsync(reader);
         var nick = bot.PrivateChat("Nick");
-        await nick.SendsDocumentAlbumAsync([(Page(1), "hotel-1.pdf"), (Page(2), "hotel-2.pdf")], caption: "Hotel Roma");
+        await nick.SendsDocumentAlbumAsync(
+            [new(Page(1), "hotel-1.pdf"), new(Page(2), "hotel-2.pdf")],
+            caption: "Hotel Roma"
+        );
 
         // Act
         await nick.TapsAsync("Read 2 pages");

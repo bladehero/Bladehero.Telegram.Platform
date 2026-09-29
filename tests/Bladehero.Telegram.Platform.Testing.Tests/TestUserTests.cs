@@ -108,7 +108,7 @@ public sealed class TestUserTests
 
         // Act
         var sent = await nick.SendsDocumentAlbumAsync(
-            [("a,b"u8.ToArray(), "march.csv"), ("%PDF"u8.ToArray(), "april.pdf")],
+            [new("a,b"u8.ToArray(), "march.csv"), new("%PDF"u8.ToArray(), "april.pdf")],
             "Reports"
         );
 
@@ -121,6 +121,23 @@ public sealed class TestUserTests
             sent.Select(x => x.Message.MediaGroupId).Distinct().Should().ContainSingle();
             AlbumReplies(nick).Should().Equal("Album item: no caption", "Album item: Reports");
         }
+    }
+
+    [Fact]
+    public async Task SendsDocumentAlbumAsync_WithAMimeType_ShouldSendThatType()
+    {
+        // Arrange: a scan the phone saved without an extension.
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var sent = await nick.SendsDocumentAlbumAsync([
+            new("%PDF"u8.ToArray(), "scan", "application/pdf"),
+            new("a,b"u8.ToArray(), "march.csv"),
+        ]);
+
+        // Assert
+        sent.Select(x => x.Document!.MimeType).Should().Equal("application/pdf", "text/csv");
     }
 
     [Theory]
@@ -175,9 +192,9 @@ public sealed class TestUserTests
         // Act
         var act = () =>
             nick.SendsDocumentAlbumAsync([
-                ("a"u8.ToArray(), "first.csv"),
-                ("b"u8.ToArray(), "broken.csv"),
-                ("c"u8.ToArray(), "third.csv"),
+                new("a"u8.ToArray(), "first.csv"),
+                new("b"u8.ToArray(), "broken.csv"),
+                new("c"u8.ToArray(), "third.csv"),
             ]);
 
         // Assert

@@ -155,9 +155,9 @@ public sealed class TestUser
     }
 
     /// <summary>
-    /// Sends <paramref name="documents"/> as an album: each its own document message, its MIME type from its file
-    /// name, all in one media group, and each delivered as its own update, in order, once the bot has handled the one
-    /// before.
+    /// Sends <paramref name="documents"/> as an album: each its own document message, its MIME type given or from its
+    /// file name, all in one media group, and each delivered as its own update, in order, once the bot has handled the
+    /// one before.
     /// </summary>
     /// <param name="documents">2 to 10 documents.</param>
     /// <param name="caption">Shown under the last document, where the Telegram apps put a comment on files.</param>
@@ -169,20 +169,21 @@ public sealed class TestUser
     /// </exception>
     /// <remarks>When the bot fails on an item, the rest are not sent.</remarks>
     public Task<IReadOnlyList<TestMessage>> SendsDocumentAlbumAsync(
-        IReadOnlyList<(byte[] Content, string FileName)> documents,
+        IReadOnlyList<TestDocument> documents,
         string? caption = null,
         CancellationToken token = default
     )
     {
         ThrowIfNotAnAlbum(documents);
-        foreach (var (content, fileName) in documents)
+        foreach (var document in documents)
         {
-            ThrowIfEmpty(content, nameof(documents));
-            ArgumentException.ThrowIfNullOrWhiteSpace(fileName, nameof(documents));
+            ArgumentNullException.ThrowIfNull(document, nameof(documents));
+            ThrowIfEmpty(document.Content, nameof(documents));
+            ArgumentException.ThrowIfNullOrWhiteSpace(document.FileName, nameof(documents));
         }
 
         return SendsAlbumAsync(
-            [.. documents.Select(document => DocumentOf(document.Content, document.FileName))],
+            [.. documents.Select(document => DocumentOf(document.Content, document.FileName, document.MimeType))],
             CheckedCaption(caption),
             captionOn: documents.Count - 1,
             token
