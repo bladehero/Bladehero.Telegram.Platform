@@ -15,8 +15,8 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// </summary>
 /// <remarks>
 /// Calls are recorded in <see cref="Calls"/> (all but <c>getUpdates</c> and file downloads) and answered as Telegram
-/// would, its errors included. A method the fake does not support fails with an error naming it. <see cref="Fail"/>
-/// makes Telegram refuse a call.
+/// would, its errors and limits included; the bot can write only to a chat a test user opened or an update brought. A
+/// method the fake does not support fails with an error naming it. <see cref="Fail"/> makes Telegram refuse a call.
 /// </remarks>
 public sealed partial class FakeBotApi
 {
