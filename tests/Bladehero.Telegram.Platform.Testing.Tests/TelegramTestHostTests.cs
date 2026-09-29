@@ -1,12 +1,17 @@
 using System.Diagnostics;
 using Bladehero.Telegram.Platform.Receiving;
+using Bladehero.Telegram.Platform.Receiving.Background;
+using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -245,6 +250,71 @@ public sealed class TelegramTestHostTests
             bot.Services.GetService<ITelegramBotClient>().Should().BeNull();
             bot.Services.GetService<TelegramBotClient>().Should().BeNull();
         }
+    }
+
+    [Fact]
+    public async Task ForLongPollingAsync_WithTheBuilder_ShouldBindTheBotFromConfiguration()
+    {
+        // Arrange
+        const string token = "7654321:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
+        await using var bot = await TelegramTestHost.ForLongPollingAsync(builder =>
+        {
+            builder.Configuration.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["TelegramReceiverConfiguration:Token"] = token }
+            );
+            builder.Services.AddTelegramLongPollingReceiving(
+                builder.Configuration,
+                assemblies: typeof(TestBot).Assembly
+            );
+        });
+
+        // Act
+        await bot.SendAsync(Text("hello"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Services.GetRequiredService<IOptions<TelegramReceiverConfiguration>>().Value.Token.Should().Be(token);
+            RepliesIn(bot.Api).Should().Equal("hello");
+        }
+    }
+
+    [Fact]
+    public async Task ForLongPollingAsync_WithTheBuilder_ShouldLetTheTestChooseTheEnvironment()
+    {
+        // Act
+        await using var bot = await TelegramTestHost.ForLongPollingAsync(builder =>
+        {
+            builder.Environment.EnvironmentName = Environments.Production;
+            builder.Services.AddTelegramLongPollingReceiving(
+                receiver => receiver.Token = "unused",
+                typeof(TestBot).Assembly
+            );
+        });
+
+        // Assert
+        bot.Services.GetRequiredService<IHostEnvironment>().EnvironmentName.Should().Be(Environments.Production);
+    }
+
+    [Fact]
+    public async Task ForLongPollingAsync_WithTheBuilder_ShouldHandTheBotsLogsToTheTest()
+    {
+        // Arrange
+        var logs = new LogRecorder();
+        await using var bot = await TelegramTestHost.ForLongPollingAsync(builder =>
+        {
+            builder.Logging.AddProvider(logs);
+            builder.Services.AddTelegramLongPollingReceiving(
+                receiver => receiver.Token = "unused",
+                typeof(TestBot).Assembly
+            );
+        });
+
+        // Act: the library's own error handler logs the failure.
+        await Record.ExceptionAsync(() => bot.SendAsync(Text("/boom")));
+
+        // Assert
+        logs.Entries.Should().Contain(x => x.Level == LogLevel.Error && x.Exception!.Message == "boom from Nick");
     }
 
     [Fact]

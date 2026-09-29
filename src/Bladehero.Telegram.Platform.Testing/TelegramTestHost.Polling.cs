@@ -5,39 +5,45 @@ using Microsoft.Extensions.Hosting;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// A bot that pulls its updates from the fake with a real long-polling loop.
+// A bot that pulls its updates from the fake with a real long-polling loop, on a generic host or in an ASP.NET Core app.
 public sealed partial class TelegramTestHost
 {
     // An update is handled once the polling loop asks for the next offset.
     private sealed class PollingBot : IRunningBot
     {
-        private readonly IHost _host;
+        private readonly IAsyncDisposable _app;
         private readonly FakeBotApi _api;
 
         // Polls from before this host, such as an earlier one's on the same fake.
         private readonly int _pollsBefore;
+
+        // The ASP.NET Core app's entry point; null for a generic host.
+        private readonly string? _entryPoint;
         private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private BackgroundService[] _backgroundServices = [];
+        private readonly BackgroundService[] _backgroundServices;
 
-        public PollingBot(IHost host, FakeBotApi api)
+        // Takes a started app, which disposing stops.
+        public PollingBot(
+            IServiceProvider services,
+            IAsyncDisposable app,
+            FakeBotApi api,
+            int pollsBefore,
+            string? entryPoint = null
+        )
         {
-            _host = host;
+            Services = services;
+            _app = app;
             _api = api;
-            _pollsBefore = api.Polls;
-        }
+            _pollsBefore = pollsBefore;
+            _entryPoint = entryPoint;
 
-        public IServiceProvider Services => _host.Services;
-
-        public async Task StartAsync(CancellationToken token)
-        {
-            _host
-                .Services.GetRequiredService<IHostApplicationLifetime>()
+            // Called at once if the app is already stopping.
+            services
+                .GetRequiredService<IHostApplicationLifetime>()
                 .ApplicationStopping.Register(() => _stopped.TrySetResult());
 
-            await _host.StartAsync(token);
-
             // A failed background service stops the bot, even where the host is set to carry on without it.
-            _backgroundServices = [.. _host.Services.GetServices<IHostedService>().OfType<BackgroundService>()];
+            _backgroundServices = [.. services.GetServices<IHostedService>().OfType<BackgroundService>()];
             foreach (var service in _backgroundServices)
             {
                 service.ExecuteTask?.ContinueWith(
@@ -48,6 +54,8 @@ public sealed partial class TelegramTestHost
                 );
             }
         }
+
+        public IServiceProvider Services { get; }
 
         public async Task DeliverAsync(
             JsonObject update,
@@ -73,24 +81,7 @@ public sealed partial class TelegramTestHost
             }
         }
 
-        public async ValueTask DisposeAsync()
-        {
-            try
-            {
-                await _host.StopAsync();
-            }
-            finally
-            {
-                if (_host is IAsyncDisposable disposable)
-                {
-                    await disposable.DisposeAsync();
-                }
-                else
-                {
-                    _host.Dispose();
-                }
-            }
-        }
+        public ValueTask DisposeAsync() => _app.DisposeAsync();
 
         private static TimeSpan Left(TimeSpan timeout, Stopwatch clock)
         {
@@ -152,9 +143,38 @@ public sealed partial class TelegramTestHost
         }
 
         private string WhyNotPolled() =>
-            _api.RefusedPolling && _api.WebhookUrl is { } webhook
-                ? $"Telegram still has a webhook for the bot, {webhook}, so it refuses every getUpdates with 409. "
-                    + "Did deleting it fail? Api.Calls shows what the bot asked Telegram."
-                : "Is long polling registered, for example with AddTelegramLongPollingReceiving?";
+            _api.WebhookUrl switch
+            {
+                { } webhook when _api.RefusedPolling =>
+                    $"Telegram still has a webhook for the bot, {webhook}, so it refuses every getUpdates with 409. "
+                        + "Did deleting it fail? Api.Calls shows what the bot asked Telegram.",
+                { } webhook when _entryPoint is not null && _api.Polls == _pollsBefore =>
+                    $"The app set a webhook, {webhook}, and does not poll; start it with "
+                        + $"ForWebhookAsync<{_entryPoint}>.",
+                _ => "Is long polling registered, for example with AddTelegramLongPollingReceiving?",
+            };
+    }
+
+    // Stops a generic host before disposing it, as the host does not stop itself.
+    private sealed class StoppingHost(IHost host) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await host.StopAsync();
+            }
+            finally
+            {
+                if (host is IAsyncDisposable disposable)
+                {
+                    await disposable.DisposeAsync();
+                }
+                else
+                {
+                    host.Dispose();
+                }
+            }
+        }
     }
 }

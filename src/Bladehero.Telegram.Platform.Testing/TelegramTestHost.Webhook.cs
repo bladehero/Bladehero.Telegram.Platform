@@ -7,16 +7,20 @@ namespace Bladehero.Telegram.Platform.Testing;
 // A bot whose ASP.NET Core app gets each update posted to the webhook it set.
 public sealed partial class TelegramTestHost
 {
+    // pollsBefore: the fake's polls from before the app started, which it did not make.
     private sealed class WebhookBot(
         IAsyncDisposable factory,
         IServiceProvider services,
         HttpClient client,
-        FakeBotApi api
+        FakeBotApi api,
+        int pollsBefore,
+        string entryPoint
     ) : IRunningBot
     {
         private const string SecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token";
 
         private static readonly TimeSpan AbandonedGrace = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan PollGrace = TimeSpan.FromSeconds(1);
 
         // Updates the test stopped waiting for; the bot may still be handling them.
         private readonly List<Task> _abandoned = [];
@@ -30,13 +34,10 @@ public sealed partial class TelegramTestHost
             CancellationToken token
         )
         {
-            var webhook =
-                api.Webhook()
-                ?? throw new InvalidOperationException(
-                    "The bot has set no webhook, so there is nowhere to post the update. Is webhook receiving "
-                        + "registered, for example with AddTelegramWebhookReceiving and UseTelegramWebhook, and did "
-                        + "its setWebhook succeed? Api.Calls shows what the bot asked Telegram."
-                );
+            if (api.Webhook() is not { } webhook)
+            {
+                throw new InvalidOperationException(await WhyNoWebhookAsync(timeout, token));
+            }
 
             var (stamped, updateId) = api.StampForWebhook(update);
             numbered(updateId);
@@ -101,6 +102,25 @@ public sealed partial class TelegramTestHost
                 {
                     throw new InvalidOperationException(await FailedDeliveryAsync(webhook.Url, response));
                 }
+            }
+        }
+
+        // An app that polls instead has usually polled by the time it started, but may be a moment late.
+        private async Task<string> WhyNoWebhookAsync(TimeSpan timeout, CancellationToken token)
+        {
+            try
+            {
+                var grace = timeout == Timeout.InfiniteTimeSpan || timeout > PollGrace ? PollGrace : timeout;
+                await api.PolledAsync(pollsBefore).WaitAsync(grace, token);
+
+                return "The app polls for updates instead of setting a webhook; start it with "
+                    + $"ForLongPollingAsync<{entryPoint}>.";
+            }
+            catch (TimeoutException)
+            {
+                return "The bot has set no webhook, so there is nowhere to post the update. Is webhook receiving "
+                    + "registered, for example with AddTelegramWebhookReceiving and UseTelegramWebhook, and did its "
+                    + "setWebhook succeed? Api.Calls shows what the bot asked Telegram.";
             }
         }
 

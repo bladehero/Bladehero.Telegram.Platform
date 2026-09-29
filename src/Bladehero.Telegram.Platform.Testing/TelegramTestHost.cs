@@ -75,8 +75,8 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Starts a long-polling bot: <paramref name="configureServices"/> registers it as its composition root does, and
-    /// its real polling loop pulls updates from the fake.
+    /// Starts a long-polling bot on a generic host: <paramref name="configureServices"/> registers it as its
+    /// composition root does, and its real polling loop pulls updates from the fake.
     /// </summary>
     /// <param name="configureServices">The bot's registrations, with <c>AddTelegramLongPollingReceiving</c>.</param>
     /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
@@ -85,21 +85,50 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// Only the bot client, including one the app registers itself as <see cref="ITelegramBotClient"/> or
     /// <see cref="TelegramBotClient"/> (the token is never used), and the error handler (errors fail the test, after
     /// the app's own handler has seen them) are swapped. Returns once the host has started, so startup work such as the
-    /// command menu can be checked right away. The container is validated on build.
+    /// command menu can be checked right away. The container is validated on build. For an ASP.NET Core app that polls,
+    /// use <see cref="ForLongPollingAsync{TEntryPoint}"/>.
     /// </remarks>
-    public static async Task<TelegramTestHost> ForLongPollingAsync(
+    public static Task<TelegramTestHost> ForLongPollingAsync(
         Action<IServiceCollection> configureServices,
         FakeBotApi? api = null,
         CancellationToken token = default
     )
     {
+        ArgumentNullException.ThrowIfNull(configureServices);
+
+        return ForLongPollingAsync((HostApplicationBuilder builder) => configureServices(builder.Services), api, token);
+    }
+
+    /// <summary>
+    /// Starts a long-polling bot on a generic host: <paramref name="configure"/> sets it up as its composition root
+    /// does, from configuration, environment and logging to services, and its real polling loop pulls updates from
+    /// the fake.
+    /// </summary>
+    /// <param name="configure">
+    /// The bot's host builder, in Development with no configuration sources or log providers yet. Register the bot on
+    /// its <c>Services</c>, e.g. with <c>AddTelegramLongPollingReceiving(builder.Configuration)</c>.
+    /// </param>
+    /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
+    /// <param name="token">Stops waiting for the bot to start.</param>
+    /// <remarks>
+    /// Swaps the same registrations as the <see cref="IServiceCollection"/> overload, after
+    /// <paramref name="configure"/> has run.
+    /// </remarks>
+    public static async Task<TelegramTestHost> ForLongPollingAsync(
+        Action<HostApplicationBuilder> configure,
+        FakeBotApi? api = null,
+        CancellationToken token = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
         api ??= new FakeBotApi();
         var errors = new ErrorLog();
 
         var builder = Host.CreateEmptyApplicationBuilder(
             new HostApplicationBuilderSettings { EnvironmentName = Environments.Development }
         );
-        configureServices(builder.Services);
+        configure(builder);
         TalkToTheFake(builder.Services, api, errors);
         BoundShutdown(builder.Services);
         builder.ConfigureContainer(
@@ -108,19 +137,59 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
             )
         );
 
-        var bot = new PollingBot(builder.Build(), api);
+        var host = builder.Build();
+        var running = new StoppingHost(host);
+        var pollsBefore = api.Polls;
         try
         {
-            await bot.StartAsync(token);
+            await host.StartAsync(token);
         }
         catch
         {
             // Stops the polling loop that may already run.
-            await bot.DisposeAsync().AsTask().ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await running.DisposeAsync().AsTask().ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             throw;
         }
 
-        return new TelegramTestHost(bot, api, errors);
+        return new TelegramTestHost(new PollingBot(host.Services, running, api, pollsBefore), api, errors);
+    }
+
+    /// <summary>
+    /// Starts an ASP.NET Core app that receives by long polling: the app (<typeparamref name="TEntryPoint"/>, usually
+    /// <c>Program</c>) runs in memory via <see cref="WebApplicationFactory{TEntryPoint}"/>, and its real polling loop
+    /// pulls updates from the fake.
+    /// </summary>
+    /// <param name="configureWebHost">
+    /// Test tweaks: settings the app reads before <c>Build</c> via <c>UseSetting</c>, stand-ins for external services
+    /// via <c>ConfigureTestServices</c>.
+    /// </param>
+    /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
+    /// <param name="token">Stops waiting for the app to start.</param>
+    /// <remarks>
+    /// Swaps the same registrations as the generic-host overloads, which suit a bot without a web app, and runs in
+    /// Development. Returns once the app has started. An app that sets a webhook instead needs
+    /// <see cref="ForWebhookAsync{TEntryPoint}"/>.
+    /// </remarks>
+    public static async Task<TelegramTestHost> ForLongPollingAsync<TEntryPoint>(
+        Action<IWebHostBuilder>? configureWebHost = null,
+        FakeBotApi? api = null,
+        CancellationToken token = default
+    )
+        where TEntryPoint : class
+    {
+        api ??= new FakeBotApi();
+        var errors = new ErrorLog();
+        var (factory, app) = CreateApp<TEntryPoint>(configureWebHost, api, errors);
+        var pollsBefore = api.Polls;
+
+        // Resolving the app's services starts it.
+        var services = await StartAppAsync(() => app.Services, factory, token);
+
+        return new TelegramTestHost(
+            new PollingBot(services, factory, api, pollsBefore, typeof(TEntryPoint).Name),
+            api,
+            errors
+        );
     }
 
     /// <summary>
@@ -128,53 +197,44 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// memory via <see cref="WebApplicationFactory{TEntryPoint}"/>, and each update is posted to the webhook it set.
     /// </summary>
     /// <param name="configureWebHost">
-    /// Test tweaks, e.g. the webhook configuration via <c>ConfigureAppConfiguration</c>.
+    /// Test tweaks, e.g. the webhook configuration via <c>UseSetting</c> or <c>ConfigureAppConfiguration</c>.
     /// </param>
     /// <param name="api">A pre-arranged fake, e.g. to fail startup calls; a new one when <c>null</c>.</param>
+    /// <param name="token">Stops waiting for the app to start.</param>
     /// <remarks>
-    /// Swaps the same two registrations as long polling and runs in Development. Returns once the app has started, so
+    /// Swaps the same registrations as long polling and runs in Development. Returns once the app has started, so
     /// the webhook it set, if any, is in <see cref="FakeBotApi.WebhookUrl"/>. Updates go to that exact URL (host,
     /// scheme, path), with the secret token header when the bot set one, and follow no redirects and keep no cookies,
     /// as from Telegram.
     /// </remarks>
     public static async Task<TelegramTestHost> ForWebhookAsync<TEntryPoint>(
         Action<IWebHostBuilder>? configureWebHost = null,
-        FakeBotApi? api = null
+        FakeBotApi? api = null,
+        CancellationToken token = default
     )
         where TEntryPoint : class
     {
         api ??= new FakeBotApi();
         var errors = new ErrorLog();
+        var (factory, app) = CreateApp<TEntryPoint>(configureWebHost, api, errors);
+        var pollsBefore = api.Polls;
 
-        // Disposing the factory disposes the derived one that runs the app.
-        var factory = new WebApplicationFactory<TEntryPoint>();
-        var app = factory.WithWebHostBuilder(web =>
-        {
-            configureWebHost?.Invoke(web);
-            web.ConfigureTestServices(services =>
-            {
-                TalkToTheFake(services, api, errors);
-                BoundShutdown(services);
-            });
-        });
-
-        try
-        {
-            // Creating the client starts the app; UpdateTimeout, not HttpClient.Timeout, bounds each update.
-            var client = await Task.Run(() =>
+        // Creating the client starts the app; UpdateTimeout, not HttpClient.Timeout, bounds each update.
+        var client = await StartAppAsync(
+            () =>
                 app.CreateClient(
                     new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false }
-                )
-            );
-            client.Timeout = Timeout.InfiniteTimeSpan;
+                ),
+            factory,
+            token
+        );
+        client.Timeout = Timeout.InfiniteTimeSpan;
 
-            return new TelegramTestHost(new WebhookBot(factory, app.Services, client, api), api, errors);
-        }
-        catch
-        {
-            await factory.DisposeAsync();
-            throw;
-        }
+        return new TelegramTestHost(
+            new WebhookBot(factory, app.Services, client, api, pollsBefore, typeof(TEntryPoint).Name),
+            api,
+            errors
+        );
     }
 
     /// <summary>
@@ -271,6 +331,61 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
                     ? ServiceDescriptor.Singleton(type, client)
                     : ServiceDescriptor.KeyedSingleton(type, key, client)
             );
+        }
+    }
+
+    // Disposing the factory disposes the derived one that runs the app.
+    private static (
+        WebApplicationFactory<TEntryPoint> Factory,
+        WebApplicationFactory<TEntryPoint> App
+    ) CreateApp<TEntryPoint>(Action<IWebHostBuilder>? configureWebHost, FakeBotApi api, ErrorLog errors)
+        where TEntryPoint : class
+    {
+        var factory = new WebApplicationFactory<TEntryPoint>();
+        var app = factory.WithWebHostBuilder(web =>
+        {
+            configureWebHost?.Invoke(web);
+            web.ConfigureTestServices(services =>
+            {
+                TalkToTheFake(services, api, errors);
+                BoundShutdown(services);
+            });
+        });
+
+        return (factory, app);
+    }
+
+    // Starting a factory's app blocks, so it runs on the thread pool, and the token only stops waiting for it. An app
+    // that fails to start, or that the test gave up on, is disposed.
+    private static async Task<T> StartAppAsync<T>(Func<T> start, IAsyncDisposable factory, CancellationToken token)
+    {
+        var starting = Task.Run(start, CancellationToken.None);
+        try
+        {
+            return await starting.WaitAsync(token);
+        }
+        catch (OperationCanceledException) when (!starting.IsCompleted)
+        {
+            _ = DisposeOnceStartedAsync();
+            throw;
+        }
+        catch
+        {
+            await factory.DisposeAsync();
+            throw;
+        }
+
+        async Task DisposeOnceStartedAsync()
+        {
+            try
+            {
+                await ((Task)starting).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                await factory.DisposeAsync();
+            }
+            catch
+            {
+                // Nothing waits for this any more, so there is no one to tell.
+            }
         }
     }
 
