@@ -2,6 +2,7 @@ using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
@@ -16,15 +17,30 @@ internal sealed class WriteNameStep(IConversation conversation) : MessageCommand
     protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
     {
         var (_, message, client) = request;
-        var order = await conversation.GetDataAsync<CoffeeOrder>(token) ?? new CoffeeOrder();
-        order = order with { CupName = message.Text };
+        var order = (await conversation.GetDataAsync<CoffeeOrder>(token))! with { CupName = message.Text };
 
-        await conversation.MoveToAsync(CoffeeFlow.ConfirmStep, order, token);
-        await client.SendMessage(
+        // The prompt's Cancel moves to the confirmation card.
+        try
+        {
+            await client.EditMessageReplyMarkup(
+                message.Chat,
+                order.CardId,
+                replyMarkup: null,
+                cancellationToken: token
+            );
+        }
+        catch (ApiRequestException)
+        {
+            // Already without buttons, or gone.
+        }
+
+        var card = await client.SendMessage(
             message.Chat,
             $"A {order.Size} coffee for {order.CupName}. Place the order?",
-            replyMarkup: CoffeeFlow.ConfirmKeyboard,
+            replyMarkup: CoffeeFlow.ConfirmKeyboard(message.From!.Id, order.OrderId),
             cancellationToken: token
         );
+
+        await conversation.MoveToAsync(CoffeeFlow.ConfirmStep, order with { CardId = card.Id }, token);
     }
 }

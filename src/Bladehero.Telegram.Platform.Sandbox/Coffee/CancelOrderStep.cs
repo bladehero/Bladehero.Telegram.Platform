@@ -6,11 +6,16 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 
+// A step of every coffee step: the order's Cancel button, wherever it is shown.
 [ConversationStep(CoffeeFlow.Name)]
 internal sealed class CancelOrderStep(IConversation conversation) : CallbackQueryCommand
 {
-    protected override Task<bool> CanHandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
-        Task.FromResult(request.Payload.Data == CoffeeFlow.CancelButton);
+    protected override async Task<bool> CanHandleAsync(
+        TypedCommandRequest<CallbackQuery> request,
+        CancellationToken token
+    ) =>
+        CoffeeButton.Parse(request.Payload.Data) is { Action: CoffeeFlow.CancelAction } button
+        && await CoffeeFlow.IsCurrentAsync(conversation, button, request.Payload.From.Id, token);
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {
