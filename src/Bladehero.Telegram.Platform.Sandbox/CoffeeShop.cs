@@ -24,6 +24,7 @@ internal static class CoffeeShop
         services.AddSingleton<PendingReceipts>();
         services.AddSingleton<ReceiptCard>();
         services.AddSingleton<ReceiptHistory>();
+        services.AddSingleton<ReceiptAlbums>();
 
         return services;
     }

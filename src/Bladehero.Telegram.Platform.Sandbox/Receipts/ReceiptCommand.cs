@@ -6,7 +6,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
-// A member's receipt sent on its own, not in an album: a photo, or a PDF or image as a file.
+// A member's receipt sent on its own: a photo, or a PDF or image as a file. Album items go to ReceiptAlbumCommand.
 internal sealed class ReceiptCommand(IReceiptReader reader, ReceiptCard card) : KnownUserCommand<Member>
 {
     protected override bool Matches(Message message) => message.MediaGroupId is null && ReceiptFiles.IsReceipt(message);
