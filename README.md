@@ -524,16 +524,22 @@ report.ReadAsString().Should().Be("a,b");
 | `bot.Api` | |
 | --- | --- |
 | `Calls` | Every Bot API call with its parameters. |
-| `CommandMenu(scope?)` | The published command menu. |
+| `CommandMenu(scope?)` | The published command menu; the default scope when none is given. |
 | `WebhookUrl` | The webhook the bot set. |
-| `Fail(method, error, times?)` | Makes Telegram refuse a method. |
+| `Fail(method, error, times?, chatId?)` | Makes Telegram refuse a method, for every chat or only one. |
 
 ```csharp
-bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                   // every call
-bot.Api.Fail("sendPhoto", BotApiError.TooManyRequests(1), times: 1);   // only the next one
+bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                                 // every call
+bot.Api.Fail("sendPhoto", BotApiError.TooManyRequests(1), times: 1);                 // only the next one
+bot.Api.Fail("sendMessage", BotApiError.BotBlocked, chatId: anna.Chat.Id);           // Anna blocked the bot
+
+bot.Api.CommandMenu(new BotCommandScopeAllPrivateChats()).Should().NotBeEmpty();     // a menu for private chats
 
 await bot.SendAsync(new Update { /* … */ });   // any raw update
 ```
+
+The bot can write only to a chat Telegram knows: open it first with `PrivateChat` or `GroupChat` (a raw update's chat
+counts too), also for messages the bot starts itself.
 
 To fail a call made during startup, arrange the fake first:
 
@@ -548,9 +554,19 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync(
 );
 ```
 
-A method's first failure applies until its `times` run out, then the next one does. The fake answers like Telegram,
-errors included (editing a deleted message, answering a tap twice, files over 20 MB), and fails the test on a method it
-doesn't support.
+A method's first matching failure applies until its `times` run out, then the next one does. The fake answers like
+Telegram, with Telegram's own error texts, and fails the test on a method it doesn't support. It enforces:
+
+- `allowed_updates`: an action whose type the bot didn't ask for fails before anything changes;
+- limits: text up to 4096 characters, captions up to 1024, answers up to 200, callback data of 1-64 bytes, and inline
+  buttons that each do something;
+- trimming of the text and captions the bot sends, entities included;
+- only chats Telegram knows;
+- one answer per tap;
+- "message is not modified";
+- edits only of the bot's own messages, text edits only of text and caption edits only of files, and edits and
+  deletions only of messages still there;
+- downloads up to 20 MB.
 
 ## Samples
 
