@@ -1,36 +1,25 @@
 namespace Bladehero.Telegram.Platform.Receiving.Commands;
 
+/// <summary>
+/// Sets the command's priority, global then group; lower runs first, and unmarked commands run before all.
+/// </summary>
+/// <remarks>
+/// Commands with equal priority run in parallel, up to <c>ParallelCount</c> at a time. An attribute cannot take an
+/// <c>int?</c>, so leaving the group out is its own constructor. A negative value compiles but fails when the
+/// attribute is read, at startup.
+/// </remarks>
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class CommandPriorityAttribute : Attribute
 {
     public CommandPriority Priority { get; }
 
-    /// <summary>
-    /// Defines command priority based on provided integers in format Global:Group
-    /// </summary>
-    /// <param name="global">
-    /// Global level of priority <br/>
-    /// The lower Global value - the higher priority: <br/>
-    /// 0 - is the highest priority
-    /// </param>
-    /// <param name="group">
-    /// Group level of priority <br/>
-    /// If two (or more) items have the same global level of priority
-    /// Then the order of the execution is defined by this Group value <br/>
-    /// The lower Group value - the higher priority: <br/>
-    /// 0 - is the highest priority <br/>
-    /// null - means no group priority defined, and it will be the lowest priority
-    /// in that case if parallel execution enabled it could invoke both (or more in parallel)
-    /// </param>
-    public CommandPriorityAttribute(int global, int? group = null)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(global);
+    /// <summary>Runs after the commands with the same global priority that set a group.</summary>
+    /// <param name="global">Global priority; 0 is the highest you can set.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="global"/> is negative.</exception>
+    public CommandPriorityAttribute(int global) => Priority = new CommandPriority(global);
 
-        if (group.HasValue)
-        {
-            ArgumentOutOfRangeException.ThrowIfNegative(group.Value);
-        }
-
-        Priority = new CommandPriority(global, group);
-    }
+    /// <param name="global">Global priority; 0 is the highest you can set.</param>
+    /// <param name="group">Order within the global priority; lower runs first.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Either value is negative.</exception>
+    public CommandPriorityAttribute(int global, int group) => Priority = new CommandPriority(global, group);
 }

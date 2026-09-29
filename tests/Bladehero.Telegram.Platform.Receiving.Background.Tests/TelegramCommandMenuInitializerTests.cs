@@ -100,7 +100,7 @@ public sealed class TelegramCommandMenuInitializerTests
         CommandMenuScope scope = CommandMenuScope.Default
     ) =>
         new(
-            new TelegramBotClientAccessor(client),
+            client,
             new Menu(declared ?? [Start, Help]),
             Options.Create(
                 new TelegramReceiverConfiguration

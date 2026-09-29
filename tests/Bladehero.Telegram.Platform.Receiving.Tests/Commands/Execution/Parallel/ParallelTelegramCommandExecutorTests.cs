@@ -13,8 +13,13 @@ namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands.Execution.Paralle
 
 public sealed class ParallelTelegramCommandExecutorTests
 {
-    private static readonly TimeSpan Delay = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan Precision = TimeSpan.FromMilliseconds(200);
+    // Each command's run. Every check is an ordering or one-sided, so a loaded machine can't fail it: commands that ran
+    // together overlap, each starting before any ends; rounds one after another start only once the one before has
+    // ended, and take at least two runs.
+    private static readonly TimeSpan Delay = TimeSpan.FromSeconds(1);
+
+    // A timer can fire up to one system clock tick (about 16 ms on Windows) before the stopwatch shows its delay.
+    private static readonly TimeSpan TimerSlack = TimeSpan.FromMilliseconds(100);
 
     private static readonly ITelegramBotClient Client = Mock.Of<ITelegramBotClient>();
 
@@ -65,13 +70,16 @@ public sealed class ParallelTelegramCommandExecutorTests
             var (groupBStart, groupBEnd) = WindowOf(log, "B1", "B2");
 
             // Group A runs its two commands concurrently (single round), not one after another.
-            AssertRanConcurrently(groupAStart, groupAEnd);
+            AssertRanConcurrently(log, "A1", "A2");
 
-            // Group B only starts once Group A has fully finished, with no wasted idle time in between.
-            AssertRunsRightAfter(groupBStart, groupAEnd);
+            // Group B only starts once Group A has fully finished.
+            AssertStartsAfter(groupBStart, groupAEnd);
 
             // Group B also runs its two commands concurrently.
-            AssertRanConcurrently(groupBStart, groupBEnd);
+            AssertRanConcurrently(log, "B1", "B2");
+
+            // The two groups take two rounds.
+            AssertTookTwoRounds(groupAStart, groupBEnd);
         }
     }
 
@@ -98,12 +106,10 @@ public sealed class ParallelTelegramCommandExecutorTests
             log.Events.Should().Equal("C1:start", "C1:end", "C2:start", "C2:end");
 
             // The second sub-group (Group=1) only starts once the first (Group=0) has finished.
-            AssertRunsRightAfter(log.OffsetOf("C2:start"), log.OffsetOf("C1:end"));
+            AssertStartsAfter(log.OffsetOf("C2:start"), log.OffsetOf("C1:end"));
 
-            // Two fully sequential rounds should take roughly 2x a single command's delay.
-            (log.OffsetOf("C2:end") - log.OffsetOf("C1:start"))
-                .Should()
-                .BeCloseTo(Delay * 2, Precision);
+            // Two fully sequential rounds take at least twice a single command's delay.
+            AssertTookTwoRounds(log.OffsetOf("C1:start"), log.OffsetOf("C2:end"));
         }
     }
 
@@ -126,10 +132,8 @@ public sealed class ParallelTelegramCommandExecutorTests
         // Assert
         using (new AssertionScope())
         {
-            var (groupStart, groupEnd) = WindowOf(log, "E1", "E2");
-
             // Both commands fit under the ParallelCount cap, so they should run in a single concurrent round.
-            AssertRanConcurrently(groupStart, groupEnd);
+            AssertRanConcurrently(log, "E1", "E2");
         }
     }
 
@@ -158,15 +162,13 @@ public sealed class ParallelTelegramCommandExecutorTests
             var secondChunkEnd = log.OffsetOf("F3:end");
 
             // The first chunk (F1, F2) fills the cap of 2, so it runs concurrently as one round.
-            AssertRanConcurrently(firstChunkStart, firstChunkEnd);
+            AssertRanConcurrently(log, "F1", "F2");
 
             // The third command overflows the cap and only starts once the first chunk has fully finished.
-            AssertRunsRightAfter(secondChunkStart, firstChunkEnd);
+            AssertStartsAfter(secondChunkStart, firstChunkEnd);
 
-            // Two sequential rounds should take roughly 2x a single command's delay.
-            (secondChunkEnd - firstChunkStart)
-                .Should()
-                .BeCloseTo(Delay * 2, Precision);
+            // Two sequential rounds take at least twice a single command's delay.
+            AssertTookTwoRounds(firstChunkStart, secondChunkEnd);
         }
     }
 
@@ -190,10 +192,8 @@ public sealed class ParallelTelegramCommandExecutorTests
         // Assert
         using (new AssertionScope())
         {
-            var (groupStart, groupEnd) = WindowOf(log, "G1", "G2", "G3");
-
             // With no ParallelCount configured, the whole group (3 commands) runs unbounded, in one round.
-            AssertRanConcurrently(groupStart, groupEnd);
+            AssertRanConcurrently(log, "G1", "G2", "G3");
         }
     }
 
@@ -278,10 +278,8 @@ public sealed class ParallelTelegramCommandExecutorTests
         // Assert
         using (new AssertionScope())
         {
-            var (groupStart, groupEnd) = WindowOf(log, "K1", "K2");
-
             // A group exactly the size of the cap must not spill into a wasted second, empty round.
-            AssertRanConcurrently(groupStart, groupEnd);
+            AssertRanConcurrently(log, "K1", "K2");
         }
     }
 
@@ -307,8 +305,8 @@ public sealed class ParallelTelegramCommandExecutorTests
             log.Events.Should().Equal("L1:start", "L1:end", "L2:start", "L2:end");
 
             // A cap of exactly 1 (bounded) must serialize commands, unlike an unconfigured (unbounded) cap.
-            AssertRunsRightAfter(log.OffsetOf("L2:start"), log.OffsetOf("L1:end"));
-            (log.OffsetOf("L2:end") - log.OffsetOf("L1:start")).Should().BeCloseTo(Delay * 2, Precision);
+            AssertStartsAfter(log.OffsetOf("L2:start"), log.OffsetOf("L1:end"));
+            AssertTookTwoRounds(log.OffsetOf("L1:start"), log.OffsetOf("L2:end"));
         }
     }
 
@@ -345,19 +343,17 @@ public sealed class ParallelTelegramCommandExecutorTests
         {
             var (groupBFirstChunkStart, groupBFirstChunkEnd) = WindowOf(log, "N1", "N2", "N3");
 
-            // Group A (a single command, below the cap) is not artificially chunked.
-            AssertRunsRightAfter(groupBFirstChunkStart, log.OffsetOf("M1:end"));
+            // Group B only starts once Group A (a single command, below the cap) has finished.
+            AssertStartsAfter(groupBFirstChunkStart, log.OffsetOf("M1:end"));
 
             // Group B's first chunk (3 commands, exactly the cap) runs concurrently.
-            AssertRanConcurrently(groupBFirstChunkStart, groupBFirstChunkEnd);
+            AssertRanConcurrently(log, "N1", "N2", "N3");
 
             // Group B's 4th command overflows the cap and only starts once the first chunk finishes.
-            AssertRunsRightAfter(log.OffsetOf("N4:start"), groupBFirstChunkEnd);
+            AssertStartsAfter(log.OffsetOf("N4:start"), groupBFirstChunkEnd);
 
             // Group B takes two sequential rounds in total.
-            (log.OffsetOf("N4:end") - groupBFirstChunkStart)
-                .Should()
-                .BeCloseTo(Delay * 2, Precision);
+            AssertTookTwoRounds(groupBFirstChunkStart, log.OffsetOf("N4:end"));
         }
     }
 
@@ -373,15 +369,19 @@ public sealed class ParallelTelegramCommandExecutorTests
         );
     }
 
-    private static void AssertRanConcurrently(TimeSpan groupStart, TimeSpan groupEnd) =>
-        (groupEnd - groupStart).Should().BeCloseTo(Delay, Precision);
-
-    private static void AssertRunsRightAfter(TimeSpan later, TimeSpan earlier)
+    // Every command started before any of them ended.
+    private static void AssertRanConcurrently(EventLog log, params string[] names)
     {
-        var gap = later - earlier;
-        gap.Should().BeGreaterThanOrEqualTo(TimeSpan.Zero);
-        gap.Should().BeLessThan(Precision);
+        var lastStart = names.Max(name => log.OffsetOf($"{name}:start"));
+        var firstEnd = names.Min(name => log.OffsetOf($"{name}:end"));
+        lastStart.Should().BeLessThan(firstEnd, "commands that run together overlap");
     }
+
+    private static void AssertStartsAfter(TimeSpan later, TimeSpan earlier) =>
+        later.Should().BeGreaterThanOrEqualTo(earlier, "a round starts only once the one before has ended");
+
+    private static void AssertTookTwoRounds(TimeSpan start, TimeSpan end) =>
+        (end - start).Should().BeGreaterThanOrEqualTo(Delay * 2 - TimerSlack, "two rounds take two runs");
 
     private static (TimeSpan Start, TimeSpan End) WindowOf(EventLog log, params string[] names) =>
         (

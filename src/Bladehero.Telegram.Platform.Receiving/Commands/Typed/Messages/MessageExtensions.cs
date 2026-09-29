@@ -5,14 +5,13 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 public static class MessageExtensions
 {
     /// <summary>
-    /// Whether the message is the given bot command — <c>/last</c>, <c>/last@BotName</c> or <c>/last 10</c>.
+    /// Whether the message is the bot command: <c>/last</c>, <c>/last@BotName</c> or <c>/last 10</c>. The command ends
+    /// at the first whitespace, a newline or tab included.
     /// </summary>
     public static bool IsCommand(this Message message, string command) =>
-        message.Text?.Split(' ', '@')[0].Equals(command, StringComparison.OrdinalIgnoreCase) is true;
+        message.Text is { } text && CommandOf(text).Equals(command, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// The text following a bot command, or <c>null</c> when the message carries none.
-    /// </summary>
+    /// <summary>The text after the bot command and its whitespace, trimmed, or <c>null</c> when there is none.</summary>
     public static string? ArgumentsOf(this Message message, string command)
     {
         if (!message.IsCommand(command))
@@ -20,9 +19,26 @@ public static class MessageExtensions
             return null;
         }
 
-        var separator = message.Text!.IndexOf(' ');
-        return separator < 0 ? null
-            : message.Text[(separator + 1)..].Trim() is { Length: > 0 } text ? text
-            : null;
+        var text = message.Text!;
+        return text[EndOfCommand(text)..].Trim() is { Length: > 0 } arguments ? arguments : null;
+    }
+
+    // The text up to the first whitespace, without an @username.
+    private static string CommandOf(string text)
+    {
+        var token = text[..EndOfCommand(text)];
+        var at = token.IndexOf('@');
+        return at < 0 ? token : token[..at];
+    }
+
+    private static int EndOfCommand(string text)
+    {
+        var end = 0;
+        while (end < text.Length && !char.IsWhiteSpace(text[end]))
+        {
+            end++;
+        }
+
+        return end;
     }
 }

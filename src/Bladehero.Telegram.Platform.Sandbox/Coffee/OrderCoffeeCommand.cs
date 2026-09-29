@@ -1,28 +1,22 @@
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
-using Bladehero.Telegram.Platform.Receiving.Conversations;
-using Telegram.Bot;
 using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 
+// "/coffee", or "/coffee large" to skip the size step.
 [BotCommand("coffee", "Order a coffee", Order = 1)]
-internal sealed class OrderCoffeeCommand(IConversation conversation) : MessageCommand
+internal sealed class OrderCoffeeCommand(CoffeeOrdering ordering) : MessageCommand
 {
     protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-        Task.FromResult(request.Payload.IsCommand("/coffee"));
+        Task.FromResult(request.Payload.From is not null && request.Payload.IsCommand("/coffee"));
 
-    protected override async Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+    protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
     {
         var (_, message, client) = request;
+        var size = CoffeeFlow.ParseSize(message.ArgumentsOf("/coffee"));
 
-        await conversation.StartAsync(CoffeeFlow.Name, CoffeeFlow.SizeStep, new CoffeeOrder(), token);
-        await client.SendMessage(
-            message.Chat,
-            "What size?",
-            replyMarkup: CoffeeFlow.SizeKeyboard,
-            cancellationToken: token
-        );
+        return ordering.StartAsync(client, message.Chat, message.From!.Id, size, token);
     }
 }

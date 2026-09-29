@@ -1,14 +1,16 @@
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 
-/// <summary>
-/// Maps a Telegram chat onto whatever the application calls a user.
-/// </summary>
-/// <remarks>
-/// Keyed on the chat id rather than the message so the same resolver serves callback queries and any
-/// other update carrying a chat.
-/// </remarks>
+/// <summary>Maps where an update came from to the application's user, for messages and buttons alike.</summary>
 public interface ITelegramUserResolver<TUser>
     where TUser : class
 {
-    Task<TUser?> ResolveAsync(long chatId, CancellationToken token);
+    /// <summary>The application's user behind an update, or <c>null</c> to decline the update.</summary>
+    /// <param name="chatId">The chat the update came from.</param>
+    /// <param name="userId">The Telegram user who sent it; in a private chat, the same id as the chat.</param>
+    /// <param name="token">Cancels the lookup.</param>
+    /// <remarks>
+    /// Resolve by <paramref name="userId"/> to know a person in every chat, or by <paramref name="chatId"/> to know a
+    /// chat, such as a household's group.
+    /// </remarks>
+    Task<TUser?> ResolveAsync(long chatId, long userId, CancellationToken token);
 }

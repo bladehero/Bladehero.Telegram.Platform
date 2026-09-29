@@ -5,11 +5,11 @@ using Telegram.Bot;
 namespace Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 
 internal sealed class TelegramLongPollingBackgroundService(
-    TelegramBotClientAccessor accessor,
+    ITelegramBotClient client,
     ScopedUpdateHandler updateHandler,
     IOptions<TelegramReceiverConfiguration> options
 ) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
-        accessor.Client.ReceiveAsync(updateHandler, options.Value.ToOptions(), stoppingToken);
+        client.ReceiveAsync(updateHandler, options.Value.ToOptions(), stoppingToken);
 }

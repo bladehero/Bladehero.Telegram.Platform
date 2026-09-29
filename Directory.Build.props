@@ -32,4 +32,17 @@
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
+
+  <!--
+    The packages ship together under one version, and some use each other's internals, so each depends on exactly the
+    version of its siblings it was built with ([x.y.z]) rather than that version or later.
+  -->
+  <Target Name="PinProjectReferenceVersions" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions
+        Update="@(_ProjectReferencesWithVersions)"
+        ProjectVersion="[%(_ProjectReferencesWithVersions.ProjectVersion)]"
+      />
+    </ItemGroup>
+  </Target>
 </Project>

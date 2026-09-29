@@ -38,6 +38,20 @@ public sealed class KnownUserCallbackQueryCommandTests
     }
 
     [Fact]
+    public async Task CanHandleAsync_ShouldResolveWhoTappedInTheChatOfTheButton()
+    {
+        // Arrange
+        var resolver = new Resolver();
+        var sut = new DeleteCommand(resolver);
+
+        // Act
+        await sut.CanHandleAsync(Tap(KnownChat, $"delete:{ExpenseId:N}"), CancellationToken.None);
+
+        // Assert
+        resolver.Seen.Should().Equal((KnownChat, 7L));
+    }
+
+    [Fact]
     public async Task CanHandleAsync_WhenTheChatIsUnknown_ShouldDecline()
     {
         // Arrange
@@ -118,11 +132,13 @@ public sealed class KnownUserCallbackQueryCommandTests
 
     private sealed class Resolver : ITelegramUserResolver<TestUser>
     {
-        public int Calls { get; private set; }
+        public List<(long ChatId, long UserId)> Seen { get; } = [];
 
-        public Task<TestUser?> ResolveAsync(long chatId, CancellationToken token)
+        public int Calls => Seen.Count;
+
+        public Task<TestUser?> ResolveAsync(long chatId, long userId, CancellationToken token)
         {
-            Calls++;
+            Seen.Add((chatId, userId));
             return Task.FromResult(chatId == KnownChat ? new TestUser("Nick") : null);
         }
     }

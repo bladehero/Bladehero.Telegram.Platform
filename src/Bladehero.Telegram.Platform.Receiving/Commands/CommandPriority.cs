@@ -10,20 +10,13 @@ public sealed class CommandPriority
         new CommandPriorityEqualityComparer();
 
     /// <summary>
-    /// Global level of priority <br/>
-    /// The lower Global value - the higher priority: <br/>
-    /// 0 - is the highest priority
+    /// Global priority; lower runs first. 0 is the highest you can set, but unmarked commands (-1) run before all.
     /// </summary>
     public int Global { get; private set; }
 
     /// <summary>
-    /// Group level of priority <br/>
-    /// If two (or more) items have the same global level of priority
-    /// Then the order of the execution is defined by this Group value <br/>
-    /// The lower Group value - the higher priority: <br/>
-    /// 0 - is the highest priority <br/>
-    /// null - means no group priority defined, and it will be the lowest priority
-    /// in that case if parallel execution enabled it could invoke both (or more in parallel)
+    /// Order within the same global priority; lower runs first, <c>null</c> last. Commands with equal priority run in
+    /// parallel, up to <c>ParallelCount</c> at a time.
     /// </summary>
     public int? Group { get; private set; }
 

@@ -2,13 +2,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
-/// <summary>
-/// Whose conversation an update belongs to: one user in one chat.
-/// </summary>
-/// <remarks>
-/// Keyed on the user as well as the chat so that in a group every member runs a conversation of their own, and
-/// one member's button press never advances another's flow. In a private chat both ids are the same person.
-/// </remarks>
+/// <summary>One user in one chat, so each group member has a conversation of their own.</summary>
 public readonly record struct ConversationKey(long ChatId, long UserId)
 {
     internal static ConversationKey? For(Update update) =>
