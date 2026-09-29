@@ -1,6 +1,7 @@
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
+using Bladehero.Telegram.Platform.Sandbox.Barista;
 using Bladehero.Telegram.Platform.Sandbox.Loyalty;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -8,7 +9,8 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 
 [ConversationStep(CoffeeFlow.Name, CoffeeFlow.ConfirmStep)]
-internal sealed class ConfirmOrderStep(IConversation conversation, MemberDirectory members) : CallbackQueryCommand
+internal sealed class ConfirmOrderStep(IConversation conversation, MemberDirectory members, OrderQueue orders)
+    : CallbackQueryCommand
 {
     private const int PointsPerCoffee = 10;
 
@@ -29,6 +31,7 @@ internal sealed class ConfirmOrderStep(IConversation conversation, MemberDirecto
 
         // Anyone can order; members earn points for it.
         members.Earn(query.From.Id, PointsPerCoffee);
+        orders.Queue(new PlacedOrder(card.Chat.Id, order.Size!.Value, order.CupName!));
 
         await client.AnswerCallbackQuery(query.Id, cancellationToken: token);
         await client.EditMessageText(

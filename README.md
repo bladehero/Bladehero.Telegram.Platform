@@ -587,6 +587,27 @@ var done = await nick.WaitForMessageAsync(x => x.Text?.StartsWith("Imported") is
 It returns the newest matching message, or else the first to match later, new or edited. It looks again on every change
 to the chat, without polling, and after `UpdateTimeout` fails showing the chat.
 
+A message that waits on a timer comes as soon as the test moves the clock on, when the bot takes its time from an
+injected `TimeProvider` (`Task.Delay(delay, timeProvider, token)`). Register a `FakeTimeProvider`, from
+`Microsoft.Extensions.TimeProvider.Testing`, after the bot's own registrations:
+
+```csharp
+var time = new FakeTimeProvider();
+await using var bot = await TelegramTestHost.ForLongPollingAsync(services =>
+{
+    services.AddReminderBot(configuration);          // the app's registrations
+    services.AddSingleton<TimeProvider>(time);       // the clock, last
+});
+var nick = bot.PrivateChat("Nick");
+await nick.SendsAsync("/remind 1m");
+
+time.Advance(TimeSpan.FromMinutes(1));
+var reminder = await nick.WaitForMessageAsync(x => x.Text?.StartsWith("⏰") is true);
+```
+
+Start the timer while the update is handled, as the `Sandbox` barista's `OrderQueue` does: a background loop that
+starts it later may not have started it yet when the test moves the clock on, and then waits for another move.
+
 ### Check and fail Telegram
 
 | `bot.Api` | |

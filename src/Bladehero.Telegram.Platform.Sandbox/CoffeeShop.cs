@@ -1,11 +1,13 @@
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Bladehero.Telegram.Platform.Sandbox.Barista;
 using Bladehero.Telegram.Platform.Sandbox.Coffee;
 using Bladehero.Telegram.Platform.Sandbox.Loyalty;
 using Bladehero.Telegram.Platform.Sandbox.Receipts;
 using Bladehero.Telegram.Platform.Sandbox.Voice;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Bladehero.Telegram.Platform.Sandbox;
 
@@ -15,19 +17,27 @@ internal static class CoffeeShop
     internal static IServiceCollection AddCoffeeShop(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddTelegramLongPollingReceiving(configuration, assemblies: typeof(CoffeeShop).Assembly);
-
         services.Configure<CoffeeShopOptions>(configuration.GetSection(CoffeeShopOptions.Section));
+        services.TryAddSingleton(TimeProvider.System);
+
+        // The loyalty club.
         services.AddSingleton<MemberDirectory>();
         services.AddSingleton<ITelegramUserResolver<Member>, MemberResolver>();
         services.AddSingleton<PointsCard>();
-        services.AddScoped<CoffeeOrdering>();
 
-        // External services are off until a real one is registered after these.
-        services.AddSingleton<IReceiptReader, DisabledReceiptReader>();
+        // Coffee orders, and the barista who announces them when brewed.
+        services.AddScoped<CoffeeOrdering>();
+        services.AddSingleton<OrderQueue>();
+        services.AddHostedService<BaristaService>();
+
+        // Receipts.
         services.AddSingleton<PendingReceipts>();
         services.AddSingleton<ReceiptCard>();
         services.AddSingleton<ReceiptHistory>();
         services.AddSingleton<ReceiptAlbums>();
+
+        // External services, off until real ones are registered after these.
+        services.AddSingleton<IReceiptReader, DisabledReceiptReader>();
         services.AddSingleton<ITranscriber, DisabledTranscriber>();
 
         return services;
