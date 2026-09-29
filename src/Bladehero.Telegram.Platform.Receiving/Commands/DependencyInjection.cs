@@ -5,6 +5,7 @@ using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Bladehero.Telegram.Platform.Receiving.Commands;
 
@@ -54,6 +55,17 @@ internal static class DependencyInjection
 
         // Thrown here, at registration, listing every problem.
         services.AddSingleton(ButtonCatalog.Scan(assemblies.SelectMany(x => x.DefinedTypes), commands));
+
+        var requirements = KnownUserResolverValidator.RequirementsOf(commands.Select(x => x.Type));
+        if (requirements.Count > 0)
+        {
+            // Checked on start, once the app has registered its resolvers, before or after these services.
+            services.AddSingleton<IValidateOptions<KnownUserResolvers>>(provider => new KnownUserResolverValidator(
+                requirements,
+                provider.GetService<IServiceProviderIsService>()
+            ));
+            services.AddOptions<KnownUserResolvers>().ValidateOnStart();
+        }
 
         foreach (var command in commands)
         {

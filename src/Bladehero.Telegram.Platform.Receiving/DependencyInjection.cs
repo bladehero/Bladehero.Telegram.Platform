@@ -23,7 +23,8 @@ public static class DependencyInjection
     /// </summary>
     /// <remarks>
     /// A command is any class, public or not, that implements <see cref="ITelegramCommand"/> and is neither abstract
-    /// nor generic; each is registered as scoped.
+    /// nor generic; each is registered as scoped. The host then fails to start when a known-user command's
+    /// <c>ITelegramUserResolver&lt;TUser&gt;</c> isn't registered.
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="assemblies"/> is empty.</exception>
     /// <exception cref="InvalidOperationException">
