@@ -28,6 +28,21 @@ public sealed partial class FakeBotApi
     private const string FilePathPrefix = $"/file/bot{Token}/";
     private const int DownloadLimit = 20 * 1024 * 1024;
 
+    private static readonly HashSet<string> ChatActions =
+    [
+        "typing",
+        "upload_photo",
+        "record_video",
+        "upload_video",
+        "record_voice",
+        "upload_voice",
+        "upload_document",
+        "choose_sticker",
+        "find_location",
+        "record_video_note",
+        "upload_video_note",
+    ];
+
     private readonly object _gate = new();
     private readonly List<BotApiCall> _calls = [];
     private readonly List<Failure> _failures = [];
@@ -289,6 +304,7 @@ public sealed partial class FakeBotApi
             "editMessageCaption" => Edit(parameters, "caption"),
             "editMessageReplyMarkup" => Edit(parameters, field: null),
             "deleteMessage" => Delete(parameters),
+            "sendChatAction" => SendChatAction(parameters),
             "answerCallbackQuery" => AnswerCallbackQuery(parameters),
             "setWebhook" => SetWebhook(parameters),
             "getWebhookInfo" => WebhookInfo(),
@@ -454,6 +470,19 @@ public sealed partial class FakeBotApi
     }
 
     // As in Telegram, the bot can only write to a chat it knows: one a user opened or an update brought.
+    // "typing…" and the like show for a moment and leave nothing in the chat.
+    private JsonNode SendChatAction(JsonObject parameters)
+    {
+        ChatOf(parameters);
+
+        if (parameters["action"]?.GetValue<string>() is not { } action || !ChatActions.Contains(action))
+        {
+            throw Refuse(400, "Bad Request: wrong parameter action in request");
+        }
+
+        return true;
+    }
+
     private ChatHistory ChatOf(JsonObject parameters)
     {
         var chatId = NumberOf(parameters["chat_id"]);

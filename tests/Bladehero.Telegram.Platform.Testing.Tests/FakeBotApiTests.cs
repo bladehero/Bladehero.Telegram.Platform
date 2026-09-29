@@ -1,9 +1,11 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
+using Telegram.Bot.Requests;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -1260,6 +1262,42 @@ public sealed partial class FakeBotApiTests
         }
     }
 
+    [Fact]
+    public async Task SendChatAction_ShouldBeAnsweredAndRecorded()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+
+        // Act
+        await client.SendChatAction(Chat, ChatAction.UploadDocument);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            api.Calls.Should().ContainSingle(x => x.Method == "sendChatAction").Which.Parameters["action"]!
+                .GetValue<string>()
+                .Should()
+                .Be("upload_document");
+            api.MessagesIn(Chat).Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task SendChatAction_WithAnActionTelegramDoesNotHave_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+
+        // Act
+        var act = () => client.SendRequest(new RawChatActionRequest(Chat, "dancing"));
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Be("Bad Request: wrong parameter action in request");
+    }
+
     // A fake the bot may write to Chat and 7 on, as if both users had started it.
     private static FakeBotApi ApiWithChats()
     {
@@ -1267,6 +1305,12 @@ public sealed partial class FakeBotApiTests
         api.PrivateChatWith(new JsonObject { ["id"] = Chat, ["first_name"] = "Nick" });
         api.PrivateChatWith(new JsonObject { ["id"] = 7L, ["first_name"] = "Anna" });
         return api;
+    }
+
+    // An action Telegram.Bot's ChatAction cannot name.
+    private sealed class RawChatActionRequest(long chatId, string action) : RequestBase<bool>("sendChatAction")
+    {
+        public override HttpContent ToHttpContent() => JsonContent.Create(new { chat_id = chatId, action });
     }
 
     private static string StoreDocument(FakeBotApi api, byte[] content, string fileName) =>
