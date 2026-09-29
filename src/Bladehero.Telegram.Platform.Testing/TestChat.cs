@@ -35,7 +35,9 @@ public sealed class TestChat
     /// that started it was handled.
     /// </summary>
     /// <param name="match">Accepts the message waited for.</param>
-    /// <param name="timeout">How long to wait; the host's <see cref="TelegramTestHost.UpdateTimeout"/> by default.</param>
+    /// <param name="timeout">
+    /// How long to wait; the host's <see cref="TelegramTestHost.UpdateTimeout"/> by default.
+    /// </param>
     /// <param name="token">Stops waiting.</param>
     /// <returns>
     /// The newest matching message as the chat now stands; failing that, the first message to match later, whether

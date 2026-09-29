@@ -304,7 +304,8 @@ public sealed class TestUser
         {
             throw new ArgumentException(
                 $"Telegram takes at most {FakeBotApi.TextLimit} characters in a message, and this text has "
-                    + $"{text.Length}: the Telegram app splits longer text into several messages; send them one by one.",
+                    + $"{text.Length}: the Telegram app splits longer text into several messages; send them one "
+                    + "by one.",
                 name
             );
         }

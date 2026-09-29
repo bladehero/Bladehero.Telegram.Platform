@@ -5,7 +5,8 @@ using Microsoft.Extensions.Hosting;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// A bot that pulls its updates from the fake with a real long-polling loop, on a generic host or in an ASP.NET Core app.
+// A bot that pulls its updates from the fake with a real long-polling loop, on a generic host or in an ASP.NET Core
+// app.
 public sealed partial class TelegramTestHost
 {
     // An update is handled once the polling loop asks for the next offset.

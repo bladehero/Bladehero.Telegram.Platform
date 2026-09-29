@@ -32,7 +32,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Sending on your own](#sending-on-your-own)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
-  [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) ·
+  [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) · [waits](#wait-for-later-messages) ·
   [fake Telegram](#check-and-fail-telegram)
 - [Samples](#samples)
 
@@ -474,6 +474,19 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
 **Logs** reach a provider added with `builder.Logging.AddProvider(...)` in the builder overload, or with
 `web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
 
+**Seed users** the app must know before it starts with the ids Telegram will give them:
+
+```csharp
+var api = new FakeBotApi();
+var nick = api.UserIdOf("Nick");   // the id PrivateChat("Nick") gets later
+
+await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(
+    web => web.UseSetting("Budget:Owners:0", nick.ToString()),
+    api);
+
+var chat = bot.PrivateChat("Nick");   // open it before the bot writes to Nick
+```
+
 ### Chat with it
 
 ```csharp
@@ -490,6 +503,22 @@ nick.Messages.Select(x => x.ToString())
 
 Each action returns once the bot is done. Chats show both sides, with edits applied and deletions gone. A name is one
 user everywhere.
+
+| `TestUser` | |
+| --- | --- |
+| `SendsAsync`, `SendsPhotoAsync`, `SendsVoiceAsync`, `SendsDocumentAsync` | Send; return the message as posted. |
+| `SendsAlbumAsync`, `SendsDocumentAlbumAsync` | Send 2 to 10 photos or files as one album. |
+| `EditsAsync(message, text)` | Edit the user's own text message. |
+| `TapsAsync(text or predicate, on?)` | Tap an inline button; return the bot's answer. |
+| `WaitForMessageAsync(match, timeout?)` | Wait for a message the bot sends later; also on `TestChat`. |
+
+A sent message is a snapshot that stays valid even if the bot deletes it. A user can edit their own text message: the
+chat shows the edit, and the bot gets an `edited_message`.
+
+```csharp
+var order = await nick.SendsAsync("2 coffees");
+await nick.EditsAsync(order, "3 coffees");
+```
 
 An action waits up to `bot.UpdateTimeout` (30 s, no limit under a debugger), then says whether the bot never fetched
 the update or is stuck in a command. A bot that long-polls, on a generic host or in an ASP.NET Core app, fails the
@@ -517,6 +546,13 @@ stale.ToString().Should().Be("Notification: That button is no longer active.");
 
 An answer reads as `Notification: …`, `Alert: …`, `Answered silently` or `No answer`.
 
+Where labels repeat, such as a ◀ and a ▶ for each of two fields, pick the button by its data; tapping a repeated label
+by text fails and points there:
+
+```csharp
+await nick.TapsAsync(b => b.CallbackData == "date:next");
+```
+
 Tapping a button nobody sees fails the test and lists the buttons that are there.
 
 ### Send and read files
@@ -531,6 +567,26 @@ report.FileName.Should().Be("report.csv");
 report.ReadAsString().Should().Be("a,b");
 ```
 
+An album is 2 to 10 photos or files in one media group, each its own message and update, sent once the bot has handled
+the one before; its caption goes under the first photo, or under the last file as the apps put it:
+
+```csharp
+await nick.SendsAlbumAsync([front, back], caption: "Receipt");
+await nick.SendsDocumentAlbumAsync([(march, "march.csv"), (april, "april.csv")], caption: "Q2");
+```
+
+### Wait for later messages
+
+A message the bot sends after the update was handled, such as a notification from a background job, is waited for:
+
+```csharp
+await nick.SendsAsync("/import");   // answers "Importing…" and imports in the background
+var done = await nick.WaitForMessageAsync(x => x.Text?.StartsWith("Imported") is true);
+```
+
+It returns the newest matching message, or else the first to match later, new or edited. It looks again on every change
+to the chat, without polling, and after `UpdateTimeout` fails showing the chat.
+
 ### Check and fail Telegram
 
 | `bot.Api` | |
@@ -539,6 +595,7 @@ report.ReadAsString().Should().Be("a,b");
 | `CommandMenu(scope?)` | The published command menu; the default scope when none is given. |
 | `WebhookUrl` | The webhook the bot set. |
 | `Fail(method, error, times?, chatId?)` | Makes Telegram refuse a method, for every chat or only one. |
+| `UserIdOf(firstName)` | The Telegram id a test user gets, reserved before the host starts. |
 
 ```csharp
 bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                                 // every call
