@@ -83,17 +83,6 @@ public sealed partial class TelegramTestHost
 
         public ValueTask DisposeAsync() => _app.DisposeAsync();
 
-        private static TimeSpan Left(TimeSpan timeout, Stopwatch clock)
-        {
-            if (timeout == Timeout.InfiniteTimeSpan)
-            {
-                return timeout;
-            }
-
-            var left = timeout - clock.Elapsed;
-            return left > TimeSpan.Zero ? left : TimeSpan.Zero;
-        }
-
         // False once the time is up; throws if the host stops first.
         private async Task<bool> UntilAsync(Task done, TimeSpan timeout, CancellationToken token)
         {

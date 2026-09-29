@@ -409,8 +409,20 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     private static void BoundShutdown(IServiceCollection services) =>
         services.Configure<HostOptions>(options => options.ShutdownTimeout = ShutdownTimeout);
 
+    // What is left of `timeout` after `clock`'s time; infinite stays so.
+    internal static TimeSpan Left(TimeSpan timeout, Stopwatch clock)
+    {
+        if (timeout == Timeout.InfiniteTimeSpan)
+        {
+            return timeout;
+        }
+
+        var left = timeout - clock.Elapsed;
+        return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+    }
+
     // "500 ms", "1 second", "1.5 seconds".
-    private static string Describe(TimeSpan duration) =>
+    internal static string Describe(TimeSpan duration) =>
         duration < TimeSpan.FromSeconds(1)
             ? string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:0.###} ms")
         : duration == TimeSpan.FromSeconds(1) ? "1 second"

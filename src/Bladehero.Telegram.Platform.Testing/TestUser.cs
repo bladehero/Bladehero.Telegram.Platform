@@ -40,6 +40,13 @@ public sealed class TestUser
     /// <inheritdoc cref="TestChat.LastMessage"/>
     public TestMessage LastMessage => Chat.LastMessage;
 
+    /// <inheritdoc cref="TestChat.WaitForMessageAsync"/>
+    public Task<TestMessage> WaitForMessageAsync(
+        Func<TestMessage, bool> match,
+        TimeSpan? timeout = null,
+        CancellationToken token = default
+    ) => Chat.WaitForMessageAsync(match, timeout, token);
+
     /// <summary>Sends <paramref name="text"/>, trimmed as Telegram does.</summary>
     /// <returns>The message as posted: a snapshot that stays valid even if the bot then deletes it.</returns>
     /// <exception cref="ArgumentException">

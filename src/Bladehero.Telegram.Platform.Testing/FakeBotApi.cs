@@ -289,7 +289,18 @@ public sealed partial class FakeBotApi
             message["text"] = text;
             SetOrRemove(message, "entities", BotCommandEntities(text));
             message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            chat.Changed();
             return message.DeepClone().AsObject();
+        }
+    }
+
+    // The chat's messages now, and a task that completes on its next change.
+    internal (IReadOnlyList<JsonObject> Messages, Task NextChange) MessagesAndNextChange(long chatId)
+    {
+        lock (_gate)
+        {
+            var chat = _chats[chatId];
+            return ([.. chat.Messages.Select(message => message.DeepClone().AsObject())], chat.NextChange);
         }
     }
 
@@ -404,9 +415,8 @@ public sealed partial class FakeBotApi
     // a keyboard or caption the edit leaves out is removed.
     private JsonObject Edit(JsonObject parameters, string? field)
     {
-        var message =
-            ChatOf(parameters).Find(MessageIdOf(parameters))
-            ?? throw Refuse(400, "Bad Request: message to edit not found");
+        var chat = ChatOf(parameters);
+        var message = chat.Find(MessageIdOf(parameters)) ?? throw Refuse(400, "Bad Request: message to edit not found");
 
         if (message["from"]?["id"]?.GetValue<long>() != BotId)
         {
@@ -463,6 +473,7 @@ public sealed partial class FakeBotApi
 
         SetOrRemove(message, "reply_markup", newMarkup);
         message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        chat.Changed();
 
         return message.DeepClone().AsObject();
     }
@@ -489,7 +500,6 @@ public sealed partial class FakeBotApi
         return true;
     }
 
-    // As in Telegram, the bot can only write to a chat it knows: one a user opened or an update brought.
     // "typing…" and the like show for a moment and leave nothing in the chat.
     private JsonNode SendChatAction(JsonObject parameters)
     {
@@ -503,6 +513,7 @@ public sealed partial class FakeBotApi
         return true;
     }
 
+    // As in Telegram, the bot can only write to a chat it knows: one a user opened or an update brought.
     private ChatHistory ChatOf(JsonObject parameters)
     {
         var chatId = NumberOf(parameters["chat_id"]);

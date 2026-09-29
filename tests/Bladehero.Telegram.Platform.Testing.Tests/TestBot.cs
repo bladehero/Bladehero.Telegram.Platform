@@ -304,6 +304,25 @@ internal static class TestBot
             request.Client.SendMessage(request.Payload.Chat, "Pick one", replyMarkup: Menu, cancellationToken: token);
     }
 
+    // Answers later, from the background, as a job would after the update was handled.
+    private sealed class LaterCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/later"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (_, message, client) = request;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(200));
+                await client.SendMessage(message.Chat, "later");
+            });
+
+            return Task.CompletedTask;
+        }
+    }
+
     // Answers a user's edit.
     private sealed class EditedCommand : EditedMessageCommand
     {
