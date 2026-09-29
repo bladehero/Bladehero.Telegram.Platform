@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -250,18 +251,21 @@ public sealed partial class FakeBotApi
         return Receive(chatId, from, content);
     }
 
-    // The bot_command entity Telegram adds for a leading /command.
+    // The bot_command entity Telegram adds over a leading /command, as far as the characters a command allows go.
     internal static JsonArray? BotCommandEntities(string text) =>
-        BotCommandLength(text) is > 1 and var length
+        LeadingBotCommand().Match(text) is { Success: true } command
             ? new JsonArray(
                 new JsonObject
                 {
                     ["type"] = "bot_command",
                     ["offset"] = 0,
-                    ["length"] = length,
+                    ["length"] = command.Length,
                 }
             )
             : null;
+
+    [GeneratedRegex("^/[A-Za-z0-9_]{1,32}(@[A-Za-z0-9_]{3,32})?")]
+    private static partial Regex LeadingBotCommand();
 
     internal JsonObject Receive(long chatId, JsonObject from, JsonObject content)
     {
@@ -282,11 +286,6 @@ public sealed partial class FakeBotApi
     }
 
     internal string NextCallbackQueryId() => Interlocked.Increment(ref _lastCallbackQueryId).ToString();
-
-    private static int BotCommandLength(string text) =>
-        !text.StartsWith('/') ? 0
-        : text.IndexOfAny([' ', '\n']) is var end and >= 0 ? end
-        : text.Length;
 
     private JsonNode Answer(
         string method,

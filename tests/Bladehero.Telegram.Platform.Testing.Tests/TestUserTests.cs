@@ -170,6 +170,27 @@ public sealed class TestUserTests
         }
     }
 
+    [Theory]
+    [InlineData("/a-b", "/a")]
+    [InlineData("/кофе", null)]
+    [InlineData("/start@my_bot now", "/start@my_bot")]
+    public async Task SendsAsync_WithABotCommand_ShouldMarkOnlyWhatACommandMayHold(string text, string? marked)
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync(text);
+
+        // Assert
+        nick.Messages[0]
+            .Message.Entities?.Select(x => text.Substring(x.Offset, x.Length))
+            .SingleOrDefault()
+            .Should()
+            .Be(marked);
+    }
+
     [Fact]
     public async Task SendsAsync_ByAGroupMember_ShouldReachTheBotFromThatMember()
     {
