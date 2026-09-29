@@ -2,7 +2,8 @@ using System.Collections.Concurrent;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
-// Receipts read and shown on a card, waiting for Add or Discard. Kept in memory, so a restart loses them.
+// Receipts read and shown on a card, waiting for Add or Discard. Kept in memory until taken or the bot restarts; a
+// long-running bot would expire them, or keep them in its database.
 internal sealed class PendingReceipts
 {
     private readonly ConcurrentDictionary<string, Receipt> _receipts = new();

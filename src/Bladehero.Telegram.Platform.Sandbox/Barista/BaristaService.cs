@@ -23,9 +23,10 @@ internal sealed class BaristaService(OrderQueue queue, ITelegramSender sender, I
                     cancellationToken: stoppingToken
                 );
             }
-            catch (ApiRequestException error)
+            catch (RequestException error)
             {
-                // E.g. the customer blocked the bot; the next customer still gets their coffee.
+                // Telegram refused it, e.g. the customer blocked the bot, or it never got there; the next customer
+                // still gets their coffee.
                 logger.LogWarning(error, "Could not tell chat {ChatId} that their coffee is ready.", order.ChatId);
             }
         }

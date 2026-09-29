@@ -1,6 +1,8 @@
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Tests.Barista;
@@ -56,6 +58,32 @@ public sealed class BaristaTests
                     && x.Parameters["chat_id"]!.GetValue<long>() == nick.Chat.Id
                     && x.Parameters["text"]!.GetValue<string>() == "☕ Your Medium coffee for Nicky is ready!"
                 );
+        }
+    }
+
+    [Fact]
+    public async Task Order_WhenTheNetworkFailsForOneCustomer_ShouldStillAnnounceTheNext()
+    {
+        // Arrange
+        var time = new FakeTimeProvider();
+        await using var bot = await SandboxBot.StartAsync(configure: SandboxBot.Using<TimeProvider>(time));
+        var nick = bot.PrivateChat("Nick");
+        var anna = bot.PrivateChat("Anna");
+        await OrderAsync(nick, "Nicky");
+        bot.Api.FailNetwork("sendMessage", chatId: nick.Chat.Id);
+        await OrderAsync(anna, "Annie");
+
+        // Act
+        time.Advance(TimeSpan.FromMinutes(1));
+        var ready = await anna.WaitForMessageAsync(IsReady);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            ready.Text.Should().Be("☕ Your Medium coffee for Annie is ready!");
+            bot.Services.GetRequiredService<IHostApplicationLifetime>()
+                .ApplicationStopping.IsCancellationRequested.Should()
+                .BeFalse();
         }
     }
 

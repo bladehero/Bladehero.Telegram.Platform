@@ -4,6 +4,7 @@ namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
 // Receipt albums being collected, by chat, owner and media group, until their owner taps Read. Telegram sends an
 // album's items one by one, and long polling handles one update at a time, so its first item is always first here.
+// Kept in memory until taken or the bot restarts; a long-running bot would expire them, or keep them in its database.
 internal sealed class ReceiptAlbums
 {
     private readonly ConcurrentDictionary<AlbumKey, ReceiptAlbum> _albums = new();
