@@ -547,7 +547,7 @@ public sealed partial class FakeBotApi
             }
 
             // Before the poll counts as listening, so a delivery checks the list this poll asked for.
-            RememberPollingAllowedUpdates(parameters);
+            UpdateAllowedUpdates(parameters);
             var updates = await _updates.TakeAsync(parameters, token);
             return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = updates });
         }

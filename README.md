@@ -557,7 +557,8 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync(
 A method's first matching failure applies until its `times` run out, then the next one does. The fake answers like
 Telegram, with Telegram's own error texts, and fails the test on a method it doesn't support. It enforces:
 
-- `allowed_updates`: an action whose type the bot didn't ask for fails before anything changes;
+- `allowed_updates`, one list per bot: the types it asked for last, with `getUpdates` or `setWebhook`; an action of
+  another type fails before anything changes;
 - limits: text up to 4096 characters, captions up to 1024, answers up to 200, callback data of 1-64 bytes, and inline
   buttons that each do something;
 - trimming of the text and captions the bot sends, entities included;

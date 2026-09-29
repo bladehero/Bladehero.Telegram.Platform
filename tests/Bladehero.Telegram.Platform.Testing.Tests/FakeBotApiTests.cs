@@ -1170,35 +1170,109 @@ public sealed partial class FakeBotApiTests
     }
 
     [Fact]
-    public async Task AllowedUpdates_WhileAWebhookIsSet_ShouldBeTheWebhooks()
+    public async Task GetUpdates_ThenSetWebhookWithoutAList_ShouldKeepTheListInTheWebhookInfo()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        await client.GetUpdates(allowedUpdates: [UpdateType.Message]);
+
+        // Act
+        await client.SetWebhook("https://bot.example.com/updates");
+
+        // Assert
+        (await client.GetWebhookInfo())
+            .AllowedUpdates.Should()
+            .Equal(UpdateType.Message);
+    }
+
+    [Fact]
+    public async Task DeleteWebhook_ShouldKeepTheList()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        await client.SetWebhook("https://bot.example.com/updates", allowedUpdates: [UpdateType.CallbackQuery]);
+
+        // Act
+        await client.DeleteWebhook();
+
+        // Assert
+        using (new AssertionScope())
+        {
+            (await client.GetWebhookInfo()).AllowedUpdates.Should().Equal(UpdateType.CallbackQuery);
+            ((Action)(() => api.ThrowIfNotAllowed("message")))
+                .Should()
+                .Throw<InvalidOperationException>()
+                .WithMessage("*it asked only for callback_query*");
+        }
+    }
+
+    [Fact]
+    public async Task GetUpdates_RefusedWhileAWebhookIsSet_ShouldNotChangeTheList()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        await client.SetWebhook("https://bot.example.com/updates", allowedUpdates: [UpdateType.Message]);
+
+        // Act
+        await Record.ExceptionAsync(() => client.GetUpdates(allowedUpdates: [UpdateType.CallbackQuery]));
+
+        // Assert
+        (await client.GetWebhookInfo())
+            .AllowedUpdates.Should()
+            .Equal(UpdateType.Message);
+    }
+
+    [Fact]
+    public async Task GetWebhookInfo_WithTelegramsDefault_ShouldReportNoList()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        await client.GetUpdates(allowedUpdates: [UpdateType.Message]);
+
+        // Act
+        await client.GetUpdates(allowedUpdates: []);
+
+        // Assert
+        (await client.GetWebhookInfo())
+            .AllowedUpdates.Should()
+            .BeNull();
+    }
+
+    [Fact]
+    public async Task SetWebhook_WithOnlyUnknownTypes_ShouldGoBackToTheDefault()
     {
         // Arrange
         var api = ApiWithChats();
         var client = api.CreateClient();
         await client.GetUpdates(allowedUpdates: [UpdateType.Message]);
-        await client.SetWebhook("https://bot.example.com/updates", allowedUpdates: [UpdateType.CallbackQuery]);
 
         // Act
-        var tapWhileSet = Record.Exception(() => api.ThrowIfNotAllowed("callback_query"));
-        var messageWhileSet = Record.Exception(() => api.ThrowIfNotAllowed("message"));
-        await client.DeleteWebhook();
-        var tapOnceDeleted = Record.Exception(() => api.ThrowIfNotAllowed("callback_query"));
+        await client.SendRequest(new RawSetWebhookRequest("https://bot.example.com/updates", ["no_such_type"]));
 
         // Assert
         using (new AssertionScope())
         {
-            tapWhileSet.Should().BeNull();
-            messageWhileSet
-                .Should()
-                .BeOfType<InvalidOperationException>()
-                .Which.Message.Should()
-                .Contain("only for callback_query");
-            tapOnceDeleted
-                .Should()
-                .BeOfType<InvalidOperationException>()
-                .Which.Message.Should()
-                .Contain("only for message");
+            (await client.GetWebhookInfo()).AllowedUpdates.Should().BeNull();
+            ((Action)(() => api.ThrowIfNotAllowed("callback_query"))).Should().NotThrow();
         }
+    }
+
+    [Fact]
+    public async Task SetWebhook_WithTypesInCapitals_ShouldReadThemInLowercase()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+
+        // Act
+        await client.SendRequest(
+            new RawSetWebhookRequest("https://bot.example.com/updates", ["CALLBACK_QUERY", "no_such_type"])
+        );
+
+        // Assert
+        (await client.GetWebhookInfo())
+            .AllowedUpdates.Should()
+            .Equal(UpdateType.CallbackQuery);
     }
 
     [Fact]
@@ -1326,6 +1400,13 @@ public sealed partial class FakeBotApiTests
     private sealed class RawChatActionRequest(long chatId, string action) : RequestBase<bool>("sendChatAction")
     {
         public override HttpContent ToHttpContent() => JsonContent.Create(new { chat_id = chatId, action });
+    }
+
+    // Update types Telegram.Bot's UpdateType cannot name.
+    private sealed class RawSetWebhookRequest(string url, string[] allowedUpdates) : RequestBase<bool>("setWebhook")
+    {
+        public override HttpContent ToHttpContent() =>
+            JsonContent.Create(new { url, allowed_updates = allowedUpdates });
     }
 
     private static string StoreDocument(FakeBotApi api, byte[] content, string fileName) =>

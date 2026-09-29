@@ -89,14 +89,13 @@ public sealed partial class FakeBotApi
             throw Refuse(400, "Bad Request: secret token contains unallowed characters");
         }
 
-        // Omitted allowed_updates keep the previous list.
         _webhook = new JsonObject
         {
             ["url"] = url,
             ["secret_token"] = parameters["secret_token"]?.DeepClone(),
-            ["allowed_updates"] = (parameters["allowed_updates"] ?? _webhook?["allowed_updates"])?.DeepClone(),
             ["has_custom_certificate"] = parameters["certificate"] is not null,
         };
+        UpdateAllowedUpdates(parameters);
         return true;
     }
 
@@ -109,9 +108,9 @@ public sealed partial class FakeBotApi
             ["pending_update_count"] = 0,
         };
 
-        if (_webhook?["allowed_updates"] is { } allowedUpdates)
+        if (AllowedUpdatesInfo() is { } allowedUpdates)
         {
-            info["allowed_updates"] = allowedUpdates.DeepClone();
+            info["allowed_updates"] = allowedUpdates;
         }
 
         return info;
