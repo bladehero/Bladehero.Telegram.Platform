@@ -9,6 +9,7 @@ using Bladehero.Telegram.Platform.Receiving.Conversations;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using Telegram.Bot;
@@ -223,7 +224,161 @@ public sealed class ConversationAwareCommandExecutorTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenAStepTakesATypedButton_ShouldNotRefuseIt()
+    public async Task ExecuteAsync_BoundTapOnTheCurrentRun_ShouldRunTheStep()
+    {
+        // Arrange
+        var bot = new Bot();
+        await bot.OpenAsync(Size, id: "run1");
+
+        // Act
+        await bot.TapAsync(Bound("exec-cup:2", UserId, "run1"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("cup at the size step");
+            bot.Refusals.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundTapAfterTheConversationEnded_ShouldRefuseItAsNoLongerActive()
+    {
+        // Arrange
+        var bot = new Bot();
+        var data = Bound("exec-cup:2", UserId, "run1");
+
+        // Act
+        await bot.TapAsync(data);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.NoLongerActive, typeof(Cup), data));
+            bot.Refusals.Last.Binding.Should().Be(new ConversationBinding(UserId, "run1"));
+            bot.Refusals.Last.Conversation.Should().BeNull();
+            bot.Journal.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundTapFromAnEarlierRun_ShouldRefuseItAsNoLongerActive()
+    {
+        // Arrange
+        var bot = new Bot();
+        await bot.OpenAsync(Size, id: "run2");
+        var data = Bound("exec-cup:2", UserId, "run1");
+
+        // Act
+        await bot.TapAsync(data);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.NoLongerActive, typeof(Cup), data));
+            bot.Refusals.Last.Conversation!.Id.Should().Be("run2");
+            bot.Journal.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundTapByAnotherUser_ShouldRefuseItAsNotYoursWithoutReadingTheStore()
+    {
+        // Arrange
+        var store = new Mock<IConversationStore>();
+        var bot = new Bot(store.Object);
+        var data = Bound("exec-cup:2", OtherUserId, "run1");
+
+        // Act
+        await bot.TapAsync(data);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.NotYours, typeof(Cup), data));
+            bot.Refusals.Last.Conversation.Should().BeNull();
+            store.Verify(x => x.GetAsync(It.IsAny<ConversationKey>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundTapByAnotherUserAtTheSameStep_ShouldNotTouchTheirConversation()
+    {
+        // Arrange: Anna is at the size step of her own order, as Nick is of his.
+        var bot = new Bot();
+        await bot.OpenAsync(Size, id: "nick1");
+        await bot.OpenAsync(Size, id: "anna1", userId: OtherUserId);
+
+        // Act: Anna taps Nick's button.
+        await bot.TapAsync(Bound("exec-cup:2", UserId, "nick1"), userId: OtherUserId);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Refusals.Entries.Select(x => x.Reason).Should().Equal(ButtonRefusalReason.NotYours);
+            bot.Journal.Entries.Should().BeEmpty();
+            (await bot.CurrentAsync(OtherUserId)).Should().Be(new ConversationState(Flow, Size) { Id = "anna1" });
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundTapThatNoStepOfTheRunTakes_ShouldRefuseItAsNoLongerActive()
+    {
+        // Arrange
+        var bot = new Bot();
+        await bot.OpenAsync(Size, id: "run1");
+        var data = Bound("exec-cup:3", UserId, "run1");
+
+        // Act
+        await bot.TapAsync(data);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.NoLongerActive, typeof(Cup), data));
+            bot.Refusals.Last.Conversation.Should().Be(new ConversationState(Flow, Size) { Id = "run1" });
+            bot.Journal.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundTapThatARegularCommandTakes_ShouldRunIt()
+    {
+        // Arrange
+        var bot = new Bot();
+        await bot.OpenAsync(Size, id: "run1");
+
+        // Act
+        await bot.TapAsync(Bound("exec-cup:1", UserId, "run1"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("cup");
+            bot.Refusals.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundTapOnAnInaccessibleMessage_ShouldRefuseItAsNoLongerActive()
+    {
+        // Arrange
+        var bot = new Bot();
+        await bot.OpenAsync(Size, id: "run1");
+
+        // Act
+        await bot.TapAsync(Bound("exec-cup:2", UserId, "run1"), inaccessible: true);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Refusals.Entries.Select(x => x.Reason).Should().Equal(ButtonRefusalReason.NoLongerActive);
+            bot.Journal.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnboundTypedDataForAStep_ShouldNotRunTheStepAndShouldWarn()
     {
         // Arrange
         var bot = new Bot();
@@ -235,8 +390,60 @@ public sealed class ConversationAwareCommandExecutorTests
         // Assert
         using (new AssertionScope())
         {
-            bot.Journal.Entries.Should().Equal("cup at the size step");
+            bot.Journal.Entries.Should().BeEmpty();
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.Unclaimed, typeof(Cup), "exec-cup:2"));
+            bot.Logs.Entries.Should()
+                .Equal(
+                    (
+                        LogLevel.Warning,
+                        "Cup buttons are handled by the conversation step CupStep, so they must be bound to the "
+                            + "conversation: build them with AddButton(text, button, await "
+                            + "conversation.BindAsync(token))."
+                    )
+                );
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HandWrittenDataWithAnAt_ShouldNotCountAsBound()
+    {
+        // Arrange: bound to someone else, it would be refused if it counted.
+        var bot = new Bot();
+
+        // Act
+        await bot.TapAsync($"mention@{OtherUserId}.abc12345");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("mention");
             bot.Refusals.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TwoBoundTapsAtOnce_ShouldHandleThemOneAfterTheOther()
+    {
+        // Arrange: the step that ends the conversation waits at a gate until the second tap waits for the lock.
+        var bot = new Bot();
+        await bot.OpenAsync(Size, id: "run1");
+        bot.Gates.Close();
+        var data = Bound("exec-pour:1", UserId, "run1");
+
+        // Act
+        var first = bot.TapAsync(data);
+        await bot.Gates.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var second = bot.TapAsync(data);
+        await bot.WaitForLockUsersAsync(2);
+        bot.Gates.Open();
+        await Task.WhenAll(first, second);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("pour");
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.NoLongerActive, typeof(Pour), data));
+            (await bot.CurrentAsync()).Should().BeNull();
         }
     }
 
@@ -273,6 +480,8 @@ public sealed class ConversationAwareCommandExecutorTests
         }
     }
 
+    private static string Bound(string data, long userId, string conversationId) => $"{data}@{userId}.{conversationId}";
+
     private static string? TextOf(CommandRequest request) => request.Update.Message?.Text;
 
     private static bool IsPlainText(CommandRequest request) => TextOf(request) is { } text && !text.StartsWith('/');
@@ -289,6 +498,8 @@ public sealed class ConversationAwareCommandExecutorTests
             typeof(Back),
             typeof(CupCommand),
             typeof(CupStep),
+            typeof(PourStep),
+            typeof(Mention),
         ];
 
         private static readonly IOptionsMonitor<ParallelCommandExecutionConfiguration> Options = Mock.Of<
@@ -313,11 +524,12 @@ public sealed class ConversationAwareCommandExecutorTests
                 .ToArray();
 
             _catalog = new CommandCatalog(commands);
-            _buttons = ButtonCatalog.Scan([typeof(Cup)], commands);
+            _buttons = ButtonCatalog.Scan([typeof(Cup), typeof(Pour)], commands);
 
             var services = new ServiceCollection()
                 .AddSingleton(Store)
                 .AddSingleton(Journal)
+                .AddSingleton(Gates)
                 .AddSingleton<IButtonRefusalHandler>(Refusals)
                 .AddScoped<Conversation>()
                 .AddScoped<IConversation>(provider => provider.GetRequiredService<Conversation>());
@@ -336,10 +548,32 @@ public sealed class ConversationAwareCommandExecutorTests
 
         public RecordingRefusals Refusals { get; } = new();
 
-        public Task OpenAsync(string step) =>
-            Store.SaveAsync(Sender, new ConversationState(Flow, step), CancellationToken.None);
+        public RecordingLogger Logs { get; } = new();
 
-        public Task<ConversationState?> CurrentAsync() => Store.GetAsync(Sender, CancellationToken.None);
+        public Gates Gates { get; } = new();
+
+        public ConversationLocks Locks { get; } = new();
+
+        public Task OpenAsync(string step, string? id = null, long userId = UserId) =>
+            Store.SaveAsync(
+                new ConversationKey(ChatId, userId),
+                new ConversationState(Flow, step) { Id = id },
+                CancellationToken.None
+            );
+
+        public Task<ConversationState?> CurrentAsync(long userId = UserId) =>
+            Store.GetAsync(new ConversationKey(ChatId, userId), CancellationToken.None);
+
+        // How many taps hold or await the sender's conversation lock; no timing, just yielding until they do.
+        public async Task WaitForLockUsersAsync(int users)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (Locks.UsersOf(Sender) < users)
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                await Task.Yield();
+            }
+        }
 
         public Task SendAsync(string text, long userId = UserId) =>
             HandleAsync(
@@ -354,7 +588,8 @@ public sealed class ConversationAwareCommandExecutorTests
                 }
             );
 
-        public Task TapAsync(string data) =>
+        // An inaccessible message is one Telegram no longer shows the bot, which it dates 0.
+        public Task TapAsync(string data, long userId = UserId, bool inaccessible = false) =>
             HandleAsync(
                 new Update
                 {
@@ -362,8 +597,12 @@ public sealed class ConversationAwareCommandExecutorTests
                     {
                         Id = "query",
                         Data = data,
-                        From = new User { Id = UserId },
-                        Message = new Message { Chat = new Chat { Id = ChatId } },
+                        From = new User { Id = userId },
+                        Message = new Message
+                        {
+                            Chat = new Chat { Id = ChatId },
+                            Date = inaccessible ? DateTime.UnixEpoch : DateTime.UtcNow,
+                        },
                     },
                 }
             );
@@ -380,7 +619,15 @@ public sealed class ConversationAwareCommandExecutorTests
                 new CommandPriorityAccessor([.. _catalog.Regular.Select(x => x.Resolve(services))]),
                 Options
             );
-            var sut = new ConversationAwareCommandExecutor(conversation, _catalog, commands, _buttons, services);
+            var sut = new ConversationAwareCommandExecutor(
+                conversation,
+                _catalog,
+                commands,
+                _buttons,
+                Locks,
+                Logs,
+                services
+            );
 
             await sut.ExecuteAsync(new CommandRequest(update, Mock.Of<ITelegramBotClient>()), CancellationToken.None);
         }
@@ -412,9 +659,46 @@ public sealed class ConversationAwareCommandExecutorTests
 
     private sealed class RecordingRefusals : IButtonRefusalHandler
     {
-        private readonly List<(ButtonRefusalReason, Type, string?)> _entries = [];
+        private readonly List<ButtonRefusal> _refusals = [];
 
         public IReadOnlyList<(ButtonRefusalReason Reason, Type ButtonType, string? Data)> Entries
+        {
+            get
+            {
+                lock (_refusals)
+                {
+                    return [.. _refusals.Select(x => (x.Reason, x.ButtonType, x.Query.Data))];
+                }
+            }
+        }
+
+        public ButtonRefusal Last
+        {
+            get
+            {
+                lock (_refusals)
+                {
+                    return _refusals[^1];
+                }
+            }
+        }
+
+        public Task HandleAsync(ButtonRefusal refusal, CancellationToken token)
+        {
+            lock (_refusals)
+            {
+                _refusals.Add(refusal);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingLogger : ILogger<ConversationAwareCommandExecutor>
+    {
+        private readonly List<(LogLevel, string)> _entries = [];
+
+        public IReadOnlyList<(LogLevel Level, string Message)> Entries
         {
             get
             {
@@ -425,13 +709,73 @@ public sealed class ConversationAwareCommandExecutorTests
             }
         }
 
-        public Task HandleAsync(ButtonRefusal refusal, CancellationToken token)
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter
+        )
         {
             lock (_entries)
             {
-                _entries.Add((refusal.Reason, refusal.ButtonType, refusal.Query.Data));
+                _entries.Add((logLevel, formatter(state, exception)));
             }
+        }
+    }
 
+    // Lets a test hold a step until it chooses; open by default.
+    private sealed class Gates
+    {
+        private TaskCompletionSource _release = CompletedGate();
+
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Release => _release.Task;
+
+        public void Close() => _release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Open() => _release.TrySetResult();
+
+        private static TaskCompletionSource CompletedGate()
+        {
+            var gate = new TaskCompletionSource();
+            gate.SetResult();
+            return gate;
+        }
+    }
+
+    [ButtonData("exec-pour")]
+    private readonly record struct Pour(int Cups);
+
+    // Ends the conversation, once the gate lets it.
+    [ConversationStep(Flow, Size)]
+    private sealed class PourStep(Journal journal, Gates gates, IConversation conversation) : CallbackQueryCommand<Pour>
+    {
+        protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            gates.Entered.TrySetResult();
+            await gates.Release;
+
+            journal.Write("pour");
+            await conversation.EndAsync(token);
+        }
+    }
+
+    // Hand-written data that happens to hold an '@'.
+    private sealed class Mention(Journal journal) : ITelegramCommand
+    {
+        public Task<bool> CanHandleAsync(CommandRequest request, CancellationToken token) =>
+            Task.FromResult(request.Update.CallbackQuery?.Data?.StartsWith("mention@") is true);
+
+        public Task HandleAsync(CommandRequest request, CancellationToken token)
+        {
+            journal.Write("mention");
             return Task.CompletedTask;
         }
     }

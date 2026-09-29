@@ -1,31 +1,28 @@
 using Microsoft.Extensions.Logging;
-using Telegram.Bot;
-using Telegram.Bot.Exceptions;
 
 namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 
-// Answers the tap and leaves the message as it is.
+// Answers the tap and leaves the message as it is, as the tap may come from a stale view of a card.
 internal sealed class DefaultButtonRefusalHandler(ILogger<DefaultButtonRefusalHandler> logger) : IButtonRefusalHandler
 {
     internal const string NoLongerActiveText = "That button is no longer active.";
+    internal const string NotYoursText = "That button isn't yours.";
 
     public async Task HandleAsync(ButtonRefusal refusal, CancellationToken token)
     {
-        try
+        var answered = await refusal.AnswerAsync(
+            refusal.Reason switch
+            {
+                ButtonRefusalReason.NoLongerActive => NoLongerActiveText,
+                ButtonRefusalReason.NotYours => NotYoursText,
+                _ => null,
+            },
+            token: token
+        );
+
+        if (!answered)
         {
-            await refusal.Client.AnswerCallbackQuery(
-                refusal.Query.Id,
-                refusal.Reason is ButtonRefusalReason.NoLongerActive ? NoLongerActiveText : null,
-                cancellationToken: token
-            );
-        }
-        catch (ApiRequestException error) when (error.Message.Contains("query is too old"))
-        {
-            logger.LogDebug(
-                "A tap on a {Button} button was answered too late: {Message}",
-                refusal.ButtonType.Name,
-                error.Message
-            );
+            logger.LogDebug("A tap on a {Button} button was answered too late", refusal.ButtonType.Name);
         }
     }
 }

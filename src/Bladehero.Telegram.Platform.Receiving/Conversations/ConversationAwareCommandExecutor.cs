@@ -3,6 +3,8 @@ using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution.Parallel;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
@@ -11,41 +13,137 @@ internal sealed class ConversationAwareCommandExecutor(
     CommandCatalog catalog,
     ParallelTelegramCommandExecutor executor,
     ButtonCatalog buttons,
+    ConversationLocks locks,
+    ILogger<ConversationAwareCommandExecutor> logger,
     IServiceProvider provider
 ) : ITelegramCommandExecutor
 {
     public async Task ExecuteAsync(CommandRequest request, CancellationToken token = default)
     {
-        if (await ExecuteStepsAsync(request, token) || await executor.ExecuteRegularAsync(request, token))
+        if (request.Update.CallbackQuery is { Data: { } data } query && buttons.TryFind(data, out var codec))
+        {
+            await (
+                codec.TryDecode(data, out _, out var binding) && binding is { } bound
+                    ? ExecuteBoundAsync(request, query, codec, bound, token)
+                    : ExecuteUnboundButtonAsync(request, query, codec, data, token)
+            );
+            return;
+        }
+
+        if (!(await ExecuteStepsAsync(request, stepButtonsOf: null, token)).Handled)
+        {
+            await executor.ExecuteRegularAsync(request, token);
+        }
+    }
+
+    // Checked before any step runs: the tapper must be the user the button was shown for, and their conversation still
+    // the run it was shown in. Authorisation comes from the tapper and the stored state; the user id in the data only
+    // chooses which refusal to give.
+    private async Task ExecuteBoundAsync(
+        CommandRequest request,
+        CallbackQuery query,
+        ButtonCodec codec,
+        ConversationBinding binding,
+        CancellationToken token
+    )
+    {
+        if (query.Message is not { } message || message.Date == DateTime.UnixEpoch || conversation.Key is not { } key)
+        {
+            await RefuseAsync(request, query, ButtonRefusalReason.NoLongerActive, codec, binding, state: null, token);
+            return;
+        }
+
+        if (binding.UserId != query.From.Id)
+        {
+            await RefuseAsync(request, query, ButtonRefusalReason.NotYours, codec, binding, state: null, token);
+            return;
+        }
+
+        // The first read of the conversation in this update happens under the lock, so a tap waiting here sees what the
+        // one before it left.
+        ConversationState? state;
+        bool handled;
+        await using (await locks.EnterAsync(key, token))
+        {
+            state = await conversation.GetAsync(token);
+            handled =
+                state?.Id == binding.ConversationId
+                && (
+                    (await ExecuteStepsAsync(request, stepButtonsOf: null, token)).Handled
+                    || await executor.ExecuteRegularAsync(request, token)
+                );
+        }
+
+        if (!handled)
+        {
+            await RefuseAsync(request, query, ButtonRefusalReason.NoLongerActive, codec, binding, state, token);
+        }
+    }
+
+    // Typed data without a binding never reaches a step that handles its type: from someone else's card, it would act
+    // on the tapper's own conversation at the same step.
+    private async Task ExecuteUnboundButtonAsync(
+        CommandRequest request,
+        CallbackQuery query,
+        ButtonCodec codec,
+        string data,
+        CancellationToken token
+    )
+    {
+        var (handled, state) = await ExecuteStepsAsync(request, stepButtonsOf: codec.Type, token);
+        if (handled || await executor.ExecuteRegularAsync(request, token))
         {
             return;
         }
 
-        await RefuseUnclaimedButtonAsync(request, token);
+        var reason = codec.TryDecode(data, out _) ? ButtonRefusalReason.Unclaimed : ButtonRefusalReason.NoLongerActive;
+        await RefuseAsync(request, query, reason, codec, binding: null, state, token);
     }
 
-    private async Task<bool> ExecuteStepsAsync(CommandRequest request, CancellationToken token)
+    // The steps of the active conversation, leaving out those for `stepButtonsOf` buttons, if given.
+    private async Task<(bool Handled, ConversationState? State)> ExecuteStepsAsync(
+        CommandRequest request,
+        Type? stepButtonsOf,
+        CancellationToken token
+    )
     {
         if (catalog.Steps.Count == 0 || await conversation.GetAsync(token) is not { } state)
         {
-            return false;
+            return (false, null);
         }
 
-        var steps = catalog.StepsOf(state).Select(x => x.Resolve(provider)).ToArray();
-        return steps.Length > 0 && await executor.ExecuteAsync(new CommandPriorityAccessor(steps), request, token);
-    }
-
-    // Answers a typed button's tap that nothing took; hand-written data is left alone.
-    private Task RefuseUnclaimedButtonAsync(CommandRequest request, CancellationToken token)
-    {
-        if (request.Update.CallbackQuery is not { Data: { } data } query || !buttons.TryFind(data, out var codec))
+        var candidates = catalog.StepsOf(state).ToArray();
+        if (
+            stepButtonsOf is not null
+            && candidates.FirstOrDefault(x => buttons.ButtonOf(x.Type) == stepButtonsOf) is { } left
+        )
         {
-            return Task.CompletedTask;
+            logger.LogWarning(
+                "{Button} buttons are handled by the conversation step {Command}, so they must be bound to the "
+                    + "conversation: build them with AddButton(text, button, await conversation.BindAsync(token)).",
+                stepButtonsOf.Name,
+                left.Type.Name
+            );
+            candidates = [.. candidates.Where(x => buttons.ButtonOf(x.Type) != stepButtonsOf)];
         }
 
-        var reason = codec.TryDecode(data, out _) ? ButtonRefusalReason.Unclaimed : ButtonRefusalReason.NoLongerActive;
-        return provider
-            .GetRequiredService<IButtonRefusalHandler>()
-            .HandleAsync(new ButtonRefusal(query, request.Client, reason, codec.Type), token);
+        var steps = candidates.Select(x => x.Resolve(provider)).ToArray();
+        return (
+            steps.Length > 0 && await executor.ExecuteAsync(new CommandPriorityAccessor(steps), request, token),
+            state
+        );
     }
+
+    private Task RefuseAsync(
+        CommandRequest request,
+        CallbackQuery query,
+        ButtonRefusalReason reason,
+        ButtonCodec codec,
+        ConversationBinding? binding,
+        ConversationState? state,
+        CancellationToken token
+    ) =>
+        provider
+            .GetRequiredService<IButtonRefusalHandler>()
+            .HandleAsync(new ButtonRefusal(query, request.Client, reason, codec.Type, binding, state), token);
 }
