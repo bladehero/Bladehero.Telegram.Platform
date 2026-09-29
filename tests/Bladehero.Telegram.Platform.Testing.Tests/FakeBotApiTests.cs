@@ -1,9 +1,11 @@
+using System.Net.Http.Headers;
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
@@ -15,6 +17,13 @@ public sealed class FakeBotApiTests
     private static readonly InlineKeyboardMarkup YesNo = new([
         [InlineKeyboardButton.WithCallbackData("Yes", "yes"), InlineKeyboardButton.WithCallbackData("No", "no")],
     ]);
+
+    private static readonly MessageEntity Bold = new()
+    {
+        Type = MessageEntityType.Bold,
+        Offset = 2,
+        Length = 3,
+    };
 
     [Fact]
     public async Task SendMessage_ShouldAnswerWithTheMessageAsTelegramWould()
@@ -467,7 +476,7 @@ public sealed class FakeBotApiTests
         {
             sent.Caption.Should().Be("123");
             sent.ReplyMarkup!.InlineKeyboard.SelectMany(row => row).Select(x => x.Text).Should().Equal("Yes", "No");
-            api.File(sent.Photo![^1].FileId).Content.Should().Equal("jpeg"u8.ToArray());
+            api.TestFileOf(sent.Photo![^1].FileId).Content.Should().Equal("jpeg"u8.ToArray());
         }
     }
 
@@ -558,14 +567,321 @@ public sealed class FakeBotApiTests
         var sent = await client.SendPhoto(
             Chat,
             InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
-            caption: "A cat"
+            caption: "A cat",
+            captionEntities: [Bold]
         );
 
         // Act
-        var edited = await client.EditMessageCaption(Chat, sent.Id, caption: null);
+        var edited = await client.EditMessageCaption(Chat, sent.Id, caption: null, captionEntities: [Bold]);
 
         // Assert
-        edited.Caption.Should().BeNull();
+        using (new AssertionScope())
+        {
+            edited.Caption.Should().BeNull();
+            edited.CaptionEntities.Should().BeNull();
+        }
+    }
+
+    [Fact]
+    public async Task SendPhoto_WithEntitiesButNoCaption_ShouldKeepNoEntities()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var sent = await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
+            captionEntities: [Bold]
+        );
+
+        // Assert
+        sent.CaptionEntities.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SendMessage_WithNoEntities_ShouldLeaveThemOutLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendMessage(Chat, "A cat", entities: []);
+
+        // Act
+        var act = () => client.EditMessageText(Chat, sent.Id, "A cat");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Entities.Should().BeNull();
+            (await act.Should().ThrowAsync<ApiRequestException>())
+                .Which.Message.Should()
+                .Contain("message is not modified");
+        }
+    }
+
+    [Theory]
+    [InlineData("Отчёт за май.pdf")]
+    [InlineData("Café.txt")]
+    [InlineData("😀 plan.pdf")]
+    public async Task SendDocument_Uploaded_ShouldKeepTheFileNameAsWritten(string fileName)
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        var sent = await client.SendDocument(Chat, InputFile.FromStream(new MemoryStream("x"u8.ToArray()), fileName));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Document!.FileName.Should().Be(fileName);
+            api.TestFileOf(sent.Document.FileId).FileName.Should().Be(fileName);
+        }
+    }
+
+    [Fact]
+    public async Task SendDocument_WithAThumbnail_ShouldKeepEachUploadApart()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        var sent = await client.SendDocument(
+            Chat,
+            InputFile.FromStream(new MemoryStream("a,b"u8.ToArray()), "report.csv"),
+            thumbnail: InputFile.FromStream(new MemoryStream("thumb"u8.ToArray()), "report.csv")
+        );
+
+        // Assert
+        api.TestFileOf(sent.Document!.FileId).ReadAsString().Should().Be("a,b");
+    }
+
+    [Fact]
+    public void FileNameOf_ShouldPreferTheEncodedFileNameStar()
+    {
+        // Arrange
+        var disposition = new ContentDispositionHeaderValue("form-data") { FileName = "plain.pdf" };
+        disposition.FileNameStar = "Отчёт.pdf";
+
+        // Act
+        var fileName = FakeBotApi.FileNameOf(disposition);
+
+        // Assert
+        fileName.Should().Be("Отчёт.pdf");
+    }
+
+    [Theory]
+    [InlineData("café.txt")] // Latin-1 bytes that are not UTF-8
+    [InlineData("=?utf-8?B?SGk=?=")] // a literal name that looks like an RFC 2047 encoded word
+    [InlineData("✓ done.txt")] // already decoded
+    public void FileNameOf_WhenTheNameIsNotRawUtf8_ShouldKeepItAsWritten(string name)
+    {
+        // Arrange
+        var disposition = new ContentDispositionHeaderValue("form-data");
+        disposition.Parameters.Add(new NameValueHeaderValue("filename", $"\"{name}\""));
+
+        // Act
+        var fileName = FakeBotApi.FileNameOf(disposition);
+
+        // Assert
+        fileName.Should().Be(name);
+    }
+
+    [Fact]
+    public async Task SendPhoto_Uploaded_ShouldRecordJsonFieldsAsJson()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        var client = api.CreateClient();
+
+        // Act
+        await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
+            suggestedPostParameters: new SuggestedPostParameters { SendDate = DateTime.UtcNow.AddDays(1) }
+        );
+
+        // Assert
+        api.Calls.Single(x => x.Method == "sendPhoto")
+            .Parameters["suggested_post_parameters"]
+            .Should()
+            .BeOfType<JsonObject>();
+    }
+
+    [Fact]
+    public async Task EditMessageCaption_ShouldReplaceTheCaptionsEntitiesWithIt()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
+            caption: "A cat",
+            captionEntities:
+            [
+                new MessageEntity
+                {
+                    Type = MessageEntityType.Bold,
+                    Offset = 2,
+                    Length = 3,
+                },
+            ]
+        );
+
+        // Act
+        var edited = await client.EditMessageCaption(Chat, sent.Id, "Hi");
+
+        // Assert
+        edited.CaptionEntities.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task EditMessageCaption_ChangingOnlyTheEntities_ShouldBeAnEdit()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
+            caption: "A cat",
+            captionEntities:
+            [
+                new MessageEntity
+                {
+                    Type = MessageEntityType.Bold,
+                    Offset = 2,
+                    Length = 3,
+                },
+            ]
+        );
+
+        // Act
+        var edited = await client.EditMessageCaption(
+            Chat,
+            sent.Id,
+            "A cat",
+            captionEntities:
+            [
+                new MessageEntity
+                {
+                    Type = MessageEntityType.Italic,
+                    Offset = 2,
+                    Length = 3,
+                },
+            ]
+        );
+
+        // Assert
+        edited.CaptionEntities.Should().ContainSingle().Which.Type.Should().Be(MessageEntityType.Italic);
+    }
+
+    [Fact]
+    public async Task EditMessageText_ShouldReplaceTheTextsEntitiesWithIt()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendMessage(
+            Chat,
+            "A cat",
+            entities:
+            [
+                new MessageEntity
+                {
+                    Type = MessageEntityType.Bold,
+                    Offset = 2,
+                    Length = 3,
+                },
+            ]
+        );
+
+        // Act
+        var edited = await client.EditMessageText(Chat, sent.Id, "A dog");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Entities.Should().ContainSingle();
+            edited.Entities.Should().BeNull();
+        }
+    }
+
+    [Theory]
+    [InlineData("https://example.com/my%20report.pdf", "my report.pdf")]
+    [InlineData("https://example.com/a%5Cb.pdf", "a\\b.pdf")]
+    [InlineData("https://example.com/a%2Fb.pdf", "a/b.pdf")]
+    [InlineData("https://example.com/", "file")]
+    public async Task SendDocument_ByUrl_ShouldNameItAfterTheUrlsPath(string url, string fileName)
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var sent = await client.SendDocument(Chat, InputFile.FromUri(url));
+
+        // Assert
+        sent.Document!.FileName.Should().Be(fileName);
+    }
+
+    [Fact]
+    public async Task SendPhoto_WithCaptionEntities_ShouldKeepThem()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+
+        // Act
+        var sent = await client.SendPhoto(
+            Chat,
+            InputFile.FromStream(new MemoryStream("jpeg"u8.ToArray())),
+            caption: "A cat",
+            captionEntities:
+            [
+                new MessageEntity
+                {
+                    Type = MessageEntityType.Bold,
+                    Offset = 2,
+                    Length = 3,
+                },
+            ]
+        );
+
+        // Assert
+        sent.CaptionEntities.Should().ContainSingle().Which.Type.Should().Be(MessageEntityType.Bold);
+    }
+
+    [Fact]
+    public async Task EditMessageText_OnAVoiceMessage_ShouldFailLikeTelegram()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendVoice(Chat, InputFile.FromStream(new MemoryStream("ogg"u8.ToArray())));
+
+        // Act
+        var act = () => client.EditMessageText(Chat, sent.Id, "Hello");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Contain("there is no text in the message to edit");
+    }
+
+    [Fact]
+    public async Task EditMessageCaption_OnADocument_ShouldReplaceTheCaption()
+    {
+        // Arrange
+        var client = new FakeBotApi().CreateClient();
+        var sent = await client.SendDocument(
+            Chat,
+            InputFile.FromStream(new MemoryStream("a,b"u8.ToArray()), "report.csv"),
+            caption: "Draft"
+        );
+
+        // Act
+        var edited = await client.EditMessageCaption(Chat, sent.Id, "Final");
+
+        // Assert
+        edited.Caption.Should().Be("Final");
     }
 
     [Fact]

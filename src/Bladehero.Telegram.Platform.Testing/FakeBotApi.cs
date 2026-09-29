@@ -325,6 +325,11 @@ public sealed partial class FakeBotApi
     {
         var content = new JsonObject { ["text"] = parameters["text"]?.DeepClone() };
 
+        if (parameters["entities"] is JsonArray { Count: > 0 } entities)
+        {
+            content["entities"] = entities.DeepClone();
+        }
+
         if (InlineKeyboardOf(parameters) is { } keyboard)
         {
             content["reply_markup"] = keyboard;
@@ -333,9 +338,9 @@ public sealed partial class FakeBotApi
         return ChatOf(parameters).Post(Bot(), content).DeepClone().AsObject();
     }
 
-    // Edits the message's text, its caption, or — when field is null — only its keyboard. Telegram removes the inline
-    // keyboard from an edited message unless the edit passes one again, and removes the caption when an edit of it
-    // passes none.
+    // Edits the message's text, its caption, or — when field is null — only its keyboard. An edit replaces the text or
+    // caption together with its entities; Telegram removes the inline keyboard from an edited message unless the edit
+    // passes one again, and removes the caption when an edit of it passes none.
     private JsonObject Edit(JsonObject parameters, string? field)
     {
         var message =
@@ -363,10 +368,19 @@ public sealed partial class FakeBotApi
             throw Refuse(400, "Bad Request: message text is empty");
         }
 
+        var entitiesField = field == "caption" ? "caption_entities" : "entities";
+        // Telegram leaves empty entities out, and a removed text or caption takes its entities with it.
+        var newEntities =
+            newValue is not null && parameters[entitiesField] is JsonArray { Count: > 0 } entities
+                ? entities.DeepClone()
+                : null;
         var newMarkup = InlineKeyboardOf(parameters);
         if (
-            (field is null || newValue == message[field]?.GetValue<string>())
-            && JsonNode.DeepEquals(newMarkup, message["reply_markup"])
+            (
+                field is null
+                || newValue == message[field]?.GetValue<string>()
+                    && JsonNode.DeepEquals(newEntities, message[entitiesField])
+            ) && JsonNode.DeepEquals(newMarkup, message["reply_markup"])
         )
         {
             throw Refuse(
@@ -378,6 +392,7 @@ public sealed partial class FakeBotApi
         if (field is not null)
         {
             SetOrRemove(message, field, newValue);
+            SetOrRemove(message, entitiesField, newEntities);
         }
 
         SetOrRemove(message, "reply_markup", newMarkup);

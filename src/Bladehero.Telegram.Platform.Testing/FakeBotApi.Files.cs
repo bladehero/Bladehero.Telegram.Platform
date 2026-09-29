@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
@@ -14,10 +16,15 @@ public sealed partial class FakeBotApi
     [
         "reply_markup",
         "caption_entities",
-        "entities",
         "reply_parameters",
-        "link_preview_options",
+        "suggested_post_parameters",
     ];
+
+    // Decodes names the way the wire would, and fails rather than guessing when the bytes are not UTF-8.
+    private static readonly Encoding StrictUtf8 = new UTF8Encoding(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true
+    );
 
     // Keeps a file a person sends, returning the part of their message that carries it.
     internal JsonObject StoreFile(FileKind kind, byte[] content, JsonObject details)
@@ -28,7 +35,7 @@ public sealed partial class FakeBotApi
         }
     }
 
-    internal TestFile File(string fileId)
+    internal TestFile TestFileOf(string fileId)
     {
         lock (_gate)
         {
@@ -100,6 +107,11 @@ public sealed partial class FakeBotApi
         if (NonBlank(parameters["caption"]?.GetValue<string>()) is { } caption)
         {
             content["caption"] = caption;
+
+            if (parameters["caption_entities"] is JsonArray { Count: > 0 } entities)
+            {
+                content["caption_entities"] = entities.DeepClone();
+            }
         }
 
         if (InlineKeyboardOf(parameters) is { } keyboard)
@@ -136,7 +148,9 @@ public sealed partial class FakeBotApi
 
         if (Uri.TryCreate(value, UriKind.Absolute, out var url) && (url.Scheme == "http" || url.Scheme == "https"))
         {
-            return _files.Add(kind, [], DetailsOf(kind, Path.GetFileName(url.AbsolutePath), parameters), value);
+            // The last segment of the path, unescaped only once split off, so "%2F" or "%5C" stays part of the name.
+            var fileName = Uri.UnescapeDataString(url.AbsolutePath[(url.AbsolutePath.LastIndexOf('/') + 1)..]);
+            return _files.Add(kind, [], DetailsOf(kind, fileName.Length == 0 ? "file" : fileName, parameters), value);
         }
 
         var known = _files.Find(value) ?? throw Refuse(400, "Bad Request: wrong file identifier/HTTP URL specified");
@@ -176,7 +190,7 @@ public sealed partial class FakeBotApi
                     continue;
                 }
 
-                if (disposition.FileName?.Trim('"') is { } fileName)
+                if (FileNameOf(disposition) is { } fileName)
                 {
                     attachments[name] = new Attachment(fileName, await part.ReadAsByteArrayAsync(token));
                 }
@@ -195,6 +209,40 @@ public sealed partial class FakeBotApi
             string.IsNullOrWhiteSpace(body) ? [] : JsonNode.Parse(body)!.AsObject(),
             new Dictionary<string, Attachment>()
         );
+    }
+
+    // Telegram.Bot writes a file name's UTF-8 bytes into the header as they are, one character per byte. On the wire
+    // that is exactly UTF-8, so Telegram reads the name right; the fake gets the header object instead, so it decodes
+    // the bytes back the same way. The raw parameter is read rather than FileName, which would also decode a name that
+    // merely looks like an RFC 2047 encoded word. A name given as filename* is already decoded.
+    internal static string? FileNameOf(ContentDispositionHeaderValue disposition)
+    {
+        if (disposition.FileNameStar is { } decoded)
+        {
+            return decoded;
+        }
+
+        var raw = disposition.Parameters.FirstOrDefault(parameter =>
+            parameter.Name.Equals("filename", StringComparison.OrdinalIgnoreCase)
+        );
+        if (raw?.Value?.Trim('"') is not { } fileName)
+        {
+            return null;
+        }
+
+        if (fileName.Any(character => character > 0xFF))
+        {
+            return fileName;
+        }
+
+        try
+        {
+            return StrictUtf8.GetString(Encoding.Latin1.GetBytes(fileName));
+        }
+        catch (DecoderFallbackException)
+        {
+            return fileName;
+        }
     }
 
     private sealed record Attachment(string FileName, byte[] Content);

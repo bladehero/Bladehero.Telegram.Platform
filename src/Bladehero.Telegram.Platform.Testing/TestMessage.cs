@@ -30,13 +30,13 @@ public sealed class TestMessage
     public string? Caption => Message.Caption;
 
     /// <summary>The photo the message carries, or <c>null</c>.</summary>
-    public TestFile? Photo => Message.Photo is [.., var largest] ? _api.File(largest.FileId) : null;
+    public TestFile? Photo => Message.Photo is [.., var largest] ? _api.TestFileOf(largest.FileId) : null;
 
     /// <summary>The document the message carries, or <c>null</c>.</summary>
-    public TestFile? Document => Message.Document is { } document ? _api.File(document.FileId) : null;
+    public TestFile? Document => Message.Document is { } document ? _api.TestFileOf(document.FileId) : null;
 
     /// <summary>The voice message the message carries, or <c>null</c>.</summary>
-    public TestFile? Voice => Message.Voice is { } voice ? _api.File(voice.FileId) : null;
+    public TestFile? Voice => Message.Voice is { } voice ? _api.TestFileOf(voice.FileId) : null;
 
     public bool IsFromBot => Message.From?.IsBot is true;
 
