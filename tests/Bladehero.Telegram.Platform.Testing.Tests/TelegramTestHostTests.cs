@@ -112,6 +112,30 @@ public sealed class TelegramTestHostTests
     }
 
     [Fact]
+    public async Task ForLongPollingAsync_WithASingletonErrorHandlerAHostedServiceUses_ShouldStartAndStillRecord()
+    {
+        // Arrange: a scoped recorder in its place would be a scoped service in a singleton, refused on build.
+        var seen = new SeenErrors();
+        await using var bot = await TestBot.StartAsync(services: services =>
+        {
+            services.AddSingleton(seen);
+            services.AddSingleton<ITelegramErrorHandler, SeenErrorsHandler>();
+            services.AddHostedService<ErrorReportingService>();
+        });
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var thrown = await Record.ExceptionAsync(() => nick.SendsAsync("/boom"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            thrown.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("boom from Nick");
+            seen.All.Should().ContainSingle().Which.Exception.Should().BeSameAs(thrown);
+        }
+    }
+
+    [Fact]
     public async Task SendAsync_WhenACommandThrows_ShouldAlsoRunTheAppsOwnErrorHandler()
     {
         // Arrange
@@ -844,6 +868,16 @@ public sealed class TelegramTestHostTests
             seen.Add(telegramError);
             return Task.CompletedTask;
         }
+    }
+
+    // A service of the app's that reports its own errors through the error handler.
+    private sealed class ErrorReportingService(ITelegramErrorHandler errors) : IHostedService
+    {
+        public ITelegramErrorHandler Errors { get; } = errors;
+
+        public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class FailingErrorHandler : ITelegramErrorHandler

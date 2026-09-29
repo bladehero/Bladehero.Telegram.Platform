@@ -325,12 +325,20 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
             services.Remove(descriptor);
         }
 
-        if (errorHandlers is [.., var appsOwn])
+        var appsOwn = errorHandlers.LastOrDefault();
+        if (appsOwn is not null)
         {
             services.Add(KeyedAs(AppsErrorHandler, appsOwn));
         }
 
-        services.AddScoped<ITelegramErrorHandler>(provider => new RecordingErrorHandler(errors, provider));
+        // With the app handler's lifetime, so a singleton that injects the error handler still gets one.
+        services.Add(
+            new ServiceDescriptor(
+                typeof(ITelegramErrorHandler),
+                provider => new RecordingErrorHandler(errors, provider),
+                appsOwn?.Lifetime ?? ServiceLifetime.Scoped
+            )
+        );
 
         // A client the app registers itself, e.g. for messages it starts, talks to the fake as well.
         var ownClients = services
