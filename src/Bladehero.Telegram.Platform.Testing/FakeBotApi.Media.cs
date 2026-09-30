@@ -38,7 +38,7 @@ public sealed partial class FakeBotApi
             throw Refuse(400, "Bad Request: document can't be mixed with other media types");
         }
 
-        var captions = items.Select(CaptionOf).ToArray();
+        var captions = items.Select(item => CaptionOf(item, Operation.Send)).ToArray();
         var target = ReplyTargetOf(chat, parameters);
 
         // Every file is resolved before the first post, so a refused item posts nothing.
@@ -100,7 +100,7 @@ public sealed partial class FakeBotApi
         }
 
         ThrowIfNotAttached(media["media"], attachments);
-        var caption = CaptionOf(media);
+        var caption = CaptionOf(media, Operation.Edit);
         var keyboard = InlineKeyboardOf(parameters);
 
         var current = message["photo"]?.AsArray()[^1]?["file_id"] ?? message["document"]?["file_id"];
@@ -161,13 +161,9 @@ public sealed partial class FakeBotApi
         }
     }
 
-    // An item's caption and its entities, trimmed and within the limit; raw, as parse_mode isn't applied.
-    private static (string? Value, JsonArray? Entities) CaptionOf(JsonObject item)
-    {
-        var caption = Trimmed(item["caption"]?.GetValue<string>(), item["caption_entities"]);
-        ThrowIfLongerThan(CaptionLimit, caption.Value, "Bad Request: message caption is too long");
-        return caption;
-    }
+    // An item's caption and its entities, as its parse_mode renders them.
+    private static (string? Value, JsonArray? Entities) CaptionOf(JsonObject item, Operation operation) =>
+        Formatted(item["caption"], item["parse_mode"], item["caption_entities"], TextKind.Caption, operation);
 
     private JsonObject MediaContent(
         FileKind kind,

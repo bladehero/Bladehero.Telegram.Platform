@@ -3,8 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// What Telegram accepts from the bot: trimmed text and captions within their limits, and inline keyboards whose
-// buttons each do something.
+// What Telegram accepts from the bot: answers within their limit, and inline keyboards whose buttons each do something.
 public sealed partial class FakeBotApi
 {
     internal const int TextLimit = 4096;
@@ -12,38 +11,6 @@ public sealed partial class FakeBotApi
 
     private const int CallbackDataLimit = 64;
     private const int AnswerTextLimit = 200;
-
-    // A text or caption as Telegram keeps it: trimmed, or null when blank, with its entities shifted to the trimmed
-    // text and clipped to it, or dropped when outside it.
-    private static (string? Value, JsonArray? Entities) Trimmed(string? value, JsonNode? entities)
-    {
-        var trimmed = value?.Trim();
-        if (string.IsNullOrEmpty(trimmed))
-        {
-            return (null, null);
-        }
-
-        var lead = value!.Length - value.TrimStart().Length;
-        var kept = new JsonArray();
-
-        foreach (var entity in (entities as JsonArray ?? []).OfType<JsonObject>())
-        {
-            var offset = NumberOf(entity["offset"]) ?? 0;
-            var start = Math.Max(offset, lead) - lead;
-            var end = Math.Min(offset + (NumberOf(entity["length"]) ?? 0), lead + trimmed.Length) - lead;
-            if (end <= start)
-            {
-                continue;
-            }
-
-            var clipped = entity.DeepClone().AsObject();
-            clipped["offset"] = start;
-            clipped["length"] = end - start;
-            kept.Add(clipped);
-        }
-
-        return (trimmed, kept.Count > 0 ? kept : null);
-    }
 
     private static void ThrowIfLongerThan(int limit, string? value, string description)
     {

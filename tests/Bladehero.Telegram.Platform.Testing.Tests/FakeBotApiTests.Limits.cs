@@ -15,18 +15,23 @@ public sealed partial class FakeBotApiTests
     private const string Accepted = "accepted";
 
     [Theory]
-    [InlineData(" ")]
-    [InlineData("\n \t\n")]
-    public async Task SendMessage_WithBlankText_ShouldFailLikeTelegram(string text)
+    [InlineData(" ", null)]
+    [InlineData("\n \t\n", null)]
+    [InlineData("<b></b>", ParseMode.Html)]
+    [InlineData("<b> </b>", ParseMode.Html)]
+    public async Task SendMessage_WithWhitespaceOnlyOrEmptyMarkup_ShouldBeRefusedAsNonEmpty(
+        string text,
+        ParseMode? parseMode
+    )
     {
         // Arrange
         var client = ApiWithChats().CreateClient();
 
         // Act
-        var outcome = await OutcomeOf(() => client.SendMessage(Chat, text));
+        var outcome = await OutcomeOf(() => client.SendMessage(Chat, text, parseMode ?? default));
 
         // Assert
-        outcome.Should().Be("Bad Request: message text is empty");
+        outcome.Should().Be("Bad Request: text must be non-empty");
     }
 
     [Theory]
@@ -93,7 +98,7 @@ public sealed partial class FakeBotApiTests
 
     [Theory]
     [InlineData(1024, Accepted)]
-    [InlineData(1025, "Bad Request: MESSAGE_CAPTION_TOO_LONG")]
+    [InlineData(1025, "Bad Request: MEDIA_CAPTION_TOO_LONG")]
     public async Task EditMessageCaption_ByCaptionLength_ShouldBeLimitedLikeTelegram(int length, string expected)
     {
         // Arrange
@@ -254,7 +259,7 @@ public sealed partial class FakeBotApiTests
     [Fact]
     public async Task SendMessage_WithLeadingWhitespace_ShouldShiftTheEntities()
     {
-        // Arrange: "hi" in bold, everything in italic, and only the leading spaces underlined.
+        // Arrange: "hi" in bold and "hi there  " in italic; no entity covers the leading spaces, so they go.
         var client = ApiWithChats().CreateClient();
         MessageEntity[] entities =
         [
@@ -267,14 +272,8 @@ public sealed partial class FakeBotApiTests
             new()
             {
                 Type = MessageEntityType.Italic,
-                Offset = 0,
-                Length = 12,
-            },
-            new()
-            {
-                Type = MessageEntityType.Underline,
-                Offset = 0,
-                Length = 2,
+                Offset = 2,
+                Length = 10,
             },
         ];
 
@@ -282,7 +281,8 @@ public sealed partial class FakeBotApiTests
         var sent = await client.SendMessage(Chat, "  hi there  ", entities: entities);
 
         // Assert
-        sent.Entities!.Select(x => $"{x.Type} {x.Offset}+{x.Length}").Should().Equal("Bold 0+2", "Italic 0+8");
+        // In Telegram's order: by offset, longer first.
+        sent.Entities!.Select(x => $"{x.Type} {x.Offset}+{x.Length}").Should().Equal("Italic 0+8", "Bold 0+2");
     }
 
     [Theory]

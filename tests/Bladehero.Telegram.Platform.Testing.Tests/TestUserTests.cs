@@ -426,6 +426,20 @@ public sealed partial class TestUserTests
     }
 
     [Fact]
+    public async Task SendsAsync_4096Emoji_ShouldBeAccepted()
+    {
+        // Arrange: 8192 UTF-16 units, but 4096 characters.
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var sent = await nick.SendsAsync(string.Concat(Enumerable.Repeat("😀", 4096)));
+
+        // Assert
+        sent.Text.Should().HaveLength(8192);
+    }
+
+    [Fact]
     public async Task SendsPhotoAsync_WithACaptionOverTelegramsLimit_ShouldRefuseIt()
     {
         // Arrange

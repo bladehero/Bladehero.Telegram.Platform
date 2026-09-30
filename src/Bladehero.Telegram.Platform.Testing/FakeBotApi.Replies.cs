@@ -99,11 +99,13 @@ public sealed partial class FakeBotApi
         // A text message has no caption, so one given is ignored.
         if (parameters.ContainsKey("caption") && !content.ContainsKey("text"))
         {
-            var (caption, entities) = Trimmed(
-                parameters["caption"]?.GetValue<string>(),
-                parameters["caption_entities"]
+            var (caption, entities) = Formatted(
+                parameters["caption"],
+                parameters["parse_mode"],
+                parameters["caption_entities"],
+                TextKind.Caption,
+                Operation.Send
             );
-            ThrowIfLongerThan(CaptionLimit, caption, "Bad Request: message caption is too long");
             SetOrRemove(content, "caption", caption);
             SetOrRemove(content, "caption_entities", entities);
         }

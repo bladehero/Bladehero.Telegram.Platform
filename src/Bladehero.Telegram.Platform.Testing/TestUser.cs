@@ -500,12 +500,14 @@ public sealed partial class TestUser
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text, name);
 
+        // Characters are code points, so an emoji counts once.
         text = text.Trim();
-        if (text.Length > FakeBotApi.TextLimit)
+        var characters = text.EnumerateRunes().Count();
+        if (characters > FakeBotApi.TextLimit)
         {
             throw new ArgumentException(
                 $"Telegram takes at most {FakeBotApi.TextLimit} characters in a message, and this text has "
-                    + $"{text.Length}: the Telegram app splits longer text into several messages; send them one "
+                    + $"{characters}: the Telegram app splits longer text into several messages; send them one "
                     + "by one.",
                 name
             );
@@ -518,11 +520,12 @@ public sealed partial class TestUser
     private static string? CheckedCaption(string? caption)
     {
         caption = caption?.Trim();
-        if (caption?.Length > FakeBotApi.CaptionLimit)
+        var characters = caption?.EnumerateRunes().Count() ?? 0;
+        if (characters > FakeBotApi.CaptionLimit)
         {
             throw new ArgumentException(
                 $"Telegram takes at most {FakeBotApi.CaptionLimit} characters in a caption, and this one has "
-                    + $"{caption.Length}.",
+                    + $"{characters}.",
                 nameof(caption)
             );
         }
