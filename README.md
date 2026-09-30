@@ -786,6 +786,8 @@ report.FileName.Should().Be("report.csv");
 report.ReadAsString().Should().Be("a,b");
 ```
 
+A photo comes in four sizes, smallest first, as from Telegram; only the largest downloads as the photo's bytes.
+
 An album is 2 to 10 photos or files in one media group, each its own message and update, sent once the bot has handled
 the one before; its caption goes under the first photo, or under the last file as the apps put it:
 
@@ -945,9 +947,8 @@ Any other method fails the test, naming it. It enforces:
 - `allowed_updates`, one list per bot: the types it asked for last, with `getUpdates` or `setWebhook`; an action of
   another type fails before anything changes;
 - limits: text up to 4096 characters, captions up to 1024, answers up to 200, callback data of 1-64 bytes, and inline
-  buttons that each do something; text is measured raw, so formatted text near a limit may be refused where Telegram,
-  counting it without its markup, would take it;
-- trimming of the text and captions the bot sends, entities included;
+  buttons that each do something; text is measured after parsing, in characters;
+- cleaning and trimming of the text and captions the bot sends, entities included, as Telegram does;
 - only chats Telegram knows;
 - one answer per tap;
 - "message is not modified";
@@ -961,8 +962,19 @@ Any other method fails the test, naming it. It enforces:
 
 Method names ignore case, as in the Bot API; `Calls` keeps each as the bot sent it.
 
-It keeps text as the bot sent it, without parsing or checking HTML or Markdown, so `parse_mode` changes nothing: assert
-on the raw text, and try the markup against real Telegram.
+It renders `parse_mode` (HTML, MarkdownV2 and legacy Markdown) as Telegram does, into plain text and entities, and
+refuses bad markup with Telegram's error and its byte offset. Control characters become spaces, and only spaces and new
+lines are trimmed, at the end and before the first entity. `TestMessage.Html` shows the formatting:
+
+```csharp
+await nick.SendsAsync("/total");
+nick.LastMessage.Html.Should().Be("Total: <b>5</b>");
+nick.LastMessage.Text.Should().Be("Total: 5");
+```
+
+The fake stores links as given, without Telegram's checks, doesn't repair overlapping entities, and leaves out
+auto-detected links, mentions and hashtags, custom emoji and premium rules, `tg-time`, `text_mention` and checks of
+explicit entities.
 
 ### Test a production app
 
@@ -1166,6 +1178,10 @@ optionally, `Telegram:SecretToken`.
 - `UserIdOf`, `PrivateChat` and `Member` take optional details.
 - Deleting another user's message in a group needs the bot to be an admin.
 - `IsCommand` ends a command where Telegram does: `/last.` and `/last-10` are `/last`, and `/last@ab` isn't a command.
+- The fake renders `parse_mode`: a test that asserted raw markup now asserts the rendered text, or `TestMessage.Html`.
+- Refusals now match Telegram for whitespace-only text (`text must be non-empty`), caption edits
+  (`MEDIA_CAPTION_TOO_LONG`) and text-only inline buttons (`not allowed`).
+- Photos have four sizes.
 
 ## License
 
