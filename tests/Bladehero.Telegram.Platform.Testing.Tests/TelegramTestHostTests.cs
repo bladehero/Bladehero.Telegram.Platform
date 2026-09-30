@@ -786,6 +786,24 @@ public sealed partial class TelegramTestHostTests
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
     }
 
+    [Fact]
+    public async Task CreateClient_OnAGenericHost_ShouldThrow()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+
+        // Act
+        var act = () => bot.CreateClient();
+
+        // Assert
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage(
+                "A bot on a generic host has no web server; CreateClient needs a host started with "
+                    + "ForLongPollingAsync<TEntryPoint> or ForWebhookAsync<TEntryPoint>."
+            );
+    }
+
     // No timing: yields until the condition holds.
     private static async Task UntilAsync(Func<bool> condition)
     {

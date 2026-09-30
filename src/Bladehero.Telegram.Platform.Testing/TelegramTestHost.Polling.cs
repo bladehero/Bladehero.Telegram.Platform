@@ -20,6 +20,7 @@ public sealed partial class TelegramTestHost
 
         // The ASP.NET Core app's entry point; null for a generic host.
         private readonly string? _entryPoint;
+        private readonly Func<HttpClient>? _createClient;
         private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly BackgroundService[] _backgroundServices;
 
@@ -29,7 +30,8 @@ public sealed partial class TelegramTestHost
             IAsyncDisposable app,
             FakeBotApi api,
             int pollsBefore,
-            string? entryPoint = null
+            string? entryPoint = null,
+            Func<HttpClient>? createClient = null
         )
         {
             Services = services;
@@ -37,6 +39,7 @@ public sealed partial class TelegramTestHost
             _api = api;
             _pollsBefore = pollsBefore;
             _entryPoint = entryPoint;
+            _createClient = createClient;
 
             // Called at once if the app is already stopping.
             services
@@ -85,6 +88,8 @@ public sealed partial class TelegramTestHost
                 throw new TimeoutException(Unfinished(updateId, timeout));
             }
         }
+
+        public HttpClient? CreateClient() => _createClient?.Invoke();
 
         public ValueTask DisposeAsync() => _app.DisposeAsync();
 
