@@ -30,6 +30,21 @@ public sealed class HtmlParserTests
         act.Should().Throw<FormattingException>().Which.Message.Should().Be(message);
     }
 
+    [Theory]
+    [InlineData("-5")]
+    [InlineData("+5")]
+    public void Parse_ACustomEmojiIdWithASign_ShouldBeRefused(string id)
+    {
+        // Act
+        var act = () => HtmlParser.Parse($"<tg-emoji emoji-id=\"{id}\">👍</tg-emoji>");
+
+        // Assert
+        act.Should()
+            .Throw<FormattingException>()
+            .Which.Message.Should()
+            .Be("Invalid custom emoji identifier specified");
+    }
+
     [Fact]
     public void Parse_AnOffsetAfterCyrillic_ShouldCountBytes()
     {

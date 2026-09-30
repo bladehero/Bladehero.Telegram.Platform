@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -214,7 +215,12 @@ internal static partial class MarkdownV2Parser
                     var link = UrlUntilParenthesis(text, ref i);
                     if (
                         EmojiLink().Match(link) is { Success: true } emoji
-                        && long.TryParse(emoji.Groups[1].Value, out var id)
+                        && long.TryParse(
+                            emoji.Groups[1].Value,
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out var id
+                        )
                         && id > 0
                     )
                     {

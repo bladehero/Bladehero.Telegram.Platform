@@ -164,6 +164,35 @@ public sealed partial class FakeBotApiTests
     }
 
     [Theory]
+    [InlineData("style", "primary")]
+    [InlineData("icon_custom_emoji_id", "5368324170671202286")]
+    public async Task InlineKeyboard_WithTextAndOnlyAStyleOrIcon_ShouldBeRefusedAsATextButton(
+        string field,
+        string value
+    )
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        var body = new JsonObject
+        {
+            ["chat_id"] = Chat,
+            ["text"] = "Pick one",
+            ["reply_markup"] = new JsonObject
+            {
+                ["inline_keyboard"] = new JsonArray(
+                    new JsonArray(new JsonObject { ["text"] = "Pick", [field] = value })
+                ),
+            },
+        };
+
+        // Act
+        var outcome = await OutcomeOf(() => client.SendRequest(new RawRequest<Message>("sendMessage", body)));
+
+        // Assert
+        outcome.Should().Be("Bad Request: text buttons are not allowed in the inline keyboard");
+    }
+
+    [Theory]
     [InlineData(200, Accepted)]
     [InlineData(201, "Bad Request: MESSAGE_TOO_LONG")]
     public async Task AnswerCallbackQuery_ByTextLength_ShouldBeLimitedLikeTelegram(int length, string expected)

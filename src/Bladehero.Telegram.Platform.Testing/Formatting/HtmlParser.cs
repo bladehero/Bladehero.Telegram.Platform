@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -301,7 +302,10 @@ internal static class HtmlParser
                 entities.Add(Markup.Entity("spoiler", offset, length));
                 break;
             case "tg-emoji":
-                if (!long.TryParse(open.Argument, out var id) || id == 0)
+                if (
+                    !long.TryParse(open.Argument, NumberStyles.None, CultureInfo.InvariantCulture, out var id)
+                    || id <= 0
+                )
                 {
                     throw new FormattingException("Invalid custom emoji identifier specified");
                 }

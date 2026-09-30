@@ -31,6 +31,21 @@ public sealed class MarkdownV2ParserTests
         act.Should().Throw<FormattingException>().Which.Message.Should().Be(message);
     }
 
+    [Theory]
+    [InlineData("-5")]
+    [InlineData("+5")]
+    public void Parse_ACustomEmojiIdWithASign_ShouldBeRefused(string id)
+    {
+        // Act
+        var act = () => MarkdownV2Parser.Parse($"![👍](tg://emoji?id={id})");
+
+        // Assert
+        act.Should()
+            .Throw<FormattingException>()
+            .Which.Message.Should()
+            .Be("Invalid tg://emoji or tg://time URL specified");
+    }
+
     [Fact]
     public void Parse_ShouldProduceEveryEntity()
     {

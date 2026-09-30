@@ -32,15 +32,6 @@ public sealed partial class FakeBotApi
         Operation operation
     )
     {
-        Func<string, (string, List<JsonObject>)>? parse = parseMode?.GetValue<string>().ToLowerInvariant() switch
-        {
-            null or "" or "none" => null,
-            "html" => HtmlParser.Parse,
-            "markdownv2" => MarkdownV2Parser.Parse,
-            "markdown" => MarkdownParser.Parse,
-            _ => throw Refuse(400, "Bad Request: unsupported parse_mode"),
-        };
-
         var raw = value?.GetValue<string>();
         if (raw is not null && Encoding.UTF8.GetByteCount(raw) > RawTextLimit)
         {
@@ -51,6 +42,16 @@ public sealed partial class FakeBotApi
         {
             return kind == TextKind.Text ? throw Refuse(400, "Bad Request: message text is empty") : (null, null);
         }
+
+        // Checked only when there's something to parse, as by Telegram.
+        Func<string, (string, List<JsonObject>)>? parse = parseMode?.GetValue<string>().ToLowerInvariant() switch
+        {
+            null or "" or "none" => null,
+            "html" => HtmlParser.Parse,
+            "markdownv2" => MarkdownV2Parser.Parse,
+            "markdown" => MarkdownParser.Parse,
+            _ => throw Refuse(400, "Bad Request: unsupported parse_mode"),
+        };
 
         string text;
         List<JsonObject> found;

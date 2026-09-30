@@ -81,6 +81,32 @@ public sealed partial class FakeBotApiTests
     }
 
     [Fact]
+    public async Task SendPhoto_WithoutACaptionAndAnUnknownParseMode_ShouldBeAccepted()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        var photoId = await PhotoIdAsync(client);
+
+        // Act
+        var outcome = await OutcomeOf(() =>
+            client.SendRequest(
+                new RawRequest<Message>(
+                    "sendPhoto",
+                    new JsonObject
+                    {
+                        ["chat_id"] = Chat,
+                        ["photo"] = photoId,
+                        ["parse_mode"] = "Html5",
+                    }
+                )
+            )
+        );
+
+        // Assert
+        outcome.Should().Be(Accepted);
+    }
+
+    [Fact]
     public async Task SendMessage_WithParseModeAndEntities_ShouldIgnoreTheEntities()
     {
         // Arrange

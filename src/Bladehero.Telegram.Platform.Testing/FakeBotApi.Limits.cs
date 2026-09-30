@@ -75,7 +75,8 @@ public sealed partial class FakeBotApi
                 throw Refuse(400, "Bad Request: BUTTON_DATA_INVALID");
             }
 
-            if (copy.All(field => field.Key == "text"))
+            // A style or an icon doesn't make a button do anything.
+            if (copy.All(field => field.Key is "text" or "style" or "icon_custom_emoji_id"))
             {
                 throw Refuse(400, "Bad Request: text buttons are not allowed in the inline keyboard");
             }
