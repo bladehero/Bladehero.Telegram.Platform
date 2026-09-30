@@ -125,7 +125,7 @@ public static class WebhookDependencyInjection
     /// <remarks>
     /// Registers the bot as <c>AddTelegramBot</c> does and the commands as <c>AddTelegramReceiving</c> does; map the
     /// endpoint with <see cref="UseTelegramWebhook"/>. Startup sets the webhook only when it changed, or on every start
-    /// with a secret token; an invalid <c>SecretToken</c> fails startup.
+    /// with a secret token; an invalid <c>SecretToken</c> or <c>BaseUrl</c> fails startup.
     /// </remarks>
     /// <param name="services">The app's services.</param>
     /// <param name="configuration">The configuration that holds the webhook's section.</param>
@@ -159,7 +159,7 @@ public static class WebhookDependencyInjection
     /// <remarks>
     /// Registers the bot as <c>AddTelegramBot</c> does and the commands as <c>AddTelegramReceiving</c> does; map the
     /// endpoint with <see cref="UseTelegramWebhook"/>. Startup sets the webhook only when it changed, or on every start
-    /// with a secret token; an invalid <c>SecretToken</c> fails startup.
+    /// with a secret token; an invalid <c>SecretToken</c> or <c>BaseUrl</c> fails startup.
     /// </remarks>
     /// <param name="services">The app's services.</param>
     /// <param name="configure">Sets the configuration, e.g. its token and addresses.</param>
@@ -286,6 +286,7 @@ public static class WebhookDependencyInjection
         services
             .AddOptions<TelegramWebhookConfiguration>()
             .Validate(configuration => configuration.SecretTokenIsValid, TelegramWebhookConfiguration.SecretTokenRule)
+            .Validate(configuration => configuration.BaseUrlIsValid, TelegramWebhookConfiguration.BaseUrlRule)
             .ValidateOnStart();
         services.AddHostedService<TelegramWebhookInitializer>();
         services.AddHostedService<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>();

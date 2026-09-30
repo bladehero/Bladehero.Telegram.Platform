@@ -9,7 +9,7 @@ public sealed class ParallelCommandExecutionConfiguration
     /// </summary>
     /// <remarks>
     /// Set it to 1 when commands share a scoped dependency that isn't thread-safe, such as a <c>DbContext</c>. A
-    /// value below 1 fails every update.
+    /// value below 1 fails startup.
     /// </remarks>
     public int? ParallelCount { get; set; } = 5;
 }

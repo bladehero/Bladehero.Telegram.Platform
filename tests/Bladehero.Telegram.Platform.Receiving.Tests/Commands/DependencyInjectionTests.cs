@@ -1,6 +1,7 @@
 using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands;
+using Bladehero.Telegram.Platform.Receiving.Commands.Execution.Parallel;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
@@ -8,6 +9,7 @@ using Bladehero.Telegram.Platform.Receiving.Conversations;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Moq;
 using Telegram.Bot.Types;
 
@@ -218,6 +220,29 @@ public sealed class DependencyInjectionTests
             buttons.TryFind("di-pick:1", out var codec).Should().BeTrue();
             codec!.Type.Should().Be<DiPick>();
         }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void AddTelegramReceiving_WithAParallelCountBelowOne_ShouldFailValidation(int parallelCount)
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramReceiving(typeof(DependencyInjectionTests).Assembly);
+        services.Configure<ParallelCommandExecutionConfiguration>(x => x.ParallelCount = parallelCount);
+        var options = services
+            .BuildServiceProvider()
+            .GetRequiredService<IOptions<ParallelCommandExecutionConfiguration>>();
+
+        // Act
+        var act = () => options.Value;
+
+        // Assert
+        act.Should()
+            .Throw<OptionsValidationException>()
+            .Which.Message.Should()
+            .Be("ParallelCount must be at least 1, or null to run a batch as one chunk.");
     }
 
     private sealed record DiTestUser(string Name);
