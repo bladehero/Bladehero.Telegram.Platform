@@ -9,7 +9,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
 // A receipt card's buttons, "receipt:{ownerId}:{receiptId}:{add|discard}".
-[Button("receipt")]
+[ButtonData("receipt")]
 internal readonly record struct ReceiptChoice(long OwnerId, string ReceiptId, ReceiptAction Action);
 
 internal enum ReceiptAction

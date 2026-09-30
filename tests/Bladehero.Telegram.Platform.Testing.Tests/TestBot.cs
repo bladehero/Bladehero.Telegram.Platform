@@ -42,7 +42,7 @@ internal static class TestBot
         );
 
     // How many cups: the data of the buttons /cups shows.
-    [Button("t-cups")]
+    [ButtonData("t-cups")]
     internal readonly record struct Cups(int Count);
 
     // Greets whoever joins a group.

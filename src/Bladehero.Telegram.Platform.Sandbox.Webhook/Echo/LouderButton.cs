@@ -7,7 +7,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Echo;
 
 // An echo's Louder button, "louder:{n}".
-[Button("louder")]
+[ButtonData("louder")]
 internal readonly record struct Louder(int Loudness);
 
 // n from 1 to 3: the reply in capitals with n exclamation marks.

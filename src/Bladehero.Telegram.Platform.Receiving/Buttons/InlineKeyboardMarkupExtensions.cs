@@ -2,7 +2,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 
-/// <summary>Builds inline keyboards from <see cref="ButtonAttribute"/> structs.</summary>
+/// <summary>Builds inline keyboards from <see cref="ButtonDataAttribute"/> structs.</summary>
 public static class InlineKeyboardMarkupExtensions
 {
     /// <summary>

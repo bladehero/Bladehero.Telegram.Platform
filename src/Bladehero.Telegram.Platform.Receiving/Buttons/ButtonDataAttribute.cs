@@ -6,13 +6,13 @@ namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 /// every settable value must be a constructor parameter; both are checked when the receiving services are added.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Struct)]
-public sealed class ButtonAttribute : Attribute
+public sealed class ButtonDataAttribute : Attribute
 {
     private const int LongestPrefix = 32;
 
     /// <param name="prefix">The data's first segment: 1-32 characters of a-z, 0-9, _ and -.</param>
     /// <exception cref="ArgumentException"><paramref name="prefix"/> breaks that rule.</exception>
-    public ButtonAttribute(string prefix)
+    public ButtonDataAttribute(string prefix)
     {
         ArgumentNullException.ThrowIfNull(prefix);
 

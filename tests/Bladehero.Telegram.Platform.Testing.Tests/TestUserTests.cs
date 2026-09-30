@@ -1098,7 +1098,7 @@ public sealed class TestUserTests
         // Assert
         await act.Should()
             .ThrowAsync<InvalidOperationException>()
-            .WithMessage("NotAButton isn't button data: mark it [Button(\"prefix\")].");
+            .WithMessage("NotAButton isn't button data: mark it [ButtonData(\"prefix\")].");
     }
 
     // The bot's answers to album items only; its file command answers them too.
@@ -1107,6 +1107,6 @@ public sealed class TestUserTests
             .Messages.Where(x => x.Text?.StartsWith("Album item:", StringComparison.Ordinal) is true)
             .Select(x => x.Text);
 
-    // No [Button], so it can't be button data.
+    // No [ButtonData], so it can't be button data.
     private readonly record struct NotAButton(int Value);
 }

@@ -39,6 +39,6 @@ public sealed class InlineKeyboardMarkupExtensionsTests
     private static (string Text, string? Data)[][] Rows(InlineKeyboardMarkup keyboard) =>
         [.. keyboard.InlineKeyboard.Select(row => row.Select(button => (button.Text, button.CallbackData)).ToArray())];
 
-    [Button("kbd-cup")]
+    [ButtonData("kbd-cup")]
     private readonly record struct Cup(int Size);
 }

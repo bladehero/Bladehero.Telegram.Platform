@@ -2,7 +2,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 
-/// <summary>Writes and reads the callback data of <see cref="ButtonAttribute"/> structs.</summary>
+/// <summary>Writes and reads the callback data of <see cref="ButtonDataAttribute"/> structs.</summary>
 /// <remarks>Values are written in one canonical, invariant form, and only that form decodes.</remarks>
 public static class ButtonData
 {

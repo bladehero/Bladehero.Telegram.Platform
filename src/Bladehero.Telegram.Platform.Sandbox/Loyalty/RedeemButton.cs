@@ -7,7 +7,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Loyalty;
 
 // A points card's button, "redeem:{ownerId}:{points}".
-[Button("redeem")]
+[ButtonData("redeem")]
 internal readonly record struct Redeem(long OwnerId, int Points);
 
 // A tap from someone no longer a member is answered silently, as no command takes it.

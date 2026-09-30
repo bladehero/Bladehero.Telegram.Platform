@@ -33,7 +33,7 @@ public sealed class TestMessageTests
         // Assert
         act.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("NotAButton isn't button data: mark it [Button(\"prefix\")].");
+            .WithMessage("NotAButton isn't button data: mark it [ButtonData(\"prefix\")].");
     }
 
     [Fact]
@@ -203,6 +203,6 @@ public sealed class TestMessageTests
         }
     }
 
-    // No [Button], so it can't be button data.
+    // No [ButtonData], so it can't be button data.
     private readonly record struct NotAButton(int Value);
 }

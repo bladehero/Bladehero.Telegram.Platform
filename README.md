@@ -256,7 +256,7 @@ Declare a button's data as a record struct, build keyboards from it, and handle 
 `CallbackQueryCommand<TData>`, or `KnownUserCallbackQueryCommand<TUser, TData>` to have the tapper resolved too:
 
 ```csharp
-[Button("redeem")]
+[ButtonData("redeem")]
 internal readonly record struct Redeem(long OwnerId, int Points);
 
 var card = new InlineKeyboardMarkup()
@@ -302,7 +302,7 @@ Only this canonical form decodes.
   Telegram-sized ids, so tests hit the limit where production would.
 - **Checked when the receiving services are added**, listing every problem: prefixes (1–32 of `a-z0-9_-`, unique);
   field types, and that every settable value is a constructor parameter; one regular command per button type (or one
-  per step); and that a command for a type without `[Button]` overrides `Parse`, as hand-written data still can:
+  per step); and that a command for a type without `[ButtonData]` overrides `Parse`, as hand-written data still can:
 
 ```csharp
 // In a CallbackQueryCommand<(string Field, int Step)>
@@ -927,7 +927,7 @@ optionally, `Telegram:SecretToken`.
   `class X : KnownUserCommand<User>`. Test them through `TelegramTestHost` rather than building them by hand.
 - A hand-written base that parses callback data and resolves the user, such as a
   `ParsedCallbackQueryCommand<TUser, TParsed>`, becomes `KnownUserCallbackQueryCommand<TUser, TData>` overriding
-  `Parse`, or a `[Button]` type with no `Parse` at all. Checks that need the user go in `CheckAsync`.
+  `Parse`, or a `[ButtonData]` type with no `Parse` at all. Checks that need the user go in `CheckAsync`.
 - Behaviour since 10.0.x:
   - `IsCommand` ends a command at any whitespace.
   - An unset `AllowedUpdates` asks for Telegram's default explicitly.
@@ -938,7 +938,7 @@ optionally, `Telegram:SecretToken`.
 ### To 10.2
 
 - `CallbackQueryCommand<TData>.Parse` is no longer abstract. Overrides keep working; a command for a type without
-  `[Button]` that forgets it now fails at startup, not at compile time.
+  `[ButtonData]` that forgets it now fails at startup, not at compile time.
 - New hooks: `CheckAsync`, `RejectedAsync` and `AcceptsAsync`. An existing method with the same signature gets warning
   CS0114; rename it or make it an override.
 - Startup fails when a known-user command's resolver isn't registered. Before, every update failed.

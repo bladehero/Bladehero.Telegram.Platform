@@ -246,7 +246,7 @@ public sealed class CallbackQueryCommandTests
         }
     }
 
-    [Button("cbq-cup")]
+    [ButtonData("cbq-cup")]
     private readonly record struct Cup(int Size);
 
     // Decodes Cup without any code of its own; the check is the test's to set.
@@ -274,7 +274,7 @@ public sealed class CallbackQueryCommandTests
         }
     }
 
-    [Button("cbq-kettle")]
+    [ButtonData("cbq-kettle")]
     private readonly record struct Kettle(int Cups);
 
     // Also reads "kettle=2", the form its buttons had before Kettle was typed.

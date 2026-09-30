@@ -9,7 +9,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Tests.Buttons;
 
-// The failing setups use structs without [Button] and abstract commands, so the assembly scan never sees them.
+// The failing setups use structs without [ButtonData] and abstract commands, so the assembly scan never sees them.
 public sealed class ButtonCatalogTests
 {
     private const string Failure = "The typed buttons can't be set up:\n- ";
@@ -75,10 +75,10 @@ public sealed class ButtonCatalogTests
             .Which.Message.Should()
             .Be(
                 Failure
-                    + "PickPair handles ValueTuple<Int64, Int32>, which has no [Button] attribute; mark "
-                    + "ValueTuple<Int64, Int32> [Button(\"prefix\")] or override Parse.\n- "
-                    + "PourTea handles Tea, which has no [Button] attribute; mark Tea [Button(\"prefix\")] or override "
-                    + "Parse."
+                    + "PickPair handles ValueTuple<Int64, Int32>, which has no [ButtonData] attribute; mark "
+                    + "ValueTuple<Int64, Int32> [ButtonData(\"prefix\")] or override Parse.\n- "
+                    + "PourTea handles Tea, which has no [ButtonData] attribute; mark Tea [ButtonData(\"prefix\")] or "
+                    + "override Parse."
             );
     }
 
@@ -184,10 +184,10 @@ public sealed class ButtonCatalogTests
 
     private readonly record struct Broken(DateTime At);
 
-    [Button("cat-declared")]
+    [ButtonData("cat-declared")]
     private readonly record struct Declared(int Id);
 
-    [Button("cat-handled")]
+    [ButtonData("cat-handled")]
     private readonly record struct Handled(int Id);
 
     private abstract class PourTea : CallbackQueryCommand<Tea>;

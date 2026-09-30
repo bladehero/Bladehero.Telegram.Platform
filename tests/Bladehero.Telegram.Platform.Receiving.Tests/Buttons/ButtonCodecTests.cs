@@ -4,7 +4,7 @@ using FluentAssertions.Execution;
 
 namespace Bladehero.Telegram.Platform.Receiving.Tests.Buttons;
 
-// Structs without [Button], given a prefix here, so the assembly scan never sees them.
+// Structs without [ButtonData], given a prefix here, so the assembly scan never sees them.
 public sealed class ButtonCodecTests
 {
     private const string Holds = "a button holds strings, integers, bool, Guid, enums and DateOnly, or nullable ones.";

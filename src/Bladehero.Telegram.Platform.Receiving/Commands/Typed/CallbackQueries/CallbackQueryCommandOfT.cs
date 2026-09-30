@@ -10,7 +10,9 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 /// A tap is parsed, then checked with <see cref="CheckAsync"/>; an accepted tap runs <c>HandleAsync</c>, a rejected one
 /// <see cref="RejectedAsync"/>.
 /// </remarks>
-/// <typeparam name="TData">A <see cref="ButtonAttribute"/> struct, or any struct <see cref="Parse"/> reads.</typeparam>
+/// <typeparam name="TData">
+/// A <see cref="ButtonDataAttribute"/> struct, or any struct <see cref="Parse"/> reads.
+/// </typeparam>
 public abstract class CallbackQueryCommand<TData> : CallbackQueryCommand
     where TData : struct
 {
@@ -42,7 +44,7 @@ public abstract class CallbackQueryCommand<TData> : CallbackQueryCommand
 
     /// <summary>
     /// The value behind <paramref name="data"/>, or <c>null</c> for another command's button; by default it decodes a
-    /// <see cref="ButtonAttribute"/> <typeparamref name="TData"/>.
+    /// <see cref="ButtonDataAttribute"/> <typeparamref name="TData"/>.
     /// </summary>
     /// <remarks>
     /// Override it for other data, or to also accept an older format: <c>base.Parse(data) ?? Legacy(data)</c>.

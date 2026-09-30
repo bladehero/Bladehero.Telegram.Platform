@@ -50,7 +50,7 @@ public sealed class TestMessage
     public IReadOnlyList<string> Buttons => [.. Keyboard.Select(button => button.Text)];
 
     /// <summary>The buttons whose data decodes as <typeparamref name="TButton"/>, row by row.</summary>
-    /// <typeparam name="TButton">A <c>[Button]</c> struct.</typeparam>
+    /// <typeparam name="TButton">A <c>[ButtonData]</c> struct.</typeparam>
     /// <exception cref="InvalidOperationException"><typeparamref name="TButton"/> can't be button data.</exception>
     public IReadOnlyList<TButton> ButtonsOf<TButton>()
         where TButton : struct

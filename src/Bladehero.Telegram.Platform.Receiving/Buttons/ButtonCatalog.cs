@@ -13,14 +13,14 @@ internal sealed class ButtonCatalog
 
     private ButtonCatalog(Dictionary<string, ButtonCodec> codecs) => _codecs = codecs;
 
-    // The [Button] structs among the types, and those the commands handle.
+    // The [ButtonData] structs among the types, and those the commands handle.
     internal static ButtonCatalog Scan(IEnumerable<Type> types, IReadOnlyCollection<CatalogedCommand> commands) =>
         Create(
             types
                 .Where(type => type.IsValueType)
                 .Concat(commands.Select(command => DataOf(command.Type)).OfType<Type>())
                 .Distinct()
-                .Select(type => (Type: type, Button: type.GetCustomAttribute<ButtonAttribute>()))
+                .Select(type => (Type: type, Button: type.GetCustomAttribute<ButtonDataAttribute>()))
                 .Where(x => x.Button is not null)
                 .Select(x => (x.Type, x.Button!.Prefix)),
             commands
@@ -68,8 +68,8 @@ internal sealed class ButtonCatalog
             {
                 var name = ButtonCodec.NameOf(data!);
                 problems.Add(
-                    $"{ButtonCodec.NameOf(command.Type)} handles {name}, which has no [Button] attribute; mark {name} "
-                        + "[Button(\"prefix\")] or override Parse."
+                    $"{ButtonCodec.NameOf(command.Type)} handles {name}, which has no [ButtonData] attribute; "
+                        + $"mark {name} [ButtonData(\"prefix\")] or override Parse."
                 );
             }
         }

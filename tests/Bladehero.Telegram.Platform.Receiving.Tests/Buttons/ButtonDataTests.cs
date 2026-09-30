@@ -178,7 +178,7 @@ public sealed class ButtonDataTests
     }
 
     [Fact]
-    public void Encode_WhenTheTypeHasNoButtonAttribute_ShouldThrow()
+    public void Encode_WhenTheTypeHasNoButtonDataAttribute_ShouldThrow()
     {
         // Act
         var act = () => ButtonData.Encode(new Plain(1));
@@ -186,7 +186,7 @@ public sealed class ButtonDataTests
         // Assert
         act.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("Plain isn't button data: mark it [Button(\"prefix\")].");
+            .WithMessage("Plain isn't button data: mark it [ButtonData(\"prefix\")].");
     }
 
     [Theory]
@@ -334,61 +334,61 @@ public sealed class ButtonDataTests
         Large,
     }
 
-    [Button("data-order")]
+    [ButtonData("data-order")]
     private readonly record struct Order(long OwnerId, int Cups, string Name);
 
-    [Button("data-close")]
+    [ButtonData("data-close")]
     private readonly record struct Close;
 
-    [Button("data-sbyte")]
+    [ButtonData("data-sbyte")]
     private readonly record struct SByteButton(sbyte Value);
 
-    [Button("data-byte")]
+    [ButtonData("data-byte")]
     private readonly record struct ByteButton(byte Value);
 
-    [Button("data-short")]
+    [ButtonData("data-short")]
     private readonly record struct ShortButton(short Value);
 
-    [Button("data-ushort")]
+    [ButtonData("data-ushort")]
     private readonly record struct UShortButton(ushort Value);
 
-    [Button("data-int")]
+    [ButtonData("data-int")]
     private readonly record struct IntButton(int Value);
 
-    [Button("data-uint")]
+    [ButtonData("data-uint")]
     private readonly record struct UIntButton(uint Value);
 
-    [Button("data-long")]
+    [ButtonData("data-long")]
     private readonly record struct LongButton(long Value);
 
-    [Button("data-ulong")]
+    [ButtonData("data-ulong")]
     private readonly record struct ULongButton(ulong Value);
 
-    [Button("data-bool")]
+    [ButtonData("data-bool")]
     private readonly record struct BoolButton(bool Value);
 
-    [Button("data-guid")]
+    [ButtonData("data-guid")]
     private readonly record struct GuidButton(Guid Value);
 
-    [Button("data-size")]
+    [ButtonData("data-size")]
     private readonly record struct SizeButton(Size Value);
 
-    [Button("data-date")]
+    [ButtonData("data-date")]
     private readonly record struct DateButton(DateOnly Value);
 
-    [Button("data-text")]
+    [ButtonData("data-text")]
     private readonly record struct TextButton(string Value);
 
-    [Button("data-maybe")]
+    [ButtonData("data-maybe")]
     private readonly record struct MaybeButton(int? Value);
 
-    [Button("data-maybe-size")]
+    [ButtonData("data-maybe-size")]
     private readonly record struct MaybeSizeButton(Size? Value);
 
-    [Button("data-page")]
+    [ButtonData("data-page")]
     private readonly record struct PageButton(int Page, Size Size = Size.Large, DateOnly Day = default);
 
-    [Button("data-positive")]
+    [ButtonData("data-positive")]
     private readonly record struct Positive(int Value)
     {
         public int Value { get; } = Value > 0 ? Value : throw new ArgumentOutOfRangeException(nameof(Value));

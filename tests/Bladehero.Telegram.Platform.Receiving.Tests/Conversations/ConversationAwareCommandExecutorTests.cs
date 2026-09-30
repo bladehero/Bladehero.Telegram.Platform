@@ -436,7 +436,7 @@ public sealed class ConversationAwareCommandExecutorTests
         }
     }
 
-    [Button("exec-cup")]
+    [ButtonData("exec-cup")]
     private readonly record struct Cup(int Size);
 
     // Takes cups of size 1; any other is left for the step, or for nobody.

@@ -203,7 +203,7 @@ public sealed class DependencyInjectionTests
 
     private sealed record DiTestUser(string Name);
 
-    [Button("di-pick")]
+    [ButtonData("di-pick")]
     private readonly record struct DiPick(int Id);
 
     private sealed class DiRefusalHandler : IButtonRefusalHandler

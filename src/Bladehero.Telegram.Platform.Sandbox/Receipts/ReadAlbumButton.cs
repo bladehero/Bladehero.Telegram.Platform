@@ -8,7 +8,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
 // An album prompt's button, "album:{ownerId}:{groupId}".
-[Button("album")]
+[ButtonData("album")]
 internal readonly record struct ReadAlbum(long OwnerId, string GroupId);
 
 // Reads every page of the album at once, and shows the receipt on the prompt.

@@ -3,7 +3,7 @@ using FluentAssertions;
 
 namespace Bladehero.Telegram.Platform.Receiving.Tests.Buttons;
 
-public sealed class ButtonAttributeTests
+public sealed class ButtonDataAttributeTests
 {
     [Theory]
     [InlineData("a")]
@@ -14,7 +14,7 @@ public sealed class ButtonAttributeTests
     public void Constructor_WithAValidPrefix_ShouldKeepIt(string prefix)
     {
         // Act
-        var button = new ButtonAttribute(prefix);
+        var button = new ButtonDataAttribute(prefix);
 
         // Assert
         button.Prefix.Should().Be(prefix);
@@ -31,7 +31,7 @@ public sealed class ButtonAttributeTests
     public void Constructor_WithAnInvalidPrefix_ShouldThrow(string prefix)
     {
         // Act
-        var act = () => new ButtonAttribute(prefix);
+        var act = () => new ButtonDataAttribute(prefix);
 
         // Assert
         act.Should()

@@ -76,14 +76,14 @@ internal sealed class ButtonCodec
         return true;
     }
 
-    // The codec of a [Button] type.
+    // The codec of a [ButtonData] type.
     internal static ButtonCodec Of(Type type)
     {
         var (codec, problem) = Attributed.GetOrAdd(
             type,
             static type =>
-                type.GetCustomAttribute<ButtonAttribute>() is not { } button
-                    ? (null, $"{NameOf(type)} isn't button data: mark it [Button(\"prefix\")].")
+                type.GetCustomAttribute<ButtonDataAttribute>() is not { } button
+                    ? (null, $"{NameOf(type)} isn't button data: mark it [ButtonData(\"prefix\")].")
                 : TryCreate(type, button.Prefix, out var codec, out var problem) ? (codec, null)
                 : (null, problem)
         );

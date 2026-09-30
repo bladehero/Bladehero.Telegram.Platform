@@ -284,7 +284,7 @@ public sealed class TestUser
     /// Taps the button whose data decodes as <typeparamref name="TButton"/> and matches <paramref name="which"/>, on
     /// the newest message showing one.
     /// </summary>
-    /// <typeparam name="TButton">A <c>[Button]</c> struct.</typeparam>
+    /// <typeparam name="TButton">A <c>[ButtonData]</c> struct.</typeparam>
     /// <param name="which">Picks the button by its data; any, when <c>null</c>.</param>
     /// <param name="on">A specific message to tap it on, as that message now stands.</param>
     /// <param name="token">Stops waiting for the bot.</param>
