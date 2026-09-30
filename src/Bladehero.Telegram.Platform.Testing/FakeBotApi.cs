@@ -597,7 +597,13 @@ public sealed partial class FakeBotApi
 
     private JsonNode Delete(JsonObject parameters)
     {
-        if (!ChatOf(parameters).Remove(MessageIdOf(parameters)))
+        var chat = ChatOf(parameters);
+        if (chat.Find(MessageIdOf(parameters)) is { } message)
+        {
+            ThrowIfCannotDelete(chat, message);
+        }
+
+        if (!chat.Remove(MessageIdOf(parameters)))
         {
             throw Refuse(400, "Bad Request: message to delete not found");
         }

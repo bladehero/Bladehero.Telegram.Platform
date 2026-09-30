@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace Bladehero.Telegram.Platform.Testing;
 
 /// <summary>A private or group chat with the bot, as its members see it.</summary>
-public sealed class TestChat
+public sealed partial class TestChat
 {
     private readonly TelegramTestHost _host;
     private readonly string _name;

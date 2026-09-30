@@ -636,6 +636,7 @@ public sealed partial class TestUserTests
         // Arrange
         await using var bot = await TestBot.StartAsync();
         var family = bot.GroupChat("Family");
+        await family.MakesBotAdminAsync();
 
         // Act
         await family.Member("Anna").SendsDocumentAsync("a,b"u8.ToArray(), "budget.csv");

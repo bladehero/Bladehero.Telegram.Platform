@@ -3,7 +3,7 @@ using FluentAssertions.Execution;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
-public sealed class TestChatTests
+public sealed partial class TestChatTests
 {
     [Fact]
     public async Task Messages_ShouldShowTheBotsEditsAndTakeAwayTheKeyboard()

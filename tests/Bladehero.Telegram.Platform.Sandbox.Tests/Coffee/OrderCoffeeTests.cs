@@ -109,6 +109,7 @@ public sealed class OrderCoffeeTests
         // Arrange
         await using var bot = await StartBotAsync();
         var office = bot.GroupChat("Office");
+        await office.MakesBotAdminAsync(); // so it hears the typed cup names
         var anna = office.Member("Anna");
         var nick = office.Member("Nick");
         await anna.SendsAsync("/coffee");
@@ -361,6 +362,41 @@ public sealed class OrderCoffeeTests
     }
 
     [Fact]
+    public async Task Coffee_InAGroupWhereTheBotIsNotAnAdmin_ShouldNotHearTheCupName()
+    {
+        // Arrange: group privacy lets commands and taps through, not plain text.
+        await using var bot = await StartBotAsync();
+        var office = bot.GroupChat("Office");
+        var anna = office.Member("Anna");
+        await anna.SendsAsync("/coffee");
+        await anna.TapsAsync("Small");
+
+        // Act
+        await anna.SendsAsync("Anna");
+
+        // Assert: the order still waits for the name.
+        office
+            .Messages.Select(x => x.ToString())
+            .Should()
+            .Equal("Anna: /coffee", "Bot: Size: Small ✓", "Bot: Whose name goes on the cup? [Cancel]", "Anna: Anna");
+    }
+
+    [Fact]
+    public async Task Coffee_AddressedToAnotherBotInAGroup_ShouldBeIgnored()
+    {
+        // Arrange: as an admin the bot gets every message, so only the address keeps this one out.
+        await using var bot = await StartBotAsync();
+        var office = bot.GroupChat("Office");
+        await office.MakesBotAdminAsync();
+
+        // Act
+        await office.Member("Nick").SendsAsync("/coffee@other_bot");
+
+        // Assert
+        office.Messages.Select(x => x.ToString()).Should().Equal("Nick: /coffee@other_bot");
+    }
+
+    [Fact]
     public async Task Coffee_ForACyrillicAndEmojiName_ShouldKeepIt()
     {
         // Arrange
@@ -449,6 +485,7 @@ public sealed class OrderCoffeeTests
         // Arrange
         await using var bot = await StartBotAsync();
         var office = bot.GroupChat("Office");
+        await office.MakesBotAdminAsync(); // so it hears the typed cup name
         var nick = office.Member("Nick");
         var anna = office.Member("Anna");
         await nick.SendsAsync("/coffee large");

@@ -149,6 +149,7 @@ public sealed class RememberTests
         // Arrange
         await using var bot = await SandboxBot.StartAsync(mode);
         var family = bot.GroupChat("Family");
+        await family.MakesBotAdminAsync(); // so it hears the notes
         var nick = family.Member("Nick");
         var anna = family.Member("Anna");
 

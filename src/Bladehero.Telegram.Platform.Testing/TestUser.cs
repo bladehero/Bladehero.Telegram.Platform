@@ -78,7 +78,7 @@ public sealed partial class TestUser
     {
         text = CheckedText(text);
 
-        return DeliverAsync(() => _host.Api.Receive(Chat.Id, Person, text), token);
+        return DeliverAsync(new JsonObject { ["text"] = text }, () => _host.Api.Receive(Chat.Id, Person, text), token);
     }
 
     /// <summary>
@@ -232,6 +232,13 @@ public sealed partial class TestUser
         if (current.Text == text)
         {
             throw new ArgumentException("Telegram sends no edit for an unchanged message.", nameof(text));
+        }
+
+        // An edit reaches the bot only when the message did.
+        if (!_host.Api.WasHeard(Chat.Id, current.Id))
+        {
+            _host.Api.ThrowIfNotAllowed("edited_message");
+            return new TestMessage(_host.Api.EditByUser(Chat.Id, current.Id, text), _host.Api);
         }
 
         TestMessage? edited = null;
@@ -529,6 +536,7 @@ public sealed partial class TestUser
     // As Telegram: a caption, already checked, carries a leading /command marked.
     private Task<TestMessage> SendsFileAsync(Func<JsonObject> file, string? caption, CancellationToken token) =>
         DeliverAsync(
+            new JsonObject { ["caption"] = caption },
             () =>
             {
                 var content = file();
@@ -592,9 +600,20 @@ public sealed partial class TestUser
     }
 
     // The message is posted only once the bot can take it; returns it as posted.
-    private async Task<TestMessage> DeliverAsync(Func<JsonObject> message, CancellationToken token)
+    // preview holds what decides whether Telegram sends the message to the bot: its text or caption, and what it
+    // replies to.
+    private async Task<TestMessage> DeliverAsync(JsonObject preview, Func<JsonObject> message, CancellationToken token)
     {
         ThrowIfBlocked();
+        if (!_host.Api.WouldDeliver(Chat.Id, preview))
+        {
+            // Group privacy keeps it from the bot: it is only posted, and nothing waits for the bot.
+            _host.Api.ThrowIfNotAllowed("message");
+            var json = message();
+            _host.Api.MarkUnheard(Chat.Id, json["message_id"]!.GetValue<int>());
+            return new TestMessage(json.DeepClone().AsObject(), _host.Api);
+        }
+
         TestMessage? posted = null;
         await _host.DeliverAsync(
             "message",

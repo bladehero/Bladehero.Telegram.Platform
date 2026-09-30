@@ -18,6 +18,11 @@ internal sealed class ChatHistory(JsonObject chat)
 
     public IReadOnlyList<JsonObject> Messages => _messages;
 
+    // The chat as messages show it.
+    public JsonObject Chat => _chat.DeepClone().AsObject();
+
+    public bool IsGroup => _chat["type"]?.GetValue<string>() is "group" or "supergroup";
+
     // Completes on the chat's next change: a message posted, edited or deleted.
     public Task NextChange => _changed.Task;
 
