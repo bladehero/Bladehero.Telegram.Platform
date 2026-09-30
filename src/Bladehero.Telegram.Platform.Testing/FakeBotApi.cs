@@ -138,7 +138,7 @@ public sealed partial class FakeBotApi
     {
         ArgumentNullException.ThrowIfNull(error);
 
-        AddFailure(method, error, times, chatId);
+        AddFailure(method, FailureKind.Refused, error, times, chatId);
     }
 
     /// <summary>
@@ -154,10 +154,9 @@ public sealed partial class FakeBotApi
     /// given.
     /// </exception>
     public void FailNetwork(string method, int? times = null, long? chatId = null) =>
-        AddFailure(method, error: null, times, chatId);
+        AddFailure(method, FailureKind.Unreachable, error: null, times, chatId);
 
-    // A null error fails the network instead.
-    private void AddFailure(string method, BotApiError? error, int? times, long? chatId)
+    private void AddFailure(string method, FailureKind kind, BotApiError? error, int? times, long? chatId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
@@ -184,7 +183,7 @@ public sealed partial class FakeBotApi
 
         lock (_gate)
         {
-            _failures.Add(new Failure(method, error, times, chatId));
+            _failures.Add(new Failure(method, kind, error, times, chatId));
         }
     }
 
@@ -654,23 +653,33 @@ public sealed partial class FakeBotApi
         {
             _calls.Add(new BotApiCall(method, parameters.DeepClone().AsObject()));
 
-            switch (TakeFailure(method, parameters))
+            var failure = TakeFailure(method, parameters);
+            switch (failure?.Kind)
             {
-                case { Error: { } error }:
-                    return Respond(error);
-                case not null:
+                case FailureKind.Refused:
+                    return Respond(failure.Error!);
+                case FailureKind.Unreachable:
                     throw new HttpRequestException(
                         $"The network failed for {method}, as FakeBotApi.FailNetwork asked; Telegram never saw it."
                     );
+                case FailureKind.TimedOut:
+                    throw TimedOut(method);
             }
 
+            // A lost response is lost whatever Telegram answered, a refusal included.
+            var lost = failure?.Kind is FailureKind.ResponseLost;
             try
             {
                 result = Answer(method, parameters, attachments);
             }
             catch (Refusal refusal)
             {
-                return Respond(refusal.Error);
+                return lost ? throw ResponseLost(method) : Respond(refusal.Error);
+            }
+
+            if (lost)
+            {
+                throw ResponseLost(method);
             }
         }
 
@@ -730,9 +739,11 @@ public sealed partial class FakeBotApi
         public BotApiError Error { get; } = error;
     }
 
-    // chatId: only calls to that chat, whether chat_id came as a number or as form text. No error: the network fails.
-    private sealed class Failure(string method, BotApiError? error, int? times, long? chatId)
+    // chatId: only calls to that chat, whether chat_id came as a number or as form text; error: for Refused only.
+    private sealed class Failure(string method, FailureKind kind, BotApiError? error, int? times, long? chatId)
     {
+        public FailureKind Kind { get; } = kind;
+
         public BotApiError? Error { get; } = error;
 
         public bool Exhausted => times is 0;
