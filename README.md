@@ -859,8 +859,8 @@ A call the bot makes after the update was handled is waited for from a mark; typ
 
 ```csharp
 var mark = bot.Api.Mark();
-await nick.SendsAsync("/import");
-var answer = await bot.Api.WaitForCallAsync("answerCallbackQuery", after: mark);
+await nick.SendsAsync("/import");                                // a job edits its notice later
+await bot.Api.WaitForCallAsync("editMessageText", after: mark);
 bot.Api.Sent<EditMessageTextRequest>().Last().Text.Should().Be("Imported 3 expenses");
 ```
 
