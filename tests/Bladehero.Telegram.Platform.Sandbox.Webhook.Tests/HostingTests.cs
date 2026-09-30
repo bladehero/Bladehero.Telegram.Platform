@@ -196,6 +196,26 @@ public sealed class HostingTests
     }
 
     [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task ForLongPollingAsync_WithANullFactory_ShouldStartTheAppAsBefore(BotMode mode)
+    {
+        // Arrange
+        Action<IWebHostBuilder> configure = web => SandboxBot.Configure(web, mode);
+        await using var bot =
+            mode == BotMode.Webhook
+                ? await TelegramTestHost.ForWebhookAsync<Program>(factory: null, configureWebHost: configure)
+                : await TelegramTestHost.ForLongPollingAsync<Program>(factory: null, configureWebHost: configure);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("hello");
+
+        // Assert
+        nick.LastMessage.ToString().Should().Be("Bot: Reply: hello [Again] [Louder]");
+    }
+
+    [Theory]
     [InlineData(BotMode.Webhook, "setWebhook")]
     [InlineData(BotMode.LongPolling, "getWebhookInfo")]
     public async Task BeforeStart_ShouldSeeTheAppBuiltAndRunBeforeTheWebhookIsSet(BotMode mode, string startupCall)

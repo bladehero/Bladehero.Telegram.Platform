@@ -195,7 +195,10 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// Starts an ASP.NET Core app that receives by long polling, from the app's own
     /// <see cref="WebApplicationFactory{TEntryPoint}"/>, whose configuration still applies.
     /// </summary>
-    /// <param name="factory">Creates the app's factory, e.g. <c>() => new ApiFactory()</c>; the host disposes it.</param>
+    /// <param name="factory">
+    /// Creates the app's factory, e.g. <c>() => new ApiFactory()</c>; <c>null</c> for a plain
+    /// <see cref="WebApplicationFactory{TEntryPoint}"/>. The host disposes it.
+    /// </param>
     /// <param name="configureWebHost">Test tweaks, applied after the factory's own.</param>
     /// <param name="api">
     /// A pre-arranged fake, e.g. to fail startup calls, or one an earlier host ran on, which must be disposed first:
@@ -204,15 +207,13 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// <param name="token">Stops waiting for the app to start.</param>
     /// <remarks>A function, not an instance: an instance started elsewhere would run with the real Telegram client.</remarks>
     public static async Task<TelegramTestHost> ForLongPollingAsync<TEntryPoint>(
-        Func<WebApplicationFactory<TEntryPoint>> factory,
+        Func<WebApplicationFactory<TEntryPoint>>? factory,
         Action<IWebHostBuilder>? configureWebHost = null,
         FakeBotApi? api = null,
         CancellationToken token = default
     )
         where TEntryPoint : class
     {
-        ArgumentNullException.ThrowIfNull(factory);
-
         api ??= new FakeBotApi();
         var errors = new ErrorLog();
         var (appsOwn, app) = CreateApp(factory, configureWebHost, api, errors);
@@ -258,7 +259,10 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// Starts a webhook bot from its app's own <see cref="WebApplicationFactory{TEntryPoint}"/>, whose configuration
     /// still applies.
     /// </summary>
-    /// <param name="factory">Creates the app's factory, e.g. <c>() => new ApiFactory()</c>; the host disposes it.</param>
+    /// <param name="factory">
+    /// Creates the app's factory, e.g. <c>() => new ApiFactory()</c>; <c>null</c> for a plain
+    /// <see cref="WebApplicationFactory{TEntryPoint}"/>. The host disposes it.
+    /// </param>
     /// <param name="configureWebHost">Test tweaks, applied after the factory's own.</param>
     /// <param name="api">
     /// A pre-arranged fake, e.g. to fail startup calls, or one an earlier host ran on, which must be disposed first:
@@ -267,15 +271,13 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// <param name="token">Stops waiting for the app to start.</param>
     /// <remarks>A function, not an instance: an instance started elsewhere would run with the real Telegram client.</remarks>
     public static async Task<TelegramTestHost> ForWebhookAsync<TEntryPoint>(
-        Func<WebApplicationFactory<TEntryPoint>> factory,
+        Func<WebApplicationFactory<TEntryPoint>>? factory,
         Action<IWebHostBuilder>? configureWebHost = null,
         FakeBotApi? api = null,
         CancellationToken token = default
     )
         where TEntryPoint : class
     {
-        ArgumentNullException.ThrowIfNull(factory);
-
         api ??= new FakeBotApi();
         var errors = new ErrorLog();
         var (appsOwn, app) = CreateApp(factory, configureWebHost, api, errors);
@@ -452,15 +454,16 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
         WebApplicationFactory<TEntryPoint> Factory,
         WebApplicationFactory<TEntryPoint> App
     ) CreateApp<TEntryPoint>(
-        Func<WebApplicationFactory<TEntryPoint>> createFactory,
+        Func<WebApplicationFactory<TEntryPoint>>? createFactory,
         Action<IWebHostBuilder>? configureWebHost,
         FakeBotApi api,
         ErrorLog errors
     )
         where TEntryPoint : class
     {
-        var factory =
-            createFactory() ?? throw new InvalidOperationException("The factory function returned no factory.");
+        var factory = createFactory is null
+            ? new WebApplicationFactory<TEntryPoint>()
+            : createFactory() ?? throw new InvalidOperationException("The factory function returned no factory.");
         var app = factory.WithWebHostBuilder(web =>
         {
             configureWebHost?.Invoke(web);

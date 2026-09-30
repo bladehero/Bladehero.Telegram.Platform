@@ -954,9 +954,9 @@ depends on the version, and the registration that loses is ignored without any e
 - when the app uses another provider, such as InMemory, `AddDbContext` or `ConfigureDbContext` after the app's own fails
   on EF Core 9 and 10 with "Services for database providers … have been registered in the service provider".
 
-The shared open connection keeps the database across a restart on the same fake. Without EF Core's internals, point
-the app's connection string elsewhere instead: `web.UseSetting("ConnectionStrings:Database", "Data Source=…")`, as for a
-file above.
+The shared open connection keeps the database across a restart on the same fake. Without replacing EF Core's
+registrations, point the app's connection string elsewhere instead:
+`web.UseSetting("ConnectionStrings:Database", "Data Source=…")`, as for a file above.
 
 **Seed data or run an app service** through the bot's own container, in a scope as the app would:
 
@@ -1085,8 +1085,6 @@ optionally, `Telegram:SecretToken`.
 - A `ParallelCount` below 1, or a webhook `BaseUrl` that isn't an absolute http or https URL, now fails startup.
 - Two hosts polling one `FakeBotApi` at once get Telegram's 409.
 - Updates are handled inside a log scope carrying `TelegramUpdateId`.
-- `TelegramTestHost.ForLongPollingAsync<T>(null)` and `ForWebhookAsync<T>(null)` now pick the new factory overload and
-  throw `ArgumentNullException`; name the argument, as in `configureWebHost: null`.
 
 ## License
 
