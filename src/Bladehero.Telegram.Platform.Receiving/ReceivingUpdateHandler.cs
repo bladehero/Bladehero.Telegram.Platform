@@ -24,9 +24,14 @@ internal sealed class ReceivingUpdateHandler(
     {
         using var scope = UpdateLogScope.Begin(logger, update);
 
-        // IsCommand then refuses commands addressed to another bot; while the username is unknown, it accepts them.
-        var me =
-            identity.Current ?? (identity is TelegramBotIdentity own ? await own.TryGetAsync(cancellationToken) : null);
+        // IsCommand then refuses commands addressed to another bot. While the username is unknown it accepts them, and
+        // a getMe starts in the background; it never throws and runs at most once a minute after a failure.
+        var me = identity.Current;
+        if (me is null && identity is TelegramBotIdentity own)
+        {
+            _ = own.TryGetAsync(CancellationToken.None).AsTask();
+        }
+
         BotUsername.Current.Value = me?.Username;
 
         conversation.Bind(update);

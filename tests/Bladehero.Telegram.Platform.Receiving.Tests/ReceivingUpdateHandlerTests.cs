@@ -76,6 +76,44 @@ public sealed class ReceivingUpdateHandlerTests
         seen().Should().BeTrue();
     }
 
+    [Fact]
+    public async Task HandleUpdateAsync_WhenTheUsernameIsUnknown_ShouldNotWaitForGetMe()
+    {
+        // Arrange: getMe hangs until the test lets it go.
+        var getMe = new TaskCompletionSource<User>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new Mock<ITelegramBotClient>();
+        client.Setup(x => x.SendRequest(It.IsAny<IRequest<User>>(), It.IsAny<CancellationToken>())).Returns(getMe.Task);
+        var (sut, seen) = HandlerSeeingStart(new TelegramBotIdentity(client.Object));
+
+        // Act
+        await sut.HandleUpdateAsync(client.Object, Text("/start@other_bot"), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Assert
+        seen().Should().BeTrue();
+        getMe.SetResult(new User { Username = "test_bot" });
+    }
+
+    [Fact]
+    public async Task HandleUpdateAsync_OnceGetMeSucceeds_ShouldRefuseCommandsForOtherBots()
+    {
+        // Arrange: the first update starts getMe.
+        var client = new Mock<ITelegramBotClient>();
+        client
+            .Setup(x => x.SendRequest(It.IsAny<IRequest<User>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Username = "test_bot" });
+        var identity = new TelegramBotIdentity(client.Object);
+        var (sut, seen) = HandlerSeeingStart(identity);
+        await sut.HandleUpdateAsync(client.Object, Text("/start@other_bot"), CancellationToken.None);
+        await identity.GetAsync(CancellationToken.None);
+
+        // Act
+        await sut.HandleUpdateAsync(client.Object, Text("/start@other_bot"), CancellationToken.None);
+
+        // Assert
+        seen().Should().BeFalse();
+    }
+
     // A handler whose executor records whether it saw the update's message as /start.
     private static (ReceivingUpdateHandler Handler, Func<bool?> Seen) HandlerSeeingStart(ITelegramBotIdentity identity)
     {
