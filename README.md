@@ -646,7 +646,8 @@ bot.Logs.Should().Contain(x => x.Level == LogLevel.Warning && x.Message == "Limi
 
 `bot.FailOnErrorLogs = true` fails an action when the bot logs an Error or Critical entry for its update or outside any
 update. The message names the entry, and the entry's exception is the inner one. It's off by default, and an error the
-action rethrows anyway isn't reported twice.
+action rethrows anyway isn't reported twice. It counts from when it's turned on, so check startup errors in
+`bot.Logs`. An error logged by work an update started but didn't wait for fails the next action.
 
 To send logs elsewhere too, such as to the test output, add a provider with `builder.Logging.AddProvider(...)` in the
 builder overload, or with `web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
