@@ -137,6 +137,11 @@ public sealed partial class TestChat
 
     /// <summary><paramref name="firstName"/> as a member of this group.</summary>
     /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
+    /// <exception cref="InvalidOperationException">This is a private chat.</exception>
+    public TestUser Member(string firstName) => Member(firstName, lastName: null);
+
+    /// <summary><paramref name="firstName"/> as a member of this group.</summary>
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
     /// <param name="lastName">The last name, if any.</param>
     /// <param name="username">The username without @, e.g. <c>nick_d</c>, if any.</param>
     /// <param name="languageCode">The app's language, e.g. <c>en</c> or <c>pt-br</c>, if any.</param>

@@ -309,9 +309,13 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
         );
     }
 
+    /// <summary><paramref name="firstName"/> in a private chat with the bot.</summary>
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
+    public TestUser PrivateChat(string firstName) => PrivateChat(firstName, lastName: null);
+
     /// <summary>
     /// <paramref name="firstName"/> in a private chat with the bot. A name is one Telegram user throughout the test,
-    /// including as a <see cref="TestChat.Member"/> of a group.
+    /// including as a <see cref="TestChat.Member(string)"/> of a group.
     /// </summary>
     /// <param name="firstName">The user's first name.</param>
     /// <param name="lastName">The last name, if any.</param>
@@ -338,7 +342,7 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
 
     /// <summary>
     /// The group <paramref name="title"/> with the bot in it (the same title is the same group); add people with
-    /// <see cref="TestChat.Member"/>.
+    /// <see cref="TestChat.Member(string)"/>.
     /// </summary>
     public TestChat GroupChat(string title)
     {

@@ -84,6 +84,11 @@ public sealed partial class FakeBotApi
         }
     }
 
+    /// <summary>The Telegram user id of the test user named <paramref name="firstName"/>.</summary>
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
+    /// <exception cref="ArgumentException"><paramref name="firstName"/> is blank.</exception>
+    public long UserIdOf(string firstName) => UserIdOf(firstName, lastName: null);
+
     /// <summary>
     /// The Telegram user id of the test user named <paramref name="firstName"/>, which is also their private chat's
     /// id: reserved now for a new name, and the one <c>PrivateChat</c> and <c>Member</c> use later.
