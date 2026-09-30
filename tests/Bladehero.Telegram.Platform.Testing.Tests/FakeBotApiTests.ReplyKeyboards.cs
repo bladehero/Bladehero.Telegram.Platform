@@ -66,6 +66,76 @@ public sealed partial class FakeBotApiTests
             .Be("Bad Request: inline keyboard expected");
     }
 
+    [Theory]
+    [InlineData("keyboard")]
+    [InlineData("force reply")]
+    [InlineData("removal")]
+    public async Task EditMessageText_OfAMessageSentWithANonInlineMarkup_ShouldBeRefused(string markup)
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        var sent = await client.SendMessage(
+            Chat,
+            "Pick a drink",
+            replyMarkup: markup switch
+            {
+                "keyboard" => new ReplyKeyboardMarkup([
+                    ["Tea"],
+                ]),
+                "force reply" => new ForceReplyMarkup(),
+                _ => new ReplyKeyboardRemove(),
+            }
+        );
+
+        // Act
+        var act = () => client.EditMessageText(Chat, sent.Id, "Pick a tea");
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Be("Bad Request: message can't be edited");
+    }
+
+    [Fact]
+    public async Task EditMessageReplyMarkup_OfAForwardedMessage_ShouldBeRefused()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        var original = await client.SendMessage(Chat, "Pick one");
+        var forwarded = await client.ForwardMessage(Chat, Chat, original.Id);
+
+        // Act
+        var act = () =>
+            client.EditMessageReplyMarkup(Chat, forwarded.Id, InlineKeyboardButton.WithCallbackData("A", "pick:A"));
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Be("Bad Request: message can't be edited");
+    }
+
+    [Fact]
+    public async Task EditMessageMedia_OfAMessageSentWithAReplyKeyboard_ShouldBeRefused()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        var sent = await client.SendPhoto(
+            Chat,
+            Jpeg("cat"),
+            replyMarkup: new ReplyKeyboardMarkup([
+                ["Tea"],
+            ])
+        );
+
+        // Act
+        var act = () => client.EditMessageMedia(Chat, sent.Id, new InputMediaPhoto(Jpeg("dog")));
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.Message.Should()
+            .Be("Bad Request: message media can't be edited");
+    }
+
     // Telegram.Bot's EditMessageText takes inline keyboards only.
     private sealed class RawEditMessageTextRequest(long chatId, int messageId, string markup)
         : RequestBase<Message>("editMessageText")

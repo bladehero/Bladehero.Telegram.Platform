@@ -9,6 +9,9 @@ public sealed partial class FakeBotApi
 {
     private readonly Dictionary<long, ReplyMarkup> _replyMarkups = [];
 
+    // Messages Telegram won't let the bot edit: sent with a reply keyboard, ForceReply or removal, or forwarded.
+    private readonly HashSet<(long ChatId, int MessageId)> _uneditable = [];
+
     // The reply keyboard the user's app shows in the chat, whether it hid it, and the message that set it.
     internal (JsonObject Keyboard, bool Hidden, int MessageId)? ReplyKeyboardFor(long chatId, long userId)
     {
@@ -66,19 +69,30 @@ public sealed partial class FakeBotApi
         if (markup["remove_keyboard"]?.GetValue<bool>() is true)
         {
             _replyMarkups.Remove(chat.Id);
+            MarkUneditable(chat, posted);
         }
         else if (markup["keyboard"] is JsonArray || markup["force_reply"]?.GetValue<bool>() is true)
         {
-            var targets = markup["selective"]?.GetValue<bool>() is true ? TargetsOf(posted) : null;
+            // In a private chat the markup is for the user, selective or not.
+            var targets = markup["selective"]?.GetValue<bool>() is true && chat.IsGroup ? TargetsOf(posted) : null;
             _replyMarkups[chat.Id] = new ReplyMarkup(
                 markup.DeepClone().AsObject(),
                 posted["message_id"]!.GetValue<int>(),
                 targets
             );
+            MarkUneditable(chat, posted);
         }
 
         return posted;
     }
+
+    // Under _gate.
+    private void MarkUneditable(ChatHistory chat, JsonObject posted) =>
+        _uneditable.Add((chat.Id, posted["message_id"]!.GetValue<int>()));
+
+    // Under _gate.
+    private bool IsUneditable(ChatHistory chat, JsonObject message) =>
+        _uneditable.Contains((chat.Id, message["message_id"]!.GetValue<int>()));
 
     // Under _gate. Edits take inline keyboards only.
     private static void ThrowIfNotInline(JsonObject parameters)

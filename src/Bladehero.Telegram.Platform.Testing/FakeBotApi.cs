@@ -563,7 +563,7 @@ public sealed partial class FakeBotApi
         var chat = ChatOf(parameters);
         var message = chat.Find(MessageIdOf(parameters)) ?? throw Refuse(400, "Bad Request: message to edit not found");
 
-        if (message["from"]?["id"]?.GetValue<long>() != BotId)
+        if (message["from"]?["id"]?.GetValue<long>() != BotId || IsUneditable(chat, message))
         {
             throw Refuse(400, "Bad Request: message can't be edited");
         }

@@ -41,11 +41,14 @@ public sealed partial class FakeBotApi
         var captions = items.Select(CaptionOf).ToArray();
         var target = ReplyTargetOf(chat, parameters);
 
+        // Every file is resolved before the first post, so a refused item posts nothing.
+        var contents = items
+            .Select((item, index) => MediaContent(kinds[index], item, attachments, captions[index]))
+            .ToArray();
         var mediaGroupId = items.Length > 1 ? NextMediaGroupId() : null;
         var sent = new JsonArray();
-        for (var index = 0; index < items.Length; index++)
+        foreach (var content in contents)
         {
-            var content = MediaContent(kinds[index], items[index], attachments, captions[index]);
             if (mediaGroupId is not null)
             {
                 content["media_group_id"] = mediaGroupId;
@@ -70,7 +73,11 @@ public sealed partial class FakeBotApi
         var chat = ChatOf(parameters);
         var message = chat.Find(MessageIdOf(parameters)) ?? throw Refuse(400, "Bad Request: message to edit not found");
 
-        if (message["from"]?["id"]?.GetValue<long>() != BotId || message.ContainsKey("voice"))
+        if (
+            message["from"]?["id"]?.GetValue<long>() != BotId
+            || message.ContainsKey("voice")
+            || IsUneditable(chat, message)
+        )
         {
             throw Refuse(400, "Bad Request: message media can't be edited");
         }
@@ -109,12 +116,14 @@ public sealed partial class FakeBotApi
             throw Refuse(400, NotModified);
         }
 
+        // Built before the message changes, so a refused file leaves it as it was.
+        var content = MediaContent(kind, media, attachments, caption);
         foreach (var field in new[] { "text", "entities", "photo", "document", "caption", "caption_entities" })
         {
             message.Remove(field);
         }
 
-        foreach (var (field, value) in MediaContent(kind, media, attachments, caption))
+        foreach (var (field, value) in content)
         {
             message[field] = value?.DeepClone();
         }

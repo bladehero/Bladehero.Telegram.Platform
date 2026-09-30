@@ -213,6 +213,50 @@ public sealed partial class FakeBotApiTests
             .Be(description);
     }
 
+    [Fact]
+    public async Task EditMessageMedia_WhenRefused_ShouldLeaveTheMessageAsItWas()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        var cat = await client.SendPhoto(Chat, Jpeg("cat"), caption: "A cat");
+        var before = api.MessagesIn(Chat).Single().ToJsonString();
+
+        // Act
+        var act = () =>
+            client.EditMessageMedia(Chat, cat.Id, new InputMediaPhoto("no-such-file") { Caption = "A dog" });
+
+        // Assert
+        using (new AssertionScope())
+        {
+            (await act.Should().ThrowAsync<ApiRequestException>())
+                .Which.Message.Should()
+                .Be("Bad Request: wrong file identifier/HTTP URL specified");
+            api.MessagesIn(Chat).Single().ToJsonString().Should().Be(before);
+        }
+    }
+
+    [Fact]
+    public async Task SendMediaGroup_WhenALaterItemIsRefused_ShouldPostNothing()
+    {
+        // Arrange
+        var api = ApiWithChats();
+
+        // Act
+        var act = () =>
+            api.CreateClient()
+                .SendMediaGroup(Chat, [new InputMediaPhoto(Jpeg("front")), new InputMediaPhoto("no-such-file")]);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            (await act.Should().ThrowAsync<ApiRequestException>())
+                .Which.Message.Should()
+                .Be("Bad Request: wrong file identifier/HTTP URL specified");
+            api.MessagesIn(Chat).Should().BeEmpty();
+        }
+    }
+
     private const string NotModifiedText =
         "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message";
 

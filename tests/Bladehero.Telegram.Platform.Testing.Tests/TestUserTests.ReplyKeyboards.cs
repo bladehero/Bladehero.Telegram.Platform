@@ -1,6 +1,8 @@
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
@@ -209,5 +211,36 @@ public sealed partial class TestUserTests
             next.Message.ReplyToMessage.Should().BeNull();
             nick.ReplyKeyboard.Should().BeNull();
         }
+    }
+
+    [Fact]
+    public async Task ReplyKeyboard_WhenSelectiveInAPrivateChat_ShouldShowForTheUser()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act: the keyboard mentions @anna_k, who isn't in this chat.
+        await nick.SendsAsync("/selective");
+
+        // Assert
+        nick.ReplyKeyboard!.ToString().Should().Be("[A]");
+    }
+
+    [Fact]
+    public async Task SendsAsync_AfterASelectiveForceReplyInAPrivateChat_ShouldReplyToIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        var question = await bot
+            .Api.CreateClient()
+            .SendMessage(nick.Chat.Id, "Your name?", replyMarkup: new ForceReplyMarkup { Selective = true });
+
+        // Act
+        var answer = await nick.SendsAsync("Nick");
+
+        // Assert
+        answer.Message.ReplyToMessage!.Id.Should().Be(question.Id);
     }
 }

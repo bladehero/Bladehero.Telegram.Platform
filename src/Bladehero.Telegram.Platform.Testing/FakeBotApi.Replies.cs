@@ -82,7 +82,9 @@ public sealed partial class FakeBotApi
             content["reply_markup"] = original["reply_markup"]!.DeepClone();
         }
 
-        return chat.Post(Bot(), content).DeepClone().AsObject();
+        var forwarded = chat.Post(Bot(), content);
+        MarkUneditable(chat, forwarded);
+        return forwarded.DeepClone().AsObject();
     }
 
     // Under _gate. A copy without an origin; its caption and keyboard are the call's when given.
