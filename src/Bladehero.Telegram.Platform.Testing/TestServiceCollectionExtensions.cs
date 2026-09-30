@@ -11,7 +11,8 @@ public static class TestServiceCollectionExtensions
     /// <param name="action">Gets the app's root services, e.g. to seed a database, and the start's token.</param>
     /// <remarks>
     /// Actions run in the order added. In a web app, its own code before <c>Run</c>, such as migrations, has already
-    /// run. An exception fails the start.
+    /// run. An exception fails the start. With <c>HostOptions.ServicesStartConcurrently</c>, the order isn't
+    /// guaranteed.
     /// </remarks>
     public static IServiceCollection BeforeStart(
         this IServiceCollection services,

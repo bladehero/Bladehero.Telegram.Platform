@@ -6,6 +6,9 @@ public sealed partial class FakeBotApi
 {
     private readonly Dictionary<string, List<DownloadFailure>> _downloadFailures = [];
 
+    // For any file, after a file's own.
+    private readonly List<DownloadFailure> _anyDownloadFailures = [];
+
     /// <summary>
     /// Makes calls to <paramref name="method"/> time out, as an <see cref="HttpClient"/> time-out would; nothing
     /// changes.
@@ -64,13 +67,29 @@ public sealed partial class FakeBotApi
         }
     }
 
+    /// <summary>Makes the next downloads of any file fail: refused with <paramref name="error"/>, or broken off without one.</summary>
+    /// <remarks>Every download, or only the next <paramref name="times"/>; a file's own <see cref="FailDownload"/> comes first.</remarks>
+    public void FailDownloads(BotApiError? error = null, int? times = null)
+    {
+        if (times <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(times), times, "A failure has to happen at least once.");
+        }
+
+        lock (_gate)
+        {
+            _anyDownloadFailures.Add(new DownloadFailure(error, times));
+        }
+    }
+
     // The failed response to a download of the file, or null to serve it.
     private HttpResponseMessage? FailedDownload(string fileId)
     {
         DownloadFailure? failure;
         lock (_gate)
         {
-            if (!_downloadFailures.TryGetValue(fileId, out var failures) || failures is not [var first, ..])
+            var failures = _downloadFailures.GetValueOrDefault(fileId) is [_, ..] own ? own : _anyDownloadFailures;
+            if (failures is not [var first, ..])
             {
                 return null;
             }

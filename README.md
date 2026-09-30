@@ -826,6 +826,7 @@ failed poll runs on the same clock, so with a `FakeTimeProvider` it too lasts un
 | `TimeOut(method, times?, chatId?)` | Makes a method's calls time out (`RequestException`); nothing changes. |
 | `LoseResponse(method, times?, chatId?)` | Makes Telegram do a call but lose its response (`RequestException`). |
 | `FailDownload(fileId, error?, times?)` | Makes a file's downloads fail: refused with `error`, or broken off without. |
+| `FailDownloads(error?, times?)` | The same for any file, after a file's own; `Fail("getFile", …)` fails before the download. |
 | `UserIdOf(firstName)` | The Telegram id a test user gets, reserved before the host starts. |
 
 ```csharp

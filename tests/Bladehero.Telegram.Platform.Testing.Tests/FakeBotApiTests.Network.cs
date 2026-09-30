@@ -225,4 +225,63 @@ public sealed partial class FakeBotApiTests
             .WithParameterName("fileId")
             .WithMessage("Telegram has no file file_404; it was never sent.*");
     }
+
+    [Fact]
+    public async Task FailDownloads_ShouldFailTheNextDownloadOfAnyFile()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        var file = await client.GetFile(StoreDocument(api, "hello"u8.ToArray(), "hello.txt"));
+        api.FailDownloads(new BotApiError(404, "Not Found"));
+
+        // Act
+        var act = () => client.DownloadFile(file, new MemoryStream());
+
+        // Assert
+        (await act.Should().ThrowAsync<ApiRequestException>())
+            .Which.ErrorCode.Should()
+            .Be(404);
+    }
+
+    [Fact]
+    public async Task FailDownloads_ForTimes_ShouldThenLetDownloadsThrough()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        var file = await client.GetFile(StoreDocument(api, "hello"u8.ToArray(), "hello.txt"));
+        api.FailDownloads(times: 1);
+        await Record.ExceptionAsync(() => client.DownloadFile(file, new MemoryStream()));
+        using var content = new MemoryStream();
+
+        // Act
+        await client.DownloadFile(file, content);
+
+        // Assert
+        content.ToArray().Should().Equal("hello"u8.ToArray());
+    }
+
+    [Fact]
+    public async Task FailDownload_ForAFile_ShouldComeBeforeFailDownloads()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        var fileId = StoreDocument(api, "hello"u8.ToArray(), "hello.txt");
+        var file = await client.GetFile(fileId);
+        api.FailDownloads(new BotApiError(500, "Internal Server Error"), times: 1);
+        api.FailDownload(fileId, new BotApiError(404, "Not Found"), times: 1);
+
+        // Act
+        var first = await Record.ExceptionAsync(() => client.DownloadFile(file, new MemoryStream()));
+        var second = await Record.ExceptionAsync(() => client.DownloadFile(file, new MemoryStream()));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            first.Should().BeOfType<ApiRequestException>().Which.ErrorCode.Should().Be(404);
+            second.Should().BeOfType<ApiRequestException>().Which.ErrorCode.Should().Be(500);
+        }
+    }
 }
