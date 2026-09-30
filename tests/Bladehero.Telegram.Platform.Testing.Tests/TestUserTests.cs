@@ -7,7 +7,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
-public sealed class TestUserTests
+public sealed partial class TestUserTests
 {
     [Fact]
     public async Task SendsAsync_ShouldReachTheBotFromTheUser()

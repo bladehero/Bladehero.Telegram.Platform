@@ -354,6 +354,7 @@ public sealed partial class FakeBotApi
             message["text"] = text;
             SetOrRemove(message, "entities", BotCommandEntities(text));
             message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            chat.Revise(message);
             chat.Changed();
             return message.DeepClone().AsObject();
         }
@@ -375,6 +376,25 @@ public sealed partial class FakeBotApi
         {
             return _chats.TryGetValue(chatId, out var chat)
                 ? [.. chat.Messages.Select(message => message.DeepClone().AsObject())]
+                : [];
+        }
+    }
+
+    // The message as it now stands, or null once deleted.
+    internal JsonObject? MessageIn(long chatId, int messageId)
+    {
+        lock (_gate)
+        {
+            return _chats.TryGetValue(chatId, out var chat) ? chat.Find(messageId)?.DeepClone().AsObject() : null;
+        }
+    }
+
+    internal IReadOnlyList<JsonObject> RevisionsIn(long chatId, int messageId)
+    {
+        lock (_gate)
+        {
+            return _chats.TryGetValue(chatId, out var chat)
+                ? [.. chat.Revisions(messageId).Select(message => message.DeepClone().AsObject())]
                 : [];
         }
     }
@@ -432,7 +452,7 @@ public sealed partial class FakeBotApi
         var queryId = parameters["callback_query_id"]?.GetValue<string>();
         if (queryId is null || !_callbackAnswers.TryGetValue(queryId, out var answer) || answer is not null)
         {
-            throw Refuse(400, "Bad Request: query is too old and response timeout expired or query ID is invalid");
+            throw new Refusal(BotApiError.QueryTooOld);
         }
 
         ThrowIfLongerThan(AnswerTextLimit, parameters["text"]?.GetValue<string>(), "Bad Request: MESSAGE_TOO_LONG");
@@ -538,6 +558,7 @@ public sealed partial class FakeBotApi
 
         SetOrRemove(message, "reply_markup", newMarkup);
         message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        chat.Revise(message);
         chat.Changed();
 
         return message.DeepClone().AsObject();

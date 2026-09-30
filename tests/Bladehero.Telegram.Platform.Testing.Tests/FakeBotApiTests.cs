@@ -249,7 +249,7 @@ public sealed partial class FakeBotApiTests
     }
 
     [Fact]
-    public async Task AnswerCallbackQuery_Twice_ShouldFailLikeTelegram()
+    public async Task AnswerCallbackQuery_Twice_ShouldBeRefusedWithQueryTooOld()
     {
         // Arrange
         var api = ApiWithChats();
@@ -261,9 +261,15 @@ public sealed partial class FakeBotApiTests
         var act = () => client.AnswerCallbackQuery("7");
 
         // Assert
-        (await act.Should().ThrowAsync<ApiRequestException>())
-            .Which.Message.Should()
-            .Contain("query ID is invalid");
+        var refused = (await act.Should().ThrowAsync<ApiRequestException>()).Which;
+        using (new AssertionScope())
+        {
+            refused.ErrorCode.Should().Be(BotApiError.QueryTooOld.ErrorCode);
+            refused
+                .Message.Should()
+                .Be(BotApiError.QueryTooOld.Description)
+                .And.Be("Bad Request: query is too old and response timeout expired or query ID is invalid");
+        }
     }
 
     [Fact]
