@@ -7,6 +7,7 @@ namespace Bladehero.Telegram.Platform.Testing;
 internal sealed class ChatHistory(JsonObject chat)
 {
     private readonly List<JsonObject> _messages = [];
+    private JsonObject _chat = chat;
 
     // Copies of each message as posted and after every change; kept after a deletion.
     private readonly Dictionary<int, List<JsonObject>> _revisions = [];
@@ -26,7 +27,7 @@ internal sealed class ChatHistory(JsonObject chat)
         {
             ["message_id"] = ++_lastMessageId,
             ["date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            ["chat"] = chat.DeepClone(),
+            ["chat"] = _chat.DeepClone(),
             ["from"] = from.DeepClone(),
         };
 
@@ -60,6 +61,9 @@ internal sealed class ChatHistory(JsonObject chat)
     // Called after a message found here was edited, next to Changed.
     public void Revise(JsonObject message) =>
         _revisions[message["message_id"]!.GetValue<int>()].Add(message.DeepClone().AsObject());
+
+    // The chat as later messages show it, e.g. with a detail its user was given since.
+    public void Describe(JsonObject chat) => _chat = chat;
 
     // Called after a message found here was edited.
     public void Changed()

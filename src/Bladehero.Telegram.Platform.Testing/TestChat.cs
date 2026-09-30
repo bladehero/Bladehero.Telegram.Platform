@@ -134,8 +134,21 @@ public sealed class TestChat
     }
 
     /// <summary><paramref name="firstName"/> as a member of this group.</summary>
-    /// <exception cref="InvalidOperationException">This is a private chat.</exception>
-    public TestUser Member(string firstName)
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
+    /// <param name="lastName">The last name, if any.</param>
+    /// <param name="username">The username without @, e.g. <c>nick_d</c>, if any.</param>
+    /// <param name="languageCode">The app's language, e.g. <c>en</c> or <c>pt-br</c>, if any.</param>
+    /// <exception cref="ArgumentException">A detail isn't one Telegram gives.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// This is a private chat, a detail differs from the one the user was first opened with, or another user has the
+    /// username.
+    /// </exception>
+    public TestUser Member(
+        string firstName,
+        string? lastName = null,
+        string? username = null,
+        string? languageCode = null
+    )
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
 
@@ -146,7 +159,7 @@ public sealed class TestChat
             );
         }
 
-        return new TestUser(_host, _host.Api.Person(firstName), this);
+        return new TestUser(_host, _host.Api.Person(firstName, lastName, username, languageCode), this);
     }
 
     /// <summary>The group's title, or the name of the user in a private chat.</summary>

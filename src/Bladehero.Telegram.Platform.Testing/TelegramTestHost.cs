@@ -313,11 +313,25 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
     /// <paramref name="firstName"/> in a private chat with the bot. A name is one Telegram user throughout the test,
     /// including as a <see cref="TestChat.Member"/> of a group.
     /// </summary>
-    public TestUser PrivateChat(string firstName)
+    /// <param name="firstName">The user's first name.</param>
+    /// <param name="lastName">The last name, if any.</param>
+    /// <param name="username">The username without @, e.g. <c>nick_d</c>, if any.</param>
+    /// <param name="languageCode">The app's language, e.g. <c>en</c> or <c>pt-br</c>, if any.</param>
+    /// <remarks>A detail given once is kept; messages already posted keep what they showed.</remarks>
+    /// <exception cref="ArgumentException">A detail isn't one Telegram gives.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// A detail differs from the one the user was first opened with, or another user has the username.
+    /// </exception>
+    public TestUser PrivateChat(
+        string firstName,
+        string? lastName = null,
+        string? username = null,
+        string? languageCode = null
+    )
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
 
-        var person = Api.Person(firstName);
+        var person = Api.Person(firstName, lastName, username, languageCode);
         var chat = new TestChat(this, Api.PrivateChatWith(person), firstName, isGroup: false);
         return new TestUser(this, person, chat);
     }

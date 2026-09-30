@@ -16,23 +16,35 @@ namespace Bladehero.Telegram.Platform.Testing;
 public sealed class TestUser
 {
     private readonly TelegramTestHost _host;
-    private readonly JsonObject _person;
+    private readonly JsonObject _opened;
 
     internal TestUser(TelegramTestHost host, JsonObject person, TestChat chat)
     {
         _host = host;
-        _person = person;
+        _opened = person;
         Chat = chat;
     }
 
     /// <summary>The Telegram user id, the same in every chat.</summary>
-    public long Id => _person["id"]!.GetValue<long>();
+    public long Id => _opened["id"]!.GetValue<long>();
 
     /// <summary>The name the user was opened with, which is one user in every chat.</summary>
-    public string FirstName => _person["first_name"]!.GetValue<string>();
+    public string FirstName => _opened["first_name"]!.GetValue<string>();
+
+    /// <summary>The last name, if the user was given one.</summary>
+    public string? LastName => Person["last_name"]?.GetValue<string>();
+
+    /// <summary>The username without @, if the user was given one.</summary>
+    public string? Username => Person["username"]?.GetValue<string>();
+
+    /// <summary>The app's language, if the user was given one.</summary>
+    public string? LanguageCode => Person["language_code"]?.GetValue<string>();
 
     /// <summary>The chat the user acts in: their private chat, or the group they are a member of.</summary>
     public TestChat Chat { get; }
+
+    // The user as Telegram now shows them, with details given since this TestUser was opened.
+    private JsonObject Person => _host.Api.Person(FirstName);
 
     /// <inheritdoc cref="TestChat.Messages"/>
     public IReadOnlyList<TestMessage> Messages => Chat.Messages;
@@ -66,7 +78,7 @@ public sealed class TestUser
     {
         text = CheckedText(text);
 
-        return DeliverAsync(() => _host.Api.Receive(Chat.Id, _person, text), token);
+        return DeliverAsync(() => _host.Api.Receive(Chat.Id, Person, text), token);
     }
 
     /// <summary>
@@ -459,7 +471,7 @@ public sealed class TestUser
         var query = new JsonObject
         {
             ["id"] = queryId,
-            ["from"] = _person.DeepClone(),
+            ["from"] = Person,
             ["message"] = message,
             ["chat_instance"] = Chat.Id.ToString(),
             ["data"] = data,
@@ -528,7 +540,7 @@ public sealed class TestUser
                     }
                 }
 
-                return _host.Api.Receive(Chat.Id, _person, content);
+                return _host.Api.Receive(Chat.Id, Person, content);
             },
             token
         );

@@ -304,6 +304,25 @@ internal static class TestBot
         }
     }
 
+    // Replies with the sender's details as the bot sees them, and the chat's username.
+    private sealed class DetailsCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/details"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (_, message, client) = request;
+            var from = message.From!;
+
+            return client.SendMessage(
+                message.Chat,
+                $"{from.FirstName} {from.LastName} @{from.Username} {from.LanguageCode}; chat @{message.Chat.Username}",
+                cancellationToken: token
+            );
+        }
+    }
+
     [BotCommand("whoami", "Say who you are")]
     private sealed class WhoAmICommand : MessageCommand
     {

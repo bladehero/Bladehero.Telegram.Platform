@@ -91,14 +91,28 @@ public sealed partial class FakeBotApi
     /// <remarks>
     /// For seeding an app's users before the host starts. The bot can write to the user only once the test opens
     /// their chat with <c>PrivateChat</c>, so open it before the bot writes first. Ids are Telegram-sized, from
-    /// 7 000 000 001, so data carrying them is as long as in production.
+    /// 7 000 000 001, so data carrying them is as long as in production. A detail given once is kept.
     /// </remarks>
-    /// <exception cref="ArgumentException"><paramref name="firstName"/> is blank.</exception>
-    public long UserIdOf(string firstName)
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
+    /// <param name="lastName">The last name, if any.</param>
+    /// <param name="username">The username without @, e.g. <c>nick_d</c>, if any.</param>
+    /// <param name="languageCode">The app's language, e.g. <c>en</c> or <c>pt-br</c>, if any.</param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="firstName"/> is blank, or a detail isn't one Telegram gives.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// A detail differs from the one the user was first opened with, or another user has the username.
+    /// </exception>
+    public long UserIdOf(
+        string firstName,
+        string? lastName = null,
+        string? username = null,
+        string? languageCode = null
+    )
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
 
-        return Person(firstName)["id"]!.GetValue<long>();
+        return Person(firstName, lastName, username, languageCode)["id"]!.GetValue<long>();
     }
 
     /// <summary>A real bot client whose requests this fake answers.</summary>
@@ -228,8 +242,16 @@ public sealed partial class FakeBotApi
     internal int PollsInFlight => _updates.InFlight;
 
     // The same first name is the same user in every chat.
-    internal JsonObject Person(string firstName)
+    // The user named firstName, with any details given; a detail given once is kept.
+    internal JsonObject Person(
+        string firstName,
+        string? lastName = null,
+        string? username = null,
+        string? languageCode = null
+    )
     {
+        ThrowIfNotDetails(lastName, username, languageCode);
+
         lock (_gate)
         {
             if (!_people.TryGetValue(firstName, out var person))
@@ -243,6 +265,7 @@ public sealed partial class FakeBotApi
                 _people[firstName] = person;
             }
 
+            AddDetails(person, lastName, username, languageCode);
             return person.DeepClone().AsObject();
         }
     }
@@ -254,17 +277,7 @@ public sealed partial class FakeBotApi
 
         lock (_gate)
         {
-            _chats.TryAdd(
-                id,
-                new ChatHistory(
-                    new JsonObject
-                    {
-                        ["id"] = id,
-                        ["type"] = "private",
-                        ["first_name"] = person["first_name"]!.DeepClone(),
-                    }
-                )
-            );
+            _chats.TryAdd(id, new ChatHistory(PrivateChatOf(person)));
         }
 
         return id;
