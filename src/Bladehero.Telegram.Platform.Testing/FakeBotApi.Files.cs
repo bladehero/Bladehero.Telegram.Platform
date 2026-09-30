@@ -18,6 +18,7 @@ public sealed partial class FakeBotApi
         "reply_parameters",
         "suggested_post_parameters",
         "allowed_updates",
+        "media",
     ];
 
     private static readonly Encoding StrictUtf8 = new UTF8Encoding(

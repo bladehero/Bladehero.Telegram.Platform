@@ -448,6 +448,8 @@ public sealed partial class FakeBotApi
             "getFile" => GetFile(parameters),
             "forwardMessage" => Forward(parameters),
             "copyMessage" => Copy(parameters),
+            "sendMediaGroup" => SendMediaGroup(parameters, attachments),
+            "editMessageMedia" => EditMedia(parameters, attachments),
             _ => throw Refuse(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
     }
@@ -571,10 +573,7 @@ public sealed partial class FakeBotApi
             ) && JsonNode.DeepEquals(newMarkup, message["reply_markup"])
         )
         {
-            throw Refuse(
-                400,
-                "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
-            );
+            throw Refuse(400, NotModified);
         }
 
         if (field is not null)
