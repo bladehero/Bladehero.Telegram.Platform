@@ -159,7 +159,7 @@ public sealed class ButtonDataTests
         data.Should().Be($"data-text:{value}");
     }
 
-    // 65 bytes each; the emoji is 4 bytes in UTF-8 but only 2 characters, so counting characters would let it through.
+    // 65 bytes each; the emoji is 4 bytes but only 2 characters.
     [Theory]
     [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
     [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀")]

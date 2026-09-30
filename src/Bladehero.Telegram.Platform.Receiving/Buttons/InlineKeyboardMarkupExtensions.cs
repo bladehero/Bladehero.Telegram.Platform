@@ -6,9 +6,8 @@ namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 public static class InlineKeyboardMarkupExtensions
 {
     /// <summary>
-    /// Adds a button labelled <paramref name="text"/> carrying <paramref name="button"/>'s data to the last row and
-    /// returns the keyboard, as Telegram.Bot's <c>AddButton(text, callbackData)</c> does; <c>AddNewRow()</c> starts the
-    /// next row.
+    /// Adds a button carrying <paramref name="button"/> to the last row, as Telegram.Bot's
+    /// <c>AddButton(text, callbackData)</c> does.
     /// </summary>
     /// <exception cref="ArgumentException">As <see cref="ButtonData.Encode{TButton}"/>.</exception>
     /// <exception cref="InvalidOperationException">As <see cref="ButtonData.Encode{TButton}"/>.</exception>

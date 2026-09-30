@@ -4,11 +4,10 @@ using Microsoft.Extensions.Options;
 
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 
-// The options the resolver check hangs on: validated on start, it fails the host instead of every update.
+// The options the resolver check hangs on, validated on start.
 internal sealed class KnownUserResolvers;
 
-// Fails start when a known-user command's ITelegramUserResolver<TUser> isn't registered, naming the commands. Without
-// IServiceProviderIsService, as with a container that doesn't offer it, nothing can be checked.
+// Fails start when a known-user command's resolver isn't registered; without IServiceProviderIsService it can't check.
 internal sealed class KnownUserResolverValidator(
     IReadOnlyDictionary<Type, string[]> commandsByUser,
     IServiceProviderIsService? services

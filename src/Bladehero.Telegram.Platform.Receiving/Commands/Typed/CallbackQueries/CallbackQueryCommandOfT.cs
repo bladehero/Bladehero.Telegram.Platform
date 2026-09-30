@@ -7,21 +7,16 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 
 /// <summary>A button command whose callback data is parsed once into <see cref="Parsed"/>.</summary>
 /// <remarks>
-/// A <see cref="ButtonAttribute"/> <typeparamref name="TData"/> decodes without any code; for other data, override
-/// <see cref="Parse"/>, where a tuple such as <c>(string Action, Guid Id)</c> carries several fields. A tap is then
-/// parsed, <see cref="CheckAsync"/> takes, declines or rejects it, and <c>HandleAsync</c> runs for a taken one or
-/// <see cref="RejectedAsync"/> for a rejected one.
+/// A tap is parsed, then checked with <see cref="CheckAsync"/>; an accepted tap runs <c>HandleAsync</c>, a rejected one
+/// <see cref="RejectedAsync"/>.
 /// </remarks>
-/// <typeparam name="TData">The data, such as a <see cref="ButtonAttribute"/> record struct.</typeparam>
+/// <typeparam name="TData">A <see cref="ButtonAttribute"/> struct, or any struct <see cref="Parse"/> reads.</typeparam>
 public abstract class CallbackQueryCommand<TData> : CallbackQueryCommand
     where TData : struct
 {
     private ButtonCheck _check;
 
-    /// <summary>
-    /// The value <see cref="Parse"/> returned for the tapped button, set once it accepted the data, before
-    /// <see cref="CheckAsync"/> runs.
-    /// </summary>
+    /// <summary>The value <see cref="Parse"/> returned for the tapped button.</summary>
     protected TData Parsed { get; private set; }
 
     /// <inheritdoc/>
@@ -46,39 +41,31 @@ public abstract class CallbackQueryCommand<TData> : CallbackQueryCommand
     }
 
     /// <summary>
-    /// The value behind <paramref name="data"/>, or <c>null</c> if the button is another command's. By default it
-    /// decodes a <see cref="ButtonAttribute"/> <typeparamref name="TData"/> with
-    /// <see cref="ButtonData.TryDecode{TButton}"/>.
+    /// The value behind <paramref name="data"/>, or <c>null</c> for another command's button; by default it decodes a
+    /// <see cref="ButtonAttribute"/> <typeparamref name="TData"/>.
     /// </summary>
     /// <remarks>
-    /// Override it for data of another kind, or to accept an older format for a while as well:
-    /// <c>base.Parse(data) ?? Legacy(data)</c>.
+    /// Override it for other data, or to also accept an older format: <c>base.Parse(data) ?? Legacy(data)</c>.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
-    /// Not overridden, and <typeparamref name="TData"/> isn't button data; startup refuses such a command first.
+    /// Not overridden, and <typeparamref name="TData"/> can't be button data.
     /// </exception>
     protected virtual TData? Parse(string data) => ButtonData.TryDecode<TData>(data, out var button) ? button : null;
 
     /// <summary>
-    /// Whether the command takes the tap <see cref="Parse"/> accepted: <see cref="ButtonCheck.Accept"/> (the default),
-    /// <see cref="ButtonCheck.Decline"/> for another command's, or <see cref="ButtonCheck.Reject"/> to refuse it, e.g.
-    /// a tap on someone else's card.
+    /// Takes, declines or rejects a parsed tap; <see cref="ButtonCheck.Accept"/> by default.
     /// </summary>
     /// <remarks>
-    /// Runs after <see cref="Parse"/> and, for known users, once <c>User</c> is resolved. It runs alongside other
-    /// commands' checks, before any of them handles the update, so keep it free of side effects.
+    /// Runs after <see cref="Parse"/> and, for known users, after <c>User</c> is resolved. It runs alongside other
+    /// commands' checks, so keep it free of side effects.
     /// </remarks>
     protected virtual Task<ButtonCheck> CheckAsync(
         TypedCommandRequest<CallbackQuery> request,
         CancellationToken token
     ) => Task.FromResult(ButtonCheck.Accept);
 
-    /// <summary>
-    /// Runs instead of <c>HandleAsync</c> for a tap <see cref="CheckAsync"/> rejected. By default it answers with the
-    /// check's <see cref="ButtonCheck.Answer"/> and <see cref="ButtonCheck.ShowAlert"/>, silently without an answer,
-    /// and ignores Telegram's "query is too old" for a tap answered too late.
-    /// </summary>
-    /// <remarks>Override it to edit or delete the card as well; then answer the query yourself.</remarks>
+    /// <summary>Answers a rejected tap with the check's answer, in place of <c>HandleAsync</c>.</summary>
+    /// <remarks>Override it to edit or delete the card as well, and answer the query yourself.</remarks>
     protected virtual async Task RejectedAsync(
         TypedCommandRequest<CallbackQuery> request,
         ButtonCheck check,

@@ -86,12 +86,12 @@ public sealed partial class FakeBotApi
 
     /// <summary>
     /// The Telegram user id of the test user named <paramref name="firstName"/>, which is also their private chat's
-    /// id: reserved now for a new name, and the one <c>PrivateChat</c> and <c>Member</c> use later. Telegram-sized,
-    /// from 7 000 000 001 (beyond <see cref="int"/>), so data carrying ids is as long as in production.
+    /// id: reserved now for a new name, and the one <c>PrivateChat</c> and <c>Member</c> use later.
     /// </summary>
     /// <remarks>
     /// For seeding an app's users before the host starts. The bot can write to the user only once the test opens
-    /// their chat with <c>PrivateChat</c>, so open it before the bot writes first.
+    /// their chat with <c>PrivateChat</c>, so open it before the bot writes first. Ids are Telegram-sized, from
+    /// 7 000 000 001, so data carrying them is as long as in production.
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="firstName"/> is blank.</exception>
     public long UserIdOf(string firstName)

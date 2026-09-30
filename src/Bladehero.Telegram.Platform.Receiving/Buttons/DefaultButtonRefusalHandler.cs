@@ -4,7 +4,7 @@ using Telegram.Bot.Exceptions;
 
 namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 
-// Answers the tap so the app stops its spinner, and leaves the message as it is.
+// Answers the tap and leaves the message as it is.
 internal sealed class DefaultButtonRefusalHandler(ILogger<DefaultButtonRefusalHandler> logger) : IButtonRefusalHandler
 {
     internal const string NoLongerActiveText = "That button is no longer active.";

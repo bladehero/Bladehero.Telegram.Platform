@@ -3,8 +3,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Echo;
 
-// An echo's buttons: Again, and Louder until the reply is as loud as it gets. Again keeps its hand-written data, next
-// to Louder's typed one.
+// An echo's buttons: Again, with hand-written data, and a typed Louder until the reply is as loud as it gets.
 internal static class EchoKeyboard
 {
     public const string AgainData = "again";

@@ -49,16 +49,13 @@ public sealed class TestMessage
     /// <summary>The inline keyboard's button texts, row by row.</summary>
     public IReadOnlyList<string> Buttons => [.. Keyboard.Select(button => button.Text)];
 
-    /// <summary>
-    /// The data of the inline buttons whose callback data decodes as <typeparamref name="TButton"/>, row by row; other
-    /// buttons are skipped.
-    /// </summary>
+    /// <summary>The buttons whose data decodes as <typeparamref name="TButton"/>, row by row.</summary>
     /// <typeparam name="TButton">A <c>[Button]</c> struct.</typeparam>
-    /// <exception cref="InvalidOperationException"><typeparamref name="TButton"/> isn't button data.</exception>
+    /// <exception cref="InvalidOperationException"><typeparamref name="TButton"/> can't be button data.</exception>
     public IReadOnlyList<TButton> ButtonsOf<TButton>()
         where TButton : struct
     {
-        // Resolves the codec, which throws at once for a type that can't be button data.
+        // Fails at once for a type that can't be button data.
         ButtonData.TryDecode<TButton>(null, out _);
 
         var buttons = new List<TButton>();

@@ -10,8 +10,7 @@ namespace Bladehero.Telegram.Platform.Sandbox.Loyalty;
 [Button("redeem")]
 internal readonly record struct Redeem(long OwnerId, int Points);
 
-// The data is decoded before the member is looked up; a tap from someone no longer a member is answered silently, as
-// no command takes it.
+// A tap from someone no longer a member is answered silently, as no command takes it.
 internal sealed class RedeemButton(MemberDirectory members, PointsCard card)
     : KnownUserCallbackQueryCommand<Member, Redeem>
 {

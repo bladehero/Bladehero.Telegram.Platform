@@ -28,9 +28,7 @@ public static class DependencyInjection
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="assemblies"/> is empty.</exception>
     /// <exception cref="InvalidOperationException">
-    /// The typed buttons can't be set up: a <see cref="ButtonAttribute"/> struct holds fields a button can't, two
-    /// share a prefix, a button type has more than one command (or step) for it, or a command for a type without
-    /// <see cref="ButtonAttribute"/> doesn't override <c>Parse</c>. The message lists every problem.
+    /// The typed buttons can't be set up, e.g. two share a prefix; the message lists every problem.
     /// </exception>
     public static IServiceCollection AddTelegramReceiving(
         this IServiceCollection services,

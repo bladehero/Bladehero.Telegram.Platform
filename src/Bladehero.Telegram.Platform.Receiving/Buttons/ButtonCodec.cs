@@ -7,9 +7,8 @@ using System.Text;
 
 namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 
-// Writes and reads the callback data of one button type: its prefix, then ':' and a segment for each field. Built by
-// reflection once per type. A segment decodes only in the one form encoding writes, so equal buttons always carry equal
-// data. No static constructor: a failure there would stay a TypeInitializationException for the rest of the process.
+// Writes and reads one button type's callback data; built once per type. No static constructor, as a failure there
+// would stick as a TypeInitializationException.
 internal sealed class ButtonCodec
 {
     private const string Holds = "a button holds strings, integers, bool, Guid, enums and DateOnly, or nullable ones.";
@@ -57,7 +56,7 @@ internal sealed class ButtonCodec
 
     public string Prefix { get; }
 
-    // Explicit prefixes let tests build codecs for structs without [Button].
+    // Explicit prefixes, for tests.
     internal static bool TryCreate(
         Type type,
         string prefix,
@@ -123,7 +122,7 @@ internal sealed class ButtonCodec
         return encoded;
     }
 
-    // Never throws: data that doesn't decode, or that the constructor refuses, is simply not this button.
+    // Never throws: data that doesn't decode is simply not this button.
     public bool TryDecode(string data, out object? button)
     {
         button = null;
@@ -188,7 +187,7 @@ internal sealed class ButtonCodec
             );
     }
 
-    // Only the canonical form: the value must encode back to exactly the segment it came from.
+    // Only the canonical form decodes: the value must encode back to the same segment.
     private static bool TryRead(Field field, string segment, out object? value)
     {
         value = null;
@@ -224,7 +223,7 @@ internal sealed class ButtonCodec
         }
     }
 
-    // Why the type can't be button data, or null with its constructor (none for a button without fields) and fields.
+    // Why the type can't be button data, or null.
     private static string? ShapeOf(Type type, out ConstructorInfo? constructor, out Field[] fields)
     {
         constructor = null;
@@ -288,7 +287,7 @@ internal sealed class ButtonCodec
             );
         }
 
-        // A value set any other way would be lost: the data carries only the constructor's fields.
+        // A value set any other way would be lost.
         if (SettableOutsideTheConstructor(type, built) is { } lost)
         {
             return $"{lost.Name} isn't a constructor parameter, so its value would be lost; make it one.";
@@ -298,7 +297,7 @@ internal sealed class ButtonCodec
         return null;
     }
 
-    // The first public property with a setter or init accessor that isn't a field, or else the first public field.
+    // The first settable property that isn't a field, or else the first public field.
     private static MemberInfo? SettableOutsideTheConstructor(Type type, List<Field> fields)
     {
         var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -410,7 +409,7 @@ internal sealed class ButtonCodec
         }
     }
 
-    // ':' separates segments, and '@' is escaped too, which Telegram clients may treat as a mention.
+    // ':' separates segments; '@' is escaped too.
     private sealed class StringSegment : Segment
     {
         public override string Write(object value) =>

@@ -59,7 +59,7 @@ internal static class DependencyInjection
         var requirements = KnownUserResolverValidator.RequirementsOf(commands.Select(x => x.Type));
         if (requirements.Count > 0)
         {
-            // Checked on start, once the app has registered its resolvers, before or after these services.
+            // Checked on start, so the app may register its resolvers in any order.
             services.AddSingleton<IValidateOptions<KnownUserResolvers>>(provider => new KnownUserResolverValidator(
                 requirements,
                 provider.GetService<IServiceProviderIsService>()

@@ -6,15 +6,14 @@ using Bladehero.Telegram.Platform.Receiving.Conversations;
 
 namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 
-// The button types by prefix, checked when the receiving services are added: their shape, unique prefixes, and one
-// command per button type (or per step). Every problem is reported at once.
+// The button types by prefix, checked at registration; every problem is reported at once.
 internal sealed class ButtonCatalog
 {
     private readonly Dictionary<string, ButtonCodec> _codecs;
 
     private ButtonCatalog(Dictionary<string, ButtonCodec> codecs) => _codecs = codecs;
 
-    // Every [Button] struct among the types, and the [Button] data of every scanned CallbackQueryCommand<TData>.
+    // The [Button] structs among the types, and those the commands handle.
     internal static ButtonCatalog Scan(IEnumerable<Type> types, IReadOnlyCollection<CatalogedCommand> commands) =>
         Create(
             types
@@ -27,7 +26,7 @@ internal sealed class ButtonCatalog
             commands
         );
 
-    // Explicit prefixes, so tests can use structs without [Button].
+    // Explicit prefixes, for tests.
     internal static ButtonCatalog Create(
         IEnumerable<(Type Type, string Prefix)> buttons,
         IReadOnlyCollection<CatalogedCommand> commands
@@ -112,7 +111,7 @@ internal sealed class ButtonCatalog
         return new ButtonCatalog(codecs.ToDictionary(x => x.Prefix, StringComparer.Ordinal));
     }
 
-    // The codec whose prefix is the whole first segment of the data: "x" finds "x:1", never "xy:1".
+    // The codec whose prefix is the data's whole first segment.
     public bool TryFind(string data, [NotNullWhen(true)] out ButtonCodec? codec)
     {
         var end = data.IndexOf(':');
@@ -140,7 +139,7 @@ internal sealed class ButtonCatalog
             is not { IsGenericType: true } declaring
         || declaring.GetGenericTypeDefinition() != typeof(CallbackQueryCommand<>);
 
-    // Two steps can run at once when they share a flow and either takes every step of it, or both take the same one.
+    // Steps of one flow overlap when either takes every step, or both take the same one.
     private static bool Overlap(ConversationStepAttribute first, ConversationStepAttribute second) =>
         first.Flow == second.Flow && (first.Step is null || second.Step is null || first.Step == second.Step);
 

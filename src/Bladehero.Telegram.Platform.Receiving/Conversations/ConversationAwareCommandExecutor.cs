@@ -35,8 +35,7 @@ internal sealed class ConversationAwareCommandExecutor(
         return steps.Length > 0 && await executor.ExecuteAsync(new CommandPriorityAccessor(steps), request, token);
     }
 
-    // A tap on a registered prefix that nothing took is answered, so the app stops its spinner; hand-written data is
-    // left to the app.
+    // Answers a typed button's tap that nothing took; hand-written data is left alone.
     private Task RefuseUnclaimedButtonAsync(CommandRequest request, CancellationToken token)
     {
         if (request.Update.CallbackQuery is not { Data: { } data } query || !buttons.TryFind(data, out var codec))

@@ -298,9 +298,8 @@ Only this canonical form decodes.
 
 - **Building data:** `keyboard.AddButton(text, button)`, `ButtonData.Button(text, button)` for an
   `InlineKeyboardButton`, and `ButtonData.Encode` and `TryDecode` for the data alone.
-- **Size:** Telegram takes 64 bytes of callback data. It's checked when the button is built, with an
-  `ArgumentException` giving the data and its size. Test users have Telegram-sized ids, so tests hit the limit where
-  production would.
+- **Size:** Telegram takes 64 bytes; building a bigger button throws `ArgumentException`. Test users have
+  Telegram-sized ids, so tests hit the limit where production would.
 - **Checked when the receiving services are added**, listing every problem: prefixes (1–32 of `a-z0-9_-`, unique);
   field types, and that every settable value is a constructor parameter; one regular command per button type (or one
   per step); and that a command for a type without `[Button]` overrides `Parse`, as hand-written data still can:
@@ -311,10 +310,10 @@ protected override (string Field, int Step)? Parse(string data) =>
     data.Split(':') is ["move", var field, var step] && int.TryParse(step, out var by) ? (field, by) : null;
 ```
 
-**Checks on a tap.** `CheckAsync` returns `Accept`, `Decline` (the tap is another command's) or
-`Reject(answer, showAlert)`, which is answered instead of running `HandleAsync`; override `RejectedAsync` to edit or
-delete the card as well. It runs alongside other commands' checks, so keep it free of side effects.
-`KnownUserCommand<TUser>` has `AcceptsAsync` for the same, once the user is resolved.
+**Checks on a tap.** After `Parse` (and, for known users, the resolver), `CheckAsync` returns `Accept`, `Decline`
+(another command's tap) or `Reject(answer, showAlert)`, which is answered instead of running `HandleAsync`; override
+`RejectedAsync` to edit or delete the card too. Keep it free of side effects: it runs alongside other commands'
+checks. `KnownUserCommand<TUser>` has `AcceptsAsync` for the same.
 
 **Taps no command takes**, on a registered prefix, are answered: "That button is no longer active." when the data no
 longer decodes, and silently otherwise, e.g. for a stranger. Register an `IButtonRefusalHandler`, in any order, to

@@ -281,17 +281,16 @@ public sealed class TestUser
     }
 
     /// <summary>
-    /// Taps the button whose data decodes as <typeparamref name="TButton"/> and that <paramref name="which"/> accepts
-    /// (any, when <c>null</c>), on the newest message showing a match.
+    /// Taps the button whose data decodes as <typeparamref name="TButton"/> and matches <paramref name="which"/>, on
+    /// the newest message showing one.
     /// </summary>
     /// <typeparam name="TButton">A <c>[Button]</c> struct.</typeparam>
-    /// <param name="which">Picks the button by its data, e.g. <c>x =&gt; x.Points == 50</c>.</param>
+    /// <param name="which">Picks the button by its data; any, when <c>null</c>.</param>
     /// <param name="on">A specific message to tap it on, as that message now stands.</param>
     /// <param name="token">Stops waiting for the bot.</param>
     /// <returns>The bot's answer: the notification or alert the user sees, if any.</returns>
     /// <exception cref="InvalidOperationException">
-    /// No button matches, more than one on the message does (the message lists them), or
-    /// <typeparamref name="TButton"/> isn't button data.
+    /// <typeparamref name="TButton"/> can't be button data, or not exactly one button on the message matches.
     /// </exception>
     public Task<TestCallbackAnswer> TapsAsync<TButton>(
         Func<TButton, bool>? which = null,
@@ -300,7 +299,7 @@ public sealed class TestUser
     )
         where TButton : struct
     {
-        // Resolves the codec, which throws at once for a type that can't be button data.
+        // Fails at once for a type that can't be button data.
         ButtonData.TryDecode<TButton>(null, out _);
 
         var type = typeof(TButton).Name;
@@ -508,8 +507,7 @@ public sealed class TestUser
 
     private static string Quote(TestMessage message) => $"\"{message.Content}\"";
 
-    // The one button `match` picks on `on`, or on the newest message showing a match; `what` names it in errors, and
-    // `ambiguous`, when given, describes several matches on one message.
+    // The one button `match` picks on `on`, or on the newest message showing one; `what` and `ambiguous` word errors.
     private (TestMessage Message, string Data) Find(
         Func<InlineKeyboardButton, bool> match,
         string what,
