@@ -1,7 +1,10 @@
 using System.Reflection;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution.Parallel;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using FluentAssertions;
 using FluentAssertions.Execution;
@@ -172,6 +175,104 @@ public sealed class ConversationAwareCommandExecutorTests
         }
     }
 
+    [Fact]
+    public async Task ExecuteAsync_WhenNoCommandTakesATypedButton_ShouldRefuseItAsUnclaimed()
+    {
+        // Arrange
+        var bot = new Bot();
+
+        // Act
+        await bot.TapAsync("exec-cup:3");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.Unclaimed, typeof(Cup), "exec-cup:3"));
+            bot.Journal.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenATypedButtonNoLongerDecodes_ShouldRefuseItAsNoLongerActive()
+    {
+        // Arrange
+        var bot = new Bot();
+
+        // Act
+        await bot.TapAsync("exec-cup:large");
+
+        // Assert
+        bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.NoLongerActive, typeof(Cup), "exec-cup:large"));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenARegularCommandTakesATypedButton_ShouldNotRefuseIt()
+    {
+        // Arrange
+        var bot = new Bot();
+
+        // Act
+        await bot.TapAsync("exec-cup:1");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("cup");
+            bot.Refusals.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenAStepTakesATypedButton_ShouldNotRefuseIt()
+    {
+        // Arrange
+        var bot = new Bot();
+        await bot.OpenAsync(Size);
+
+        // Act
+        await bot.TapAsync("exec-cup:2");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("cup at the size step");
+            bot.Refusals.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Theory]
+    [InlineData("exec-cups:3")]
+    [InlineData("cup:3")]
+    [InlineData("forward")]
+    public async Task ExecuteAsync_ForHandWrittenButtonData_ShouldNeverRefuse(string data)
+    {
+        // Arrange
+        var bot = new Bot();
+
+        // Act
+        await bot.TapAsync(data);
+
+        // Assert
+        bot.Refusals.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ForAMessage_ShouldNeverRefuse()
+    {
+        // Arrange
+        var bot = new Bot();
+
+        // Act
+        await bot.SendAsync("/unknown");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().BeEmpty();
+            bot.Refusals.Entries.Should().BeEmpty();
+        }
+    }
+
     private static string? TextOf(CommandRequest request) => request.Update.Message?.Text;
 
     private static bool IsPlainText(CommandRequest request) => TextOf(request) is { } text && !text.StartsWith('/');
@@ -186,6 +287,8 @@ public sealed class ConversationAwareCommandExecutorTests
             typeof(PickSize),
             typeof(WriteName),
             typeof(Back),
+            typeof(CupCommand),
+            typeof(CupStep),
         ];
 
         private static readonly IOptionsMonitor<ParallelCommandExecutionConfiguration> Options = Mock.Of<
@@ -193,25 +296,29 @@ public sealed class ConversationAwareCommandExecutorTests
         >(x => x.CurrentValue == new ParallelCommandExecutionConfiguration());
 
         private readonly CommandCatalog _catalog;
+        private readonly ButtonCatalog _buttons;
         private readonly ServiceProvider _provider;
 
         public Bot(IConversationStore? store = null, bool withSteps = true)
         {
             Store = store ?? new InMemoryConversationStore();
 
-            _catalog = new CommandCatalog(
-                Commands
-                    .Select(type => new CatalogedCommand(
-                        type,
-                        CommandPriority.Default,
-                        type.GetCustomAttribute<ConversationStepAttribute>()
-                    ))
-                    .Where(x => withSteps || x.Step is null)
-            );
+            var commands = Commands
+                .Select(type => new CatalogedCommand(
+                    type,
+                    CommandPriority.Default,
+                    type.GetCustomAttribute<ConversationStepAttribute>()
+                ))
+                .Where(x => withSteps || x.Step is null)
+                .ToArray();
+
+            _catalog = new CommandCatalog(commands);
+            _buttons = ButtonCatalog.Scan([typeof(Cup)], commands);
 
             var services = new ServiceCollection()
                 .AddSingleton(Store)
                 .AddSingleton(Journal)
+                .AddSingleton<IButtonRefusalHandler>(Refusals)
                 .AddScoped<Conversation>()
                 .AddScoped<IConversation>(provider => provider.GetRequiredService<Conversation>());
 
@@ -226,6 +333,8 @@ public sealed class ConversationAwareCommandExecutorTests
         public IConversationStore Store { get; }
 
         public Journal Journal { get; } = new();
+
+        public RecordingRefusals Refusals { get; } = new();
 
         public Task OpenAsync(string step) =>
             Store.SaveAsync(Sender, new ConversationState(Flow, step), CancellationToken.None);
@@ -271,7 +380,7 @@ public sealed class ConversationAwareCommandExecutorTests
                 new CommandPriorityAccessor([.. _catalog.Regular.Select(x => x.Resolve(services))]),
                 Options
             );
-            var sut = new ConversationAwareCommandExecutor(conversation, _catalog, commands, services);
+            var sut = new ConversationAwareCommandExecutor(conversation, _catalog, commands, _buttons, services);
 
             await sut.ExecuteAsync(new CommandRequest(update, Mock.Of<ITelegramBotClient>()), CancellationToken.None);
         }
@@ -298,6 +407,66 @@ public sealed class ConversationAwareCommandExecutorTests
             {
                 _entries.Add(entry);
             }
+        }
+    }
+
+    private sealed class RecordingRefusals : IButtonRefusalHandler
+    {
+        private readonly List<(ButtonRefusalReason, Type, string?)> _entries = [];
+
+        public IReadOnlyList<(ButtonRefusalReason Reason, Type ButtonType, string? Data)> Entries
+        {
+            get
+            {
+                lock (_entries)
+                {
+                    return [.. _entries];
+                }
+            }
+        }
+
+        public Task HandleAsync(ButtonRefusal refusal, CancellationToken token)
+        {
+            lock (_entries)
+            {
+                _entries.Add((refusal.Reason, refusal.ButtonType, refusal.Query.Data));
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    [ButtonData("exec-cup")]
+    private readonly record struct Cup(int Size);
+
+    // Takes cups of size 1; any other is left for the step, or for nobody.
+    private sealed class CupCommand(Journal journal) : CallbackQueryCommand<Cup>
+    {
+        protected override Task<ButtonCheck> CheckAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(Parsed.Size == 1 ? ButtonCheck.Accept : ButtonCheck.Decline);
+
+        protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            journal.Write("cup");
+            return Task.CompletedTask;
+        }
+    }
+
+    // At the size step, takes cups of size 2.
+    [ConversationStep(Flow, Size)]
+    private sealed class CupStep(Journal journal) : CallbackQueryCommand<Cup>
+    {
+        protected override Task<ButtonCheck> CheckAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(Parsed.Size == 2 ? ButtonCheck.Accept : ButtonCheck.Decline);
+
+        protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            journal.Write("cup at the size step");
+            return Task.CompletedTask;
         }
     }
 

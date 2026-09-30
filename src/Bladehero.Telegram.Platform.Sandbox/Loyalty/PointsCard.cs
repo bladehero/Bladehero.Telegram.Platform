@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -6,60 +7,111 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Loyalty;
 
-// Each member's points card, one message per chat: edited in place, and sent again only when it cannot be.
+// Each member's points card, one per chat: /points sends a fresh one to the bottom, a tap updates it in place.
 internal sealed class PointsCard
 {
     private readonly ConcurrentDictionary<(long ChatId, long UserId), int> _cards = new();
 
-    public async Task ShowAsync(ITelegramBotClient client, Chat chat, Member member, CancellationToken token)
+    public async Task SendAsync(ITelegramBotClient client, Chat chat, Member member, CancellationToken token)
     {
-        var text = $"{member.Name}, you have {member.Points} points.";
-        var buttons = Buttons(member.UserId);
-        var key = (chat.Id, member.UserId);
-
-        if (_cards.TryGetValue(key, out var cardId))
+        if (_cards.TryRemove((chat.Id, member.UserId), out var previous))
         {
-            try
-            {
-                await client.EditMessageText(chat, cardId, text, replyMarkup: buttons, cancellationToken: token);
-                return;
-            }
-            catch (ApiRequestException error) when (error.Message.Contains("message is not modified"))
-            {
-                return;
-            }
-            catch (ApiRequestException error) when (error.Message.Contains("message to edit not found"))
-            {
-                // Gone, so a new card takes its place.
-            }
-            catch (ApiRequestException)
-            {
-                await DeleteAsync(client, chat, cardId, token);
-            }
+            await DeleteAsync(client, chat, previous, token);
         }
 
-        var card = await client.SendMessage(chat, text, replyMarkup: buttons, cancellationToken: token);
-        _cards[key] = card.Id;
+        var card = await client.SendMessage(
+            chat,
+            TextOf(member),
+            replyMarkup: Buttons(member.UserId),
+            cancellationToken: token
+        );
+        _cards[(chat.Id, member.UserId)] = card.Id;
     }
 
-    private static InlineKeyboardMarkup Buttons(long ownerId) =>
-        new([
-            [
-                InlineKeyboardButton.WithCallbackData("Redeem 10", RedeemButton.Data(ownerId, 10)),
-                InlineKeyboardButton.WithCallbackData("Redeem 50", RedeemButton.Data(ownerId, 50)),
-            ],
-        ]);
+    public async Task UpdateAsync(
+        ITelegramBotClient client,
+        Chat chat,
+        int cardId,
+        Member member,
+        CancellationToken token
+    )
+    {
+        try
+        {
+            await client.EditMessageText(
+                chat,
+                cardId,
+                TextOf(member),
+                replyMarkup: Buttons(member.UserId),
+                cancellationToken: token
+            );
+        }
+        catch (ApiRequestException error) when (error.Message.Contains("message is not modified"))
+        {
+            // It shows this already.
+        }
+        catch (ApiRequestException)
+        {
+            // Refused, so a fresh card replaces it.
+            Forget(chat, member.UserId, cardId);
+            await DeleteAsync(client, chat, cardId, token);
+            await SendAsync(client, chat, member, token);
+        }
+    }
 
-    // A card that cannot be edited is replaced; one that cannot be deleted either stays behind.
-    private static async Task DeleteAsync(ITelegramBotClient client, Chat chat, int cardId, CancellationToken token)
+    // Deletes the card, or takes its buttons off when it can't be deleted.
+    public async Task CloseAsync(
+        ITelegramBotClient client,
+        Chat chat,
+        int cardId,
+        long ownerId,
+        CancellationToken token
+    )
+    {
+        Forget(chat, ownerId, cardId);
+        if (await DeleteAsync(client, chat, cardId, token))
+        {
+            return;
+        }
+
+        try
+        {
+            await client.EditMessageReplyMarkup(chat, cardId, replyMarkup: null, cancellationToken: token);
+        }
+        catch (ApiRequestException)
+        {
+            // Gone, or without buttons already.
+        }
+    }
+
+    private static string TextOf(Member member) => $"{member.Name}, you have {member.Points} points.";
+
+    private static InlineKeyboardMarkup Buttons(long ownerId) =>
+        new InlineKeyboardMarkup()
+            .AddButton("Redeem 10", new Redeem(ownerId, 10))
+            .AddButton("Redeem 50", new Redeem(ownerId, 50))
+            .AddNewRow()
+            .AddButton("✖ Close", new ClosePoints(ownerId));
+
+    // Only while it is still the member's tracked card, not an older one left behind.
+    private void Forget(Chat chat, long userId, int cardId) => _cards.TryRemove(new((chat.Id, userId), cardId));
+
+    // False when Telegram refuses: the card is gone already, or too old to delete.
+    private static async Task<bool> DeleteAsync(
+        ITelegramBotClient client,
+        Chat chat,
+        int cardId,
+        CancellationToken token
+    )
     {
         try
         {
             await client.DeleteMessage(chat, cardId, token);
+            return true;
         }
         catch (ApiRequestException)
         {
-            // Better an old card left behind than no card at all.
+            return false;
         }
     }
 }

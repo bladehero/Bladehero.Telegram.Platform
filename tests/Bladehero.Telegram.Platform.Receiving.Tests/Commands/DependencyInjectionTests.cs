@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
@@ -15,7 +16,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands;
 public sealed class DependencyInjectionTests
 {
     [Fact]
-    public void AddTelegramCommands_WhenCommandDerivesFromKnownUserCommand_ShouldInjectTheMatchingUserResolver()
+    public void AddTelegramCommands_WhenCommandDerivesFromKnownUserMessageCommand_ShouldInjectTheMatchingUserResolver()
     {
         // Arrange
         var services = new ServiceCollection();
@@ -49,7 +50,7 @@ public sealed class DependencyInjectionTests
     }
 
     [Fact]
-    public void AddTelegramCommands_WhenAKnownUserCommandsDependencyIsMissing_ShouldFailNamingIt()
+    public void AddTelegramCommands_WhenAKnownUserMessageCommandsDependencyIsMissing_ShouldFailNamingIt()
     {
         // Arrange: nothing registers the ledger.
         var services = new ServiceCollection();
@@ -151,7 +152,64 @@ public sealed class DependencyInjectionTests
         store.Should().BeSameAs(custom);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AddTelegramReceiving_WithACustomButtonRefusalHandler_ShouldUseItWhicheverOrderItIsRegisteredIn(
+        bool registeredFirst
+    )
+    {
+        // Arrange
+        var services = new ServiceCollection();
+
+        if (registeredFirst)
+        {
+            services.AddScoped<IButtonRefusalHandler, DiRefusalHandler>();
+        }
+
+        services.AddTelegramReceiving(typeof(DependencyInjectionTests).Assembly);
+
+        if (!registeredFirst)
+        {
+            services.AddScoped<IButtonRefusalHandler, DiRefusalHandler>();
+        }
+
+        using var scope = services.BuildServiceProvider().CreateScope();
+
+        // Act
+        var handler = scope.ServiceProvider.GetRequiredService<IButtonRefusalHandler>();
+
+        // Assert
+        handler.Should().BeOfType<DiRefusalHandler>();
+    }
+
+    [Fact]
+    public void AddTelegramCommands_ShouldRegisterTheButtonsOfTheScannedAssembly()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramCommands([typeof(DependencyInjectionTests).Assembly]);
+
+        // Act
+        var buttons = services.BuildServiceProvider().GetRequiredService<ButtonCatalog>();
+
+        // Assert
+        using (new AssertionScope())
+        {
+            buttons.TryFind("di-pick:1", out var codec).Should().BeTrue();
+            codec!.Type.Should().Be<DiPick>();
+        }
+    }
+
     private sealed record DiTestUser(string Name);
+
+    [ButtonData("di-pick")]
+    private readonly record struct DiPick(int Id);
+
+    private sealed class DiRefusalHandler : IButtonRefusalHandler
+    {
+        public Task HandleAsync(ButtonRefusal refusal, CancellationToken token) => Task.CompletedTask;
+    }
 
     private sealed class DiTestResolver : ITelegramUserResolver<DiTestUser>
     {
@@ -159,7 +217,7 @@ public sealed class DependencyInjectionTests
             Task.FromResult<DiTestUser?>(null);
     }
 
-    private sealed class DiProbeCommand : KnownUserCommand<DiTestUser>
+    private sealed class DiProbeCommand : KnownUserMessageCommand<DiTestUser>
     {
         public bool HasResolver => UserResolver is not null;
 
@@ -172,7 +230,7 @@ public sealed class DependencyInjectionTests
     // No test in this assembly resolves every scanned command, so the missing ledger breaks only the test that asks.
     private interface IDiLedger;
 
-    private sealed class DiLedgerCommand(IDiLedger ledger) : KnownUserCommand<DiTestUser>
+    private sealed class DiLedgerCommand(IDiLedger ledger) : KnownUserMessageCommand<DiTestUser>
     {
         public IDiLedger Ledger { get; } = ledger;
 

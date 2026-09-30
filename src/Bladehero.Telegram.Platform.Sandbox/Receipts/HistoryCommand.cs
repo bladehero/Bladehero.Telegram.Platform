@@ -9,7 +9,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
 [BotCommand("history", "Your receipts as a CSV file")]
-internal sealed class HistoryCommand(ReceiptHistory history) : KnownUserCommand<Member>
+internal sealed class HistoryCommand(ReceiptHistory history) : KnownUserMessageCommand<Member>
 {
     protected override bool Matches(Message message) => message.IsCommand("/history");
 

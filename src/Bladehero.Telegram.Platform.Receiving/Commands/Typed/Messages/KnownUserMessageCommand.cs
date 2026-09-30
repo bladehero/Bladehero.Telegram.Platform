@@ -8,14 +8,12 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 /// sender, or one sent on behalf of a chat (a channel's post in a group, or an anonymous admin), whose sender is a
 /// placeholder rather than a person, is declined without a lookup.
 /// </remarks>
-public abstract class KnownUserCommand<TUser> : MessageCommand
+public abstract class KnownUserMessageCommand<TUser> : MessageCommand
     where TUser : class
 {
     internal ITelegramUserResolver<TUser> UserResolver { get; init; } = null!;
 
-    /// <summary>
-    /// The user the resolver returned for the sender, set once <c>CanHandleAsync</c> has accepted the message.
-    /// </summary>
+    /// <summary>The user the resolver returned for the sender, set before <see cref="AcceptsAsync"/> runs.</summary>
     protected TUser User { get; private set; } = null!;
 
     /// <inheritdoc/>
@@ -40,7 +38,7 @@ public abstract class KnownUserCommand<TUser> : MessageCommand
         }
 
         User = user;
-        return true;
+        return await AcceptsAsync(request, token);
     }
 
     /// <summary>
@@ -48,4 +46,11 @@ public abstract class KnownUserCommand<TUser> : MessageCommand
     /// so another command's message costs no lookup.
     /// </summary>
     protected abstract bool Matches(Message message);
+
+    /// <summary>Whether the command takes a known sender's message; <c>true</c> by default.</summary>
+    /// <remarks>
+    /// Runs once <see cref="User"/> is resolved, alongside other commands' checks, so keep it free of side effects.
+    /// </remarks>
+    protected virtual Task<bool> AcceptsAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+        Task.FromResult(true);
 }

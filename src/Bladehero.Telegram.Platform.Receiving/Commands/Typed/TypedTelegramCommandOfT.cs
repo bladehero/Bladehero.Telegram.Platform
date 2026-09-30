@@ -40,8 +40,12 @@ public abstract class TypedTelegramCommand<T> : TypedTelegramCommand
             );
         }
 
-        return HandleAsync(_typedCommandRequest, token);
+        return HandleTypedAsync(_typedCommandRequest, token);
     }
+
+    // Button commands answer a rejected tap here instead.
+    private protected virtual Task HandleTypedAsync(TypedCommandRequest<T> request, CancellationToken token) =>
+        HandleAsync(request, token);
 
     /// <summary>
     /// Whether this command handles the payload, asked only for updates of its <see cref="TypedTelegramCommand.Type"/>;

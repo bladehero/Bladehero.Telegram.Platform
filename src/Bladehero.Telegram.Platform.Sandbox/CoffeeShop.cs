@@ -43,6 +43,12 @@ internal static class CoffeeShop
         services.AddSingleton<IReceiptReader, DisabledReceiptReader>();
         services.AddSingleton<ITranscriber, DisabledTranscriber>();
 
+        if (configuration.GetSection(CoffeeShopOptions.Section).GetValue<bool>("Demo"))
+        {
+            services.AddSingleton<IReceiptReader, DemoReceiptReader>();
+            services.AddSingleton<ITranscriber, DemoTranscriber>();
+        }
+
         return services;
     }
 }

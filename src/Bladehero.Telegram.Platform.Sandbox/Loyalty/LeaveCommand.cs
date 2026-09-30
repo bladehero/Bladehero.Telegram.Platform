@@ -7,7 +7,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Loyalty;
 
 [BotCommand("leave", "Leave the loyalty club")]
-internal sealed class LeaveCommand(MemberDirectory members) : KnownUserCommand<Member>
+internal sealed class LeaveCommand(MemberDirectory members) : KnownUserMessageCommand<Member>
 {
     protected override bool Matches(Message message) => message.IsCommand("/leave");
 

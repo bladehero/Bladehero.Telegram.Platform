@@ -1495,6 +1495,23 @@ public sealed partial class FakeBotApiTests
         nick.Should().NotBe(anna);
     }
 
+    [Fact]
+    public void UserIdOf_ShouldHandOutTelegramSizedIds()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+
+        // Act
+        var ids = new[] { api.UserIdOf("Nick"), api.UserIdOf("Anna") };
+
+        // Assert
+        using (new AssertionScope())
+        {
+            ids.Should().Equal(7000000001, 7000000002);
+            ids.Should().OnlyContain(id => id > int.MaxValue);
+        }
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(" ")]

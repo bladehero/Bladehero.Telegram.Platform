@@ -113,6 +113,36 @@ public sealed class KnownUserCallbackQueryCommandTests
         }
     }
 
+    [Fact]
+    public async Task CheckAsync_ShouldSeeTheResolvedUser()
+    {
+        // Arrange
+        var sut = new DeleteCommand(new Resolver());
+
+        // Act
+        await sut.CanHandleAsync(Tap(KnownChat, $"delete:{ExpenseId:N}"), CancellationToken.None);
+
+        // Assert
+        sut.CheckedBy.Should().Equal("Nick");
+    }
+
+    [Fact]
+    public async Task CanHandleAsync_WhenTheUserIsUnknown_ShouldNotCheck()
+    {
+        // Arrange
+        var sut = new DeleteCommand(new Resolver());
+
+        // Act
+        var canHandle = await sut.CanHandleAsync(Tap(999, $"delete:{ExpenseId:N}"), CancellationToken.None);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            canHandle.Should().BeFalse();
+            sut.CheckedBy.Should().BeEmpty();
+        }
+    }
+
     private static CommandRequest Tap(long chatId, string data) =>
         new(
             new Update
@@ -151,6 +181,17 @@ public sealed class KnownUserCallbackQueryCommandTests
         }
 
         public (string User, string Action, Guid Id)? Handled { get; private set; }
+
+        public List<string> CheckedBy { get; } = [];
+
+        protected override Task<ButtonCheck> CheckAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        )
+        {
+            CheckedBy.Add(User.Name);
+            return Task.FromResult(ButtonCheck.Accept);
+        }
 
         protected override (string Action, Guid Id)? Parse(string data) =>
             data.Split(':') is ["delete", var id] && Guid.TryParse(id, out var parsed) ? ("delete", parsed) : null;
