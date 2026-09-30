@@ -400,9 +400,89 @@ public sealed class ConversationAwareCommandExecutorTests
                         "Cup buttons are handled by the conversation step CupStep, so they must be bound to the "
                             + "conversation: build them with AddButton(text, button, await "
                             + "conversation.BindAsync(token))."
-                    )
+                    ),
+                    (LogLevel.Debug, "Answered a tap on a Cup button as Unclaimed")
                 );
         }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnclaimedTypedTapWithACatchAllCommand_ShouldStillRefuseItAsUnclaimed()
+    {
+        // Arrange
+        var bot = new Bot(withCatchAll: true);
+
+        // Act
+        await bot.TapAsync("exec-cup:3");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("any");
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.Unclaimed, typeof(Cup), "exec-cup:3"));
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StaleTypedDataWithACatchAllCommand_ShouldStillRefuseItAsNoLongerActive()
+    {
+        // Arrange
+        var bot = new Bot(withCatchAll: true);
+
+        // Act
+        await bot.TapAsync("exec-cup:large");
+
+        // Assert
+        bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.NoLongerActive, typeof(Cup), "exec-cup:large"));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundTapNoStepTakesWithACatchAllCommand_ShouldStillRefuseItAsNoLongerActive()
+    {
+        // Arrange
+        var bot = new Bot(withCatchAll: true);
+        await bot.OpenAsync(Size, id: "run1");
+        var data = Bound("exec-cup:3", UserId, "run1");
+
+        // Act
+        await bot.TapAsync(data);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("any");
+            bot.Refusals.Entries.Should().Equal((ButtonRefusalReason.NoLongerActive, typeof(Cup), data));
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TypedTapAHandWrittenCallbackCommandTakes_ShouldNotRefuseIt()
+    {
+        // Arrange
+        var bot = new Bot();
+
+        // Act
+        await bot.TapAsync("exec-cup:4");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Journal.Entries.Should().Equal("hand-written cup");
+            bot.Refusals.Entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenRefusingATap_ShouldLogTheButtonAndTheReason()
+    {
+        // Arrange
+        var bot = new Bot();
+
+        // Act
+        await bot.TapAsync("exec-cup:large");
+
+        // Assert
+        bot.Logs.Entries.Should().Equal((LogLevel.Debug, "Answered a tap on a Cup button as NoLongerActive"));
     }
 
     [Fact]
@@ -501,6 +581,7 @@ public sealed class ConversationAwareCommandExecutorTests
             typeof(CupStep),
             typeof(PourStep),
             typeof(Mention),
+            typeof(HandWrittenCupCommand),
         ];
 
         private static readonly IOptionsMonitor<ParallelCommandExecutionConfiguration> Options = Mock.Of<
@@ -511,11 +592,13 @@ public sealed class ConversationAwareCommandExecutorTests
         private readonly ButtonCatalog _buttons;
         private readonly ServiceProvider _provider;
 
-        public Bot(IConversationStore? store = null, bool withSteps = true)
+        // withCatchAll adds a raw command that takes every update.
+        public Bot(IConversationStore? store = null, bool withSteps = true, bool withCatchAll = false)
         {
             Store = store ?? new InMemoryConversationStore();
+            Type[] types = withCatchAll ? [.. Commands, typeof(CatchAll)] : Commands;
 
-            var commands = Commands
+            var commands = types
                 .Select(type => new CatalogedCommand(
                     type,
                     CommandPriority.Default,
@@ -535,7 +618,7 @@ public sealed class ConversationAwareCommandExecutorTests
                 .AddScoped<Conversation>()
                 .AddScoped<IConversation>(provider => provider.GetRequiredService<Conversation>());
 
-            foreach (var command in Commands)
+            foreach (var command in types)
             {
                 services.AddScoped(command);
             }
@@ -782,6 +865,33 @@ public sealed class ConversationAwareCommandExecutorTests
         public Task HandleAsync(CommandRequest request, CancellationToken token)
         {
             journal.Write("mention");
+            return Task.CompletedTask;
+        }
+    }
+
+    // Takes every update, as an audit command might.
+    private sealed class CatchAll(Journal journal) : ITelegramCommand
+    {
+        public Task<bool> CanHandleAsync(CommandRequest request, CancellationToken token) => Task.FromResult(true);
+
+        public Task HandleAsync(CommandRequest request, CancellationToken token)
+        {
+            journal.Write("any");
+            return Task.CompletedTask;
+        }
+    }
+
+    // A callback command without typed data that takes one cup button.
+    private sealed class HandWrittenCupCommand(Journal journal) : CallbackQueryCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.Data == "exec-cup:4");
+
+        protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            journal.Write("hand-written cup");
             return Task.CompletedTask;
         }
     }

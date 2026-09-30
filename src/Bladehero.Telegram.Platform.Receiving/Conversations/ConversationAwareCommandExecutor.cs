@@ -2,6 +2,7 @@ using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution.Parallel;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot.Types;
@@ -30,10 +31,7 @@ internal sealed class ConversationAwareCommandExecutor(
             return;
         }
 
-        if (!(await ExecuteStepsAsync(request, stepButtonsOf: null, token)).Handled)
-        {
-            await executor.ExecuteRegularAsync(request, token);
-        }
+        await ExecuteStepsThenRegularAsync(request, stepButtonsOf: null, token);
     }
 
     // Checked before any step runs, against the tapper and their stored run; the data's user id only picks the refusal.
@@ -59,19 +57,16 @@ internal sealed class ConversationAwareCommandExecutor(
 
         // The conversation is first read under the lock, so a waiting tap sees what the one before it left.
         ConversationState? state;
-        bool handled;
+        bool taken;
         await using (await locks.EnterAsync(key, token))
         {
             state = await conversation.GetAsync(token);
-            handled =
+            taken =
                 state?.Id == binding.ConversationId
-                && (
-                    (await ExecuteStepsAsync(request, stepButtonsOf: null, token)).Handled
-                    || await executor.ExecuteRegularAsync(request, token)
-                );
+                && TookTheTap((await ExecuteStepsThenRegularAsync(request, stepButtonsOf: null, token)).Ran);
         }
 
-        if (!handled)
+        if (!taken)
         {
             await RefuseAsync(request, query, ButtonRefusalReason.NoLongerActive, codec, binding, state, token);
         }
@@ -86,8 +81,8 @@ internal sealed class ConversationAwareCommandExecutor(
         CancellationToken token
     )
     {
-        var (handled, state) = await ExecuteStepsAsync(request, stepButtonsOf: codec.Type, token);
-        if (handled || await executor.ExecuteRegularAsync(request, token))
+        var (ran, state) = await ExecuteStepsThenRegularAsync(request, stepButtonsOf: codec.Type, token);
+        if (TookTheTap(ran))
         {
             return;
         }
@@ -96,8 +91,19 @@ internal sealed class ConversationAwareCommandExecutor(
         await RefuseAsync(request, query, reason, codec, binding: null, state, token);
     }
 
+    // Regular commands run only when no step took the update.
+    private async Task<(IReadOnlyList<ITelegramCommand> Ran, ConversationState? State)> ExecuteStepsThenRegularAsync(
+        CommandRequest request,
+        Type? stepButtonsOf,
+        CancellationToken token
+    )
+    {
+        var (ran, state) = await ExecuteStepsAsync(request, stepButtonsOf, token);
+        return (ran.Count > 0 ? ran : await executor.ExecuteRegularAsync(request, token), state);
+    }
+
     // The active conversation's steps, without those for `stepButtonsOf` buttons.
-    private async Task<(bool Handled, ConversationState? State)> ExecuteStepsAsync(
+    private async Task<(IReadOnlyList<ITelegramCommand> Ran, ConversationState? State)> ExecuteStepsAsync(
         CommandRequest request,
         Type? stepButtonsOf,
         CancellationToken token
@@ -105,7 +111,7 @@ internal sealed class ConversationAwareCommandExecutor(
     {
         if (catalog.Steps.Count == 0 || await conversation.GetAsync(token) is not { } state)
         {
-            return (false, null);
+            return ([], null);
         }
 
         var candidates = catalog.StepsOf(state).ToArray();
@@ -125,12 +131,15 @@ internal sealed class ConversationAwareCommandExecutor(
 
         var steps = candidates.Select(x => x.Resolve(provider)).ToArray();
         return (
-            steps.Length > 0 && await executor.ExecuteAsync(new CommandPriorityAccessor(steps), request, token),
+            steps.Length > 0 ? await executor.ExecuteAsync(new CommandPriorityAccessor(steps), request, token) : [],
             state
         );
     }
 
-    private Task RefuseAsync(
+    // Only a callback command takes a tap; a raw command that sees every update doesn't.
+    private static bool TookTheTap(IReadOnlyList<ITelegramCommand> ran) => ran.Any(x => x is CallbackQueryCommand);
+
+    private async Task RefuseAsync(
         CommandRequest request,
         CallbackQuery query,
         ButtonRefusalReason reason,
@@ -138,8 +147,11 @@ internal sealed class ConversationAwareCommandExecutor(
         ConversationBinding? binding,
         ConversationState? state,
         CancellationToken token
-    ) =>
-        provider
+    )
+    {
+        await provider
             .GetRequiredService<IButtonRefusalHandler>()
             .HandleAsync(new ButtonRefusal(query, request.Client, reason, codec.Type, binding, state), token);
+        logger.LogDebug("Answered a tap on a {Button} button as {Reason}", codec.Type.Name, reason);
+    }
 }
