@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Telegram.Bot;
+using Telegram.Bot.Extensions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 
@@ -34,6 +35,12 @@ public sealed class TestMessage
 
     /// <summary>The text under a photo or file.</summary>
     public string? Caption => Message.Caption;
+
+    /// <summary>The entities of the text, or of a file's caption.</summary>
+    public IReadOnlyList<MessageEntity> Entities => Message.Entities ?? Message.CaptionEntities ?? [];
+
+    /// <summary>The text or caption as Telegram HTML, for asserting on formatting.</summary>
+    public string? Html => Text is null && Caption is null ? null : HtmlText.ToHtml(Message);
 
     /// <summary>The photo (largest size), or <c>null</c>.</summary>
     public TestFile? Photo => Message.Photo is [.., var largest] ? _api.TestFileOf(largest.FileId) : null;
