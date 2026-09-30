@@ -66,9 +66,15 @@ public sealed partial class FakeBotApi
         (text, found) = TextCleaner.Clean(text, found);
         (text, found) = TextCleaner.Trim(text, found);
 
+        if (kind == TextKind.Text && TextCleaner.IsEmptyString(text))
+        {
+            throw Refuse(400, "Bad Request: text must be non-empty");
+        }
+
+        // A caption of only invisible characters stays, as Telegram allows it for bots.
         if (text.Length == 0)
         {
-            return kind == TextKind.Text ? throw Refuse(400, "Bad Request: text must be non-empty") : (null, null);
+            return (null, null);
         }
 
         var (limit, tooLong) = (kind, operation) switch

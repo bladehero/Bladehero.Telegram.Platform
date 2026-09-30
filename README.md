@@ -1179,8 +1179,8 @@ optionally, `Telegram:SecretToken`.
 - Deleting another user's message in a group needs the bot to be an admin.
 - `IsCommand` ends a command where Telegram does: `/last.` and `/last-10` are `/last`, and `/last@ab` isn't a command.
 - The fake renders `parse_mode`: a test that asserted raw markup now asserts the rendered text, or `TestMessage.Html`.
-- Refusals now match Telegram for whitespace-only text (`text must be non-empty`), caption edits
-  (`MEDIA_CAPTION_TOO_LONG`) and text-only inline buttons (`not allowed`).
+- Refusals now match Telegram for text of only spaces, new lines or invisible characters (`text must be non-empty`),
+  caption edits (`MEDIA_CAPTION_TOO_LONG`) and text-only inline buttons (`not allowed`).
 - Photos have four sizes.
 
 ## License

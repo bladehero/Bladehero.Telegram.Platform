@@ -76,6 +76,33 @@ internal static class TextCleaner
         return (text[start..end], Markup.Sorted(NonEmpty(kept)));
     }
 
+    // TDLib's is_empty_string (strip_empty_characters): nothing but spaces, new lines and invisible characters.
+    public static bool IsEmptyString(string text) => text.EnumerateRunes().All(rune => IsEmptyCharacter(rune.Value));
+
+    private static bool IsEmptyCharacter(int c) =>
+        c
+            is ' '
+                or '\n'
+                or '\t'
+                or '\r'
+                or '\v'
+                or '\0'
+                // Turned into spaces.
+                or 0x1680
+                or 0x180E
+                or (>= 0x2000 and <= 0x200A)
+                or 0x202E
+                or 0x202F
+                or 0x205F
+                or 0x2800
+                or 0x3000
+                or 0xFFFC
+                or (>= 0xE0000 and <= 0xE007F)
+                // Counted as empty.
+                or (>= 0x200B and <= 0x200F)
+                or 0xFEFF
+                or 0x00A0;
+
     private static List<JsonObject> NonEmpty(List<JsonObject> entities) =>
         [.. entities.Where(entity => entity["length"]!.GetValue<int>() > 0)];
 }

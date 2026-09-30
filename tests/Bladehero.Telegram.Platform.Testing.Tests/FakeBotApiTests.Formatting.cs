@@ -123,6 +123,51 @@ public sealed partial class FakeBotApiTests
         outcome.Should().Be("Bad Request: message text is empty");
     }
 
+    [Theory]
+    [InlineData("\u200B")]
+    [InlineData("\u00A0")]
+    [InlineData("\u2800")]
+    [InlineData("\u3000")]
+    [InlineData("\uFEFF")]
+    [InlineData("\u200B  \n")]
+    public async Task SendMessage_WithOnlyInvisibleCharacters_ShouldBeRefusedAsNonEmpty(string text)
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+
+        // Act
+        var outcome = await OutcomeOf(() => client.SendMessage(Chat, text));
+
+        // Assert
+        outcome.Should().Be("Bad Request: text must be non-empty");
+    }
+
+    [Fact]
+    public async Task SendMessage_WithAHangulFiller_ShouldBeAccepted()
+    {
+        // Arrange: U+3164 isn't among TDLib's empty characters.
+        var client = ApiWithChats().CreateClient();
+
+        // Act
+        var sent = await client.SendMessage(Chat, "\u3164");
+
+        // Assert
+        sent.Text.Should().Be("\u3164");
+    }
+
+    [Fact]
+    public async Task SendPhoto_WithAnInvisibleCaption_ShouldKeepIt()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+
+        // Act
+        var sent = await client.SendPhoto(Chat, Upload("cat.jpg"), caption: "\u200B");
+
+        // Assert
+        sent.Caption.Should().Be("\u200B");
+    }
+
     [Fact]
     public async Task SendMessage_WithAnyParseMode_ShouldReportAParseErrorWithItsByteOffset()
     {
