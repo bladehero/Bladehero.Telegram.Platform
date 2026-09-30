@@ -32,8 +32,9 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Sending on your own](#sending-on-your-own)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
-  [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) · [waits](#wait-for-later-messages) ·
-  [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
+  [logs](#logs) · [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) ·
+  [waits](#wait-for-later-messages) · [fake Telegram](#check-and-fail-telegram) ·
+  [production apps](#test-a-production-app)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
 
@@ -544,6 +545,39 @@ All return once startup (webhook, command menu) is done; an app started with the
 the right one. For the web apps the test project references the app; if the factory can't find the app's content root,
 also reference `Microsoft.AspNetCore.Mvc.Testing`.
 
+An app with its own `WebApplicationFactory<Program>` passes a function that creates it. Its configuration still
+applies, and the host disposes it. It's a function, not an instance: an instance started elsewhere would run with the
+real Telegram client.
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync(() => new BudgetApiFactory());
+```
+
+`bot.CreateClient()` reaches the app's other endpoints, in either mode:
+
+```csharp
+using var client = bot.CreateClient();
+var health = await client.GetStringAsync("/health");
+```
+
+`services.BeforeStart(...)` runs once the app is built, before any hosted service starts, so before the first poll or
+`setWebhook`. In an ASP.NET Core app, the app's own code before `Run()`, such as its migrations, has already run, which
+makes it the place to seed:
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
+    web.ConfigureTestServices(services =>
+        services.BeforeStart(async (provider, token) =>
+        {
+            await using var scope = provider.CreateAsyncScope();
+            var budgets = scope.ServiceProvider.GetRequiredService<BudgetContext>();
+            budgets.Limits.Add(new Limit("Groceries", 300));
+            await budgets.SaveChangesAsync(token);
+        })));
+```
+
+Actions run in the order added, and one that throws fails the start.
+
 The bot's `ITelegramBotClient` talks to the fake, and so does an `ITelegramBotClient` or `TelegramBotClient` the app
 registers itself. A client registered in DI is swapped, by instance or by factory. One built by hand isn't:
 one in `Program`, or one inside another service's constructor or factory (e.g.
@@ -584,9 +618,6 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
         services.Replace(ServiceDescriptor.Singleton<IReceiptReader>(new ScriptedReader("Milk 2.50")))));
 ```
 
-**Logs** reach a provider added with `builder.Logging.AddProvider(...)` in the builder overload, or with
-`web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
-
 **Seed users** the app must know before it starts with the ids Telegram will give them. The ids are Telegram-sized,
 from 7 000 000 001, so use `UserIdOf`, never hard-coded ids:
 
@@ -600,6 +631,25 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(
 
 var chat = bot.PrivateChat("Nick");   // open it before the bot writes to Nick
 ```
+
+### Logs
+
+`bot.Logs` holds what the bot logged from Debug up, startup included, whatever levels or providers the app sets. Each
+entry has the update it was logged for, from the `TelegramUpdateId` log scope the library opens per update, or `null`
+outside any update:
+
+```csharp
+await nick.SendsAsync("/limit groceries 300");
+
+bot.Logs.Should().Contain(x => x.Level == LogLevel.Warning && x.Message == "Limit raised by Nick");
+```
+
+`bot.FailOnErrorLogs = true` fails an action when the bot logs an Error or Critical entry for its update or outside any
+update. The message names the entry, and the entry's exception is the inner one. It's off by default, and an error the
+action rethrows anyway isn't reported twice.
+
+To send logs elsewhere too, such as to the test output, add a provider with `builder.Logging.AddProvider(...)` in the
+builder overload, or with `web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
 
 ### Chat with it
 
@@ -773,6 +823,9 @@ failed poll runs on the same clock, so with a `FakeTimeProvider` it too lasts un
 | `WebhookUrl` | The webhook the bot set. |
 | `Fail(method, error, times?, chatId?)` | Makes Telegram refuse a method, for every chat or only one. |
 | `FailNetwork(method, times?, chatId?)` | Makes a method's calls fail on the network (`RequestException`). |
+| `TimeOut(method, times?, chatId?)` | Makes a method's calls time out (`RequestException`); nothing changes. |
+| `LoseResponse(method, times?, chatId?)` | Makes Telegram do a call but lose its response (`RequestException`). |
+| `FailDownload(fileId, error?, times?)` | Makes a file's downloads fail: refused with `error`, or broken off without. |
 | `UserIdOf(firstName)` | The Telegram id a test user gets, reserved before the host starts. |
 
 ```csharp
@@ -780,6 +833,7 @@ bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                            
 bot.Api.Fail("sendPhoto", BotApiError.TooManyRequests(1), times: 1);                 // only the next one
 bot.Api.Fail("sendMessage", BotApiError.BotBlocked, chatId: anna.Chat.Id);           // Anna blocked the bot
 bot.Api.FailNetwork("sendMessage", times: 1);                                        // the next one never arrives
+bot.Api.TimeOut("sendMessage", times: 1);                                            // the next one times out
 
 bot.Api.CommandMenu(new BotCommandScopeAllPrivateChats()).Should().NotBeEmpty();     // a menu for private chats
 
@@ -802,8 +856,18 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync(
 );
 ```
 
-A method's first matching failure, from `Fail` or `FailNetwork`, applies until its `times` run out, then the next one
-does. A `chatId` for a method without a chat, such as `answerCallbackQuery`, is refused.
+A method's first matching failure, from `Fail`, `FailNetwork`, `TimeOut` or `LoseResponse`, applies until its `times`
+run out, then the next one does. A `chatId` for a method without a chat, such as `answerCallbackQuery`, is refused.
+
+A lost response shows what a retry does: Telegram did the first call, so a bot that retries sends twice.
+
+```csharp
+bot.Api.LoseResponse("sendMessage", times: 1);   // Telegram posts it, the bot never hears back
+
+await nick.SendsAsync("/pay 12");                 // the bot retries
+
+nick.Messages.Count(x => x.Text == "Paid 12 EUR").Should().Be(2);
+```
 
 The fake answers like Telegram, with Telegram's own error texts, and supports:
 
@@ -866,13 +930,33 @@ finally
 ```
 
 **In-memory SQLite:** each `:memory:` connection opens its own empty database, so contexts in different scopes would
-not see each other's data. Share one open connection across the bot's scopes:
+not see each other's data. Share one open connection across the bot's scopes, and replace the app's registration:
 
 ```csharp
 var connection = new SqliteConnection("Data Source=:memory:");
 connection.Open();   // the database lives as long as this connection
-services.AddDbContext<BudgetContext>(options => options.UseSqlite(connection));   // after the app's own AddDbContext
+
+await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
+    web.ConfigureTestServices(services =>
+    {
+        services.RemoveAll<DbContextOptions<BudgetContext>>();
+        services.RemoveAll(typeof(IDbContextOptionsConfiguration<BudgetContext>));   // EF Core 9 and later
+        services.AddDbContext<BudgetContext>(options => options.UseSqlite(connection));
+    }));
 ```
+
+This works on EF Core 8, 9 and 10, whatever provider the app uses. A plain `AddDbContext` with the connection
+depends on the version, and the registration that loses is ignored without any error:
+
+- on EF Core 9 and 10, the last one wins: register it after the app's own, inside `ConfigureTestServices` for a web
+  app; registered before, the app's database is used. `ConfigureDbContext` after the app's own works too;
+- on EF Core 8, the first one wins, so after the app's own it's ignored;
+- when the app uses another provider, such as InMemory, `AddDbContext` or `ConfigureDbContext` after the app's own fails
+  on EF Core 9 and 10 with "Services for database providers … have been registered in the service provider".
+
+The shared open connection keeps the database across a restart on the same fake. Without EF Core's internals, point
+the app's connection string elsewhere instead: `web.UseSetting("ConnectionStrings:Database", "Data Source=…")`, as for a
+file above.
 
 **Seed data or run an app service** through the bot's own container, in a scope as the app would:
 
@@ -898,6 +982,9 @@ await using (var first = await TelegramTestHost.ForLongPollingAsync(services => 
 await using var bot = await TelegramTestHost.ForLongPollingAsync(services => services.AddBudgetBot(config), api);
 var nick = bot.PrivateChat("Nick");   // the same chat, as the bot left it
 ```
+
+Dispose the first host before starting the second: a second host polling the same fake at once gets Telegram's 409, and
+the older host's next action fails with it.
 
 **One command per button:** Telegram takes one answer per tap, and a second fails with its own "query is too old and
 response timeout expired or query ID is invalid". When two commands claim the same button both run, and the second
@@ -995,6 +1082,11 @@ optionally, `Telegram:SecretToken`.
 - Taps on bound buttons are checked before steps run: someone else's gets "That button isn't yours.", and a finished
   run's gets "That button is no longer active." A step no longer sees a typed button that isn't bound.
 - A custom `ITelegramCommandExecutor` makes none of these checks.
+- A `ParallelCount` below 1, or a webhook `BaseUrl` that isn't an absolute http or https URL, now fails startup.
+- Two hosts polling one `FakeBotApi` at once get Telegram's 409.
+- Updates are handled inside a log scope carrying `TelegramUpdateId`.
+- `TelegramTestHost.ForLongPollingAsync<T>(null)` and `ForWebhookAsync<T>(null)` now pick the new factory overload and
+  throw `ArgumentNullException`; name the argument, as in `configureWebHost: null`.
 
 ## License
 
