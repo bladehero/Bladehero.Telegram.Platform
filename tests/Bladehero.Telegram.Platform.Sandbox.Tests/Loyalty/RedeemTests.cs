@@ -1,4 +1,5 @@
 using Bladehero.Telegram.Platform.Sandbox.Loyalty;
+using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
@@ -98,7 +99,56 @@ public sealed class RedeemTests
             answer.ToString().Should().Be("Notification: Redeemed 10 points");
             nick.Messages.Select(x => x.ToString())
                 .Should()
-                .Equal("Nick: /points", "Bot: Nick, you have 30 points. [Redeem 10] [Redeem 50]");
+                .Equal("Nick: /points", "Bot: Nick, you have 30 points. [Redeem 10] [Redeem 50] [✖ Close]");
+        }
+    }
+
+    [Fact]
+    public async Task RedeemButton_ShouldUpdateTheTappedCardInPlace()
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40));
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/points");
+        var card = nick.LastMessage;
+
+        // Act
+        await nick.TapsAsync("Redeem 10");
+
+        // Assert
+        var cards = Cards(nick);
+        using (new AssertionScope())
+        {
+            cards.Should().ContainSingle().Which.Id.Should().Be(card.Id);
+            cards[0].IsEdited.Should().BeTrue();
+            cards[0].Text.Should().Be("Nick, you have 30 points.");
+        }
+    }
+
+    [Fact]
+    public async Task RedeemButton_WhenTheEditIsRefused_ShouldReplaceTheCard()
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40));
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/points");
+        var card = nick.LastMessage;
+        bot.Api.Fail("editMessageText", new BotApiError(400, "Bad Request: message can't be edited"), times: 1);
+        var calls = bot.Api.Calls.Count;
+
+        // Act
+        await nick.TapsAsync("Redeem 10");
+
+        // Assert
+        var cards = Cards(nick);
+        using (new AssertionScope())
+        {
+            bot.Api.Calls.Skip(calls)
+                .Select(x => x.Method)
+                .Should()
+                .Equal("answerCallbackQuery", "editMessageText", "deleteMessage", "sendMessage");
+            cards.Should().ContainSingle().Which.Id.Should().NotBe(card.Id);
+            cards[0].Text.Should().Be("Nick, you have 30 points.");
         }
     }
 
@@ -221,4 +271,7 @@ public sealed class RedeemTests
             members.Find(anna.Id)!.Points.Should().Be(30);
         }
     }
+
+    private static TestMessage[] Cards(TestUser member) =>
+        [.. member.Messages.Where(x => x.Buttons.Contains("Redeem 10"))];
 }

@@ -12,5 +12,5 @@ internal sealed class PointsCommand(PointsCard card) : KnownUserMessageCommand<M
     protected override bool Matches(Message message) => message.IsCommand("/points");
 
     protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
-        card.ShowAsync(request.Client, request.Payload.Chat, User, token);
+        card.SendAsync(request.Client, request.Payload.Chat, User, token);
 }

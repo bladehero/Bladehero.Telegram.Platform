@@ -878,8 +878,9 @@ are checked for this at startup.
   - `/start` answered by three commands in turn, by [priority](#priorities);
   - the [`[BotCommand]` menu](#command-menu), and a `/help` listing it from `IBotCommandMenu`;
   - a loyalty club of [known users](#known-users), resolved by user id and seeded from `CoffeeShop:Members`: `/join`,
-    `/leave`, `/redeem 10` with arguments, and a `/points` card that is edited in place or sent again, with
-    [typed](#buttons-with-typed-data) Redeem buttons whose `CheckAsync` refuses anyone but the card's owner;
+    `/leave`, `/redeem 10` with arguments, and a `/points` card sent fresh to the bottom, updated in place by a tap and
+    removed by Close, with [typed](#buttons-with-typed-data) buttons whose `CheckAsync` refuses anyone but the card's
+    owner;
   - receipts for points: photos, PDFs, and photo and PDF albums read by a stand-in for an AI reader, too-big and
     unsupported files turned down, and `/history` sending a CSV file; the receipt and album buttons are typed, with the
     same owner check;
