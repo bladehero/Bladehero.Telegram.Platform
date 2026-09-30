@@ -564,7 +564,7 @@ public sealed class ConversationAwareCommandExecutorTests
         public Task<ConversationState?> CurrentAsync(long userId = UserId) =>
             Store.GetAsync(new ConversationKey(ChatId, userId), CancellationToken.None);
 
-        // How many taps hold or await the sender's conversation lock; no timing, just yielding until they do.
+        // Yields until that many taps hold or await the sender's lock.
         public async Task WaitForLockUsersAsync(int users)
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));

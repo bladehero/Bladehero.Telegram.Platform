@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 
-// Answers the tap and leaves the message as it is, as the tap may come from a stale view of a card.
+// Answers the tap and leaves the message alone, as the tap may come from a stale view of it.
 internal sealed class DefaultButtonRefusalHandler(ILogger<DefaultButtonRefusalHandler> logger) : IButtonRefusalHandler
 {
     internal const string NoLongerActiveText = "That button is no longer active.";

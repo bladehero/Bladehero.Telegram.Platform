@@ -20,9 +20,8 @@ public static class InlineKeyboardMarkupExtensions
         where TButton : struct => keyboard.AddButton(text, ButtonData.Encode(button));
 
     /// <summary>
-    /// Adds a button carrying <paramref name="button"/>'s data bound to a conversation run, from <c>BindAsync</c>, to
-    /// the last row and returns the keyboard: a tap by anyone else, or from an ended or replaced run, is answered
-    /// before any step runs.
+    /// Adds a button carrying <paramref name="button"/>, bound to a conversation run from <c>BindAsync</c>, to the
+    /// last row.
     /// </summary>
     /// <exception cref="ArgumentException">
     /// As <see cref="ButtonData.Encode{TButton}(TButton, ConversationBinding)"/>.

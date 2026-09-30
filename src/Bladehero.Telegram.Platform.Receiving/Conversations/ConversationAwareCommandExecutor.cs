@@ -36,9 +36,7 @@ internal sealed class ConversationAwareCommandExecutor(
         }
     }
 
-    // Checked before any step runs: the tapper must be the user the button was shown for, and their conversation still
-    // the run it was shown in. Authorisation comes from the tapper and the stored state; the user id in the data only
-    // chooses which refusal to give.
+    // Checked before any step runs, against the tapper and their stored run; the data's user id only picks the refusal.
     private async Task ExecuteBoundAsync(
         CommandRequest request,
         CallbackQuery query,
@@ -59,8 +57,7 @@ internal sealed class ConversationAwareCommandExecutor(
             return;
         }
 
-        // The first read of the conversation in this update happens under the lock, so a tap waiting here sees what the
-        // one before it left.
+        // The conversation is first read under the lock, so a waiting tap sees what the one before it left.
         ConversationState? state;
         bool handled;
         await using (await locks.EnterAsync(key, token))
@@ -80,8 +77,7 @@ internal sealed class ConversationAwareCommandExecutor(
         }
     }
 
-    // Typed data without a binding never reaches a step that handles its type: from someone else's card, it would act
-    // on the tapper's own conversation at the same step.
+    // Unbound typed data never reaches its step, or a tap on someone else's card would act on the tapper's own run.
     private async Task ExecuteUnboundButtonAsync(
         CommandRequest request,
         CallbackQuery query,
@@ -100,7 +96,7 @@ internal sealed class ConversationAwareCommandExecutor(
         await RefuseAsync(request, query, reason, codec, binding: null, state, token);
     }
 
-    // The steps of the active conversation, leaving out those for `stepButtonsOf` buttons, if given.
+    // The active conversation's steps, without those for `stepButtonsOf` buttons.
     private async Task<(bool Handled, ConversationState? State)> ExecuteStepsAsync(
         CommandRequest request,
         Type? stepButtonsOf,

@@ -12,14 +12,10 @@ public sealed record ConversationState(string Flow, string Step, string? Data = 
 {
     private const string IdLetters = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-    /// <summary>
-    /// This run of the flow: a new <c>StartAsync</c> is a new run, <c>MoveToAsync</c> keeps it. <c>null</c> until a
-    /// button is first bound to the conversation; a store must keep it, or bound buttons stop working after a reload.
-    /// </summary>
+    /// <summary>This run of the flow, set once a button is bound to it; <c>StartAsync</c> starts a new run.</summary>
+    /// <remarks>A store must keep it, or bound buttons stop working after a reload.</remarks>
     public string? Id { get; init; }
 
-    /// <summary>
-    /// A new run id: 8 characters of a-z and 0-9, for a state saved outside an update, e.g. by a background job.
-    /// </summary>
+    /// <summary>A new run id, for a state saved outside an update, e.g. by a background job.</summary>
     public static string NewId() => RandomNumberGenerator.GetString(IdLetters, 8);
 }

@@ -23,8 +23,8 @@ public static class ButtonData
     /// The callback data of <paramref name="button"/>, bound to a conversation run from <c>BindAsync</c>.
     /// </summary>
     /// <exception cref="ArgumentException">
-    /// As <see cref="Encode{TButton}(TButton)"/>, with the binding counted in the 64 bytes, or the binding's
-    /// conversation id isn't 1-16 characters of a-z and 0-9.
+    /// As <see cref="Encode{TButton}(TButton)"/>, the binding counting toward the 64 bytes, or its conversation id
+    /// isn't 1-16 characters of a-z and 0-9.
     /// </exception>
     /// <exception cref="InvalidOperationException">As <see cref="Encode{TButton}(TButton)"/>.</exception>
     public static string Encode<TButton>(TButton button, ConversationBinding binding)
@@ -40,9 +40,9 @@ public static class ButtonData
         where TButton : struct => TryDecode(data, out button, out _);
 
     /// <summary>
-    /// Decodes data with or without a binding; <paramref name="binding"/> is <c>null</c> for an unbound button.
+    /// Reads <paramref name="data"/> as <see cref="TryDecode{TButton}(string, out TButton)"/> does, with its binding;
+    /// <c>null</c> for an unbound button.
     /// </summary>
-    /// <remarks>As <see cref="TryDecode{TButton}(string, out TButton)"/>.</remarks>
     /// <exception cref="InvalidOperationException">
     /// As <see cref="TryDecode{TButton}(string, out TButton)"/>.
     /// </exception>
@@ -67,10 +67,7 @@ public static class ButtonData
     public static InlineKeyboardButton Button<TButton>(string text, TButton button)
         where TButton : struct => InlineKeyboardButton.WithCallbackData(text, Encode(button));
 
-    /// <summary>
-    /// A callback button labelled <paramref name="text"/> that carries <paramref name="button"/> bound to a
-    /// conversation run.
-    /// </summary>
+    /// <summary>A callback button carrying <paramref name="button"/>, bound to a conversation run.</summary>
     /// <exception cref="ArgumentException">
     /// As <see cref="Encode{TButton}(TButton, ConversationBinding)"/>.
     /// </exception>

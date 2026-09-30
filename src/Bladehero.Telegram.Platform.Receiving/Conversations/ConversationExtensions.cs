@@ -45,13 +45,8 @@ public static class ConversationExtensions
     }
 
     /// <summary>
-    /// The binding for the buttons of the active conversation, giving it a run id on first use (one save); later calls
-    /// in the run return the same binding.
+    /// The binding for the active conversation's buttons; the first call gives the run an id, later ones reuse it.
     /// </summary>
-    /// <remarks>
-    /// Build the run's buttons with it, e.g. <c>keyboard.AddButton(text, button, binding)</c>: a tap by anyone else,
-    /// or from an ended or replaced run, is then answered before any step runs.
-    /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// There is no active conversation, or the update has no user in a chat.
     /// </exception>

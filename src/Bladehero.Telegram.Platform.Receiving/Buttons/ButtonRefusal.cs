@@ -33,21 +33,15 @@ public sealed class ButtonRefusal(
     /// <summary>The button type the data's prefix names.</summary>
     public Type ButtonType { get; } = buttonType;
 
-    /// <summary>The tapped button's binding, when it is bound to a conversation.</summary>
+    /// <summary>The tapped button's binding, if it is bound.</summary>
     public ConversationBinding? Binding { get; } = binding;
 
-    /// <summary>
-    /// The tapper's conversation when it was read, else <c>null</c>: not read for a tap by someone else, and
-    /// <c>null</c> too when there is none.
-    /// </summary>
+    /// <summary>The tapper's conversation when it was read, else <c>null</c>.</summary>
     public ConversationState? Conversation { get; } = conversation;
 
-    /// <summary>
-    /// Answers the tap; returns <c>false</c> when Telegram says it came too late ("query is too old"), which is
-    /// otherwise ignored.
-    /// </summary>
+    /// <summary>Answers the tap; <c>false</c> when Telegram says it came too late.</summary>
     /// <param name="text">The notification or alert; <c>null</c> answers silently.</param>
-    /// <param name="showAlert">Whether to show <paramref name="text"/> as an alert the user must dismiss.</param>
+    /// <param name="showAlert">Whether to show <paramref name="text"/> as an alert.</param>
     /// <param name="token">Cancels the call.</param>
     public async Task<bool> AnswerAsync(string? text = null, bool showAlert = false, CancellationToken token = default)
     {

@@ -421,22 +421,17 @@ var card = await client.SendMessage(chat, "What size?",
 await conversation.MoveToAsync("size", order with { CardId = card.Id }, token);
 ```
 
-- The button carries its user and the conversation's run (`@7000000001.k3j9x2ab`), about 20 bytes of the 64.
-- Before any step runs, a tap by someone else is answered "That button isn't yours."
-- A tap from an ended or replaced run, or one no step of the run takes, is answered "That button is no longer active."
-- Nothing is edited.
-- Override the answers with an `IButtonRefusalHandler`; `ButtonRefusal.AnswerAsync` ignores answers that came too
-  late.
-- A typed button handled by a step must be bound. An unbound one never reaches the step, and a warning says how to
-  bind it.
-- Bind the buttons you show for one run of a flow. Pagers, lasting notices, and buttons meant for someone else's chat
-  stay unbound.
-- **Persistence:** the run id lives in `ConversationState.Id`. A store must keep it, or bound buttons stop working
-  after a reload. The in-memory store loses it on restart, which makes old buttons "no longer active".
+- The button carries its user and run (`@7000000001.k3j9x2ab`), about 20 of the 64 bytes.
+- A tap by someone else is answered "That button isn't yours."; one from an ended or replaced run, or that no step of
+  the run takes, "That button is no longer active." Nothing is edited; an `IButtonRefusalHandler` answers differently.
+- A typed button handled by a step must be bound: an unbound one never reaches the step, and a warning says so.
+- Bind the buttons of one run of a flow; pagers, lasting notices and buttons for someone else's chat stay unbound.
+- **Persistence:** a store must keep `ConversationState.Id`, or bound buttons stop working after a reload. The
+  in-memory store loses it on restart, so old buttons become "no longer active".
 - **Background jobs:** save `new ConversationState(flow, step, data) { Id = ConversationState.NewId() }` and bind with
   `new ConversationBinding(userId, id)`.
-- **Concurrency:** within one process, bound taps on one conversation are handled one after another, which matters
-  for concurrent webhook requests. Several instances of the app still race.
+- **Concurrency:** within one process, bound taps on one conversation run one after another, e.g. concurrent webhook
+  requests; several app instances still race.
 - A custom `ITelegramCommandExecutor` makes none of these checks.
 
 ## Sending on your own

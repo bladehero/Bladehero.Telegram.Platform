@@ -9,8 +9,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Notes;
 
-// Asks for the note; the sender's next plain text goes to RememberStep, and the prompt's Cancel, bound to this run, to
-// CancelNoteStep.
+// Asks for the note, which RememberStep takes, with a Cancel bound to this run.
 [BotCommand("remember", "Remember a note")]
 internal sealed class RememberCommand(IConversation conversation) : MessageCommand
 {

@@ -1,7 +1,6 @@
 namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
-// Serializes bound taps on one conversation within this process, so two taps at once, as concurrent webhook requests
-// bring them, see the conversation one after the other. A key is forgotten once nobody holds or awaits it.
+// Serializes bound taps on one conversation within this process, such as concurrent webhook requests.
 internal sealed class ConversationLocks
 {
     private readonly Dictionary<ConversationKey, Entry> _entries = [];

@@ -11,7 +11,7 @@ namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Notes;
 [ButtonData("note-cancel")]
 internal readonly record struct CancelNote();
 
-// Bound to the run, so after the note is saved, or on a second tap at once, the library answers instead.
+// Bound to the run, so the library answers a tap after the note is saved, or a second one at once.
 [ConversationStep(Notebook.Flow)]
 internal sealed class CancelNoteStep(IConversation conversation) : CallbackQueryCommand<CancelNote>
 {

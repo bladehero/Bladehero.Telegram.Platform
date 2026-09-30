@@ -5,8 +5,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 
-// Every button of an order is bound to its conversation, so the library answers a tap from another customer, or from
-// an earlier order, before any step runs.
+// An order's buttons are bound to its conversation, so the library answers taps from others or from earlier orders.
 internal static class CoffeeFlow
 {
     public const string Name = "coffee";

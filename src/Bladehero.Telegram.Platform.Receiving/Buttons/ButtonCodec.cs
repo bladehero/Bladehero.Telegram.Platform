@@ -101,7 +101,7 @@ internal sealed class ButtonCodec
             : $"{type.Name[..tick]}<{string.Join(", ", type.GetGenericArguments().Select(NameOf))}>";
     }
 
-    // A bound button's data ends in the binding, which counts toward the 64 bytes too.
+    // A binding is appended, and counts toward the 64 bytes.
     public string Encode(object button, ConversationBinding? binding = null)
     {
         var data = new StringBuilder(Prefix);
@@ -131,8 +131,7 @@ internal sealed class ButtonCodec
 
     public bool TryDecode(string data, out object? button) => TryDecode(data, out button, out _);
 
-    // Never throws: data that doesn't decode is simply not this button. The last '@' starts a binding, as strings
-    // escape theirs; a malformed binding doesn't decode.
+    // Never throws. The last '@' starts a binding, as strings escape theirs; a malformed one doesn't decode.
     public bool TryDecode(string data, out object? button, out ConversationBinding? binding)
     {
         button = null;

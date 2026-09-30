@@ -3,11 +3,7 @@ using System.Globalization;
 namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
 /// <summary>What ties a button to a conversation: its user and the run it was shown for.</summary>
-/// <remarks>
-/// Get one from <c>BindAsync</c>, or build one for a state saved outside an update. A bound button's data ends in
-/// <c>@{UserId}.{ConversationId}</c>, and its taps are checked against the tapper and their conversation before any
-/// step runs.
-/// </remarks>
+/// <remarks>Get one from <c>BindAsync</c>, or build one for a state saved outside an update.</remarks>
 /// <param name="UserId">The Telegram user the button is shown for.</param>
 /// <param name="ConversationId">The run, <see cref="ConversationState.Id"/>: 1-16 characters of a-z and 0-9.</param>
 public readonly record struct ConversationBinding(long UserId, string ConversationId)
