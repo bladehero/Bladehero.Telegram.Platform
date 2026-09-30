@@ -83,12 +83,22 @@ public sealed class TestMessage
 
     /// <summary>
     /// The sender, the content and the buttons, e.g. <c>Nick: (photo) Lunch</c> or
-    /// <c>Bot: What size? [Small] [Large]</c>.
+    /// <c>Bot: What size? [Small] [Large]</c>; a reply adds what it replies to, as in
+    /// <c>Nick (↩ Bot: What size?): Large</c>.
     /// </summary>
     public override string ToString() =>
-        $"{(IsFromBot ? "Bot" : Message.From?.FirstName)}:"
-        + (Content.Length == 0 ? "" : $" {Content}")
+        $"{Sender}{(ReplyTo is { } target ? $" (↩ {target.Sender}:{target.Spoken})" : "")}:"
+        + Spoken
         + string.Concat(Buttons.Select(button => $" [{button}]"));
+
+    /// <summary>The message this one replies to, or <c>null</c>.</summary>
+    public TestMessage? ReplyTo =>
+        _json["reply_to_message"] is JsonObject target ? new TestMessage(target.DeepClone().AsObject(), _api) : null;
+
+    private string? Sender => IsFromBot ? "Bot" : Message.From?.FirstName;
+
+    // The content after the sender, with its leading space.
+    private string Spoken => Content.Length == 0 ? "" : $" {Content}";
 
     private string? Attachment =>
         Message switch

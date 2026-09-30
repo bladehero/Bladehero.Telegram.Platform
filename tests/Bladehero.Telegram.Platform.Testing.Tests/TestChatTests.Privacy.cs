@@ -57,6 +57,37 @@ public sealed partial class TestChatTests
     }
 
     [Fact]
+    public async Task RepliesAsync_ToTheBotInAGroup_ShouldReachIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var family = bot.GroupChat("Family");
+        await family.Member("Anna").SendsAsync("/menu");
+        var menu = family.LastMessage;
+
+        // Act
+        await family.Member("Nick").RepliesAsync(menu, "hello");
+
+        // Assert
+        family.LastMessage.ToString().Should().Be("Bot: hello");
+    }
+
+    [Fact]
+    public async Task RepliesAsync_ToAnotherUserInAGroup_ShouldNotReachIt()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var family = bot.GroupChat("Family");
+        var question = await family.Member("Anna").SendsAsync("/whoami");
+
+        // Act
+        await family.Member("Nick").RepliesAsync(question, "hello");
+
+        // Assert
+        family.LastMessage.ToString().Should().Be("Nick (↩ Anna: /whoami): hello");
+    }
+
+    [Fact]
     public async Task SendsAsync_MentioningTheBotInAGroup_ShouldReachIt()
     {
         // Arrange

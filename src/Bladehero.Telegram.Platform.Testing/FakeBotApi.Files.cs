@@ -104,6 +104,7 @@ public sealed partial class FakeBotApi
         var (caption, entities) = Trimmed(parameters["caption"]?.GetValue<string>(), parameters["caption_entities"]);
         ThrowIfLongerThan(CaptionLimit, caption, "Bad Request: message caption is too long");
         var keyboard = InlineKeyboardOf(parameters);
+        var target = ReplyTargetOf(chat, parameters);
 
         // Stored only once the request passed every other check, so a refused one changes nothing.
         var content = FileFor(kind, parameters, attachments).ToMessageContent();
@@ -121,6 +122,11 @@ public sealed partial class FakeBotApi
         if (keyboard is not null)
         {
             content["reply_markup"] = keyboard;
+        }
+
+        if (target is not null)
+        {
+            content["reply_to_message"] = target;
         }
 
         return WithReplyMarkup(chat, parameters, chat.Post(Bot(), content)).DeepClone().AsObject();

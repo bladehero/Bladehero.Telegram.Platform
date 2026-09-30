@@ -401,6 +401,41 @@ internal static class TestBot
         }
     }
 
+    // Says what the message replies to, as the bot sees it.
+    private sealed class RepliedCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/replied"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                $"You replied to: {request.Payload.ReplyToMessage?.Text ?? "nothing"}",
+                cancellationToken: token
+            );
+    }
+
+    // A selective keyboard, as a reply to the sender, so only they see it.
+    private sealed class PickMeCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/pickme"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "Pick one",
+                replyParameters: request.Payload.Id,
+                replyMarkup: new ReplyKeyboardMarkup([
+                    ["A"],
+                ])
+                {
+                    Selective = true,
+                },
+                cancellationToken: token
+            );
+    }
+
     // Replies with the sender's details as the bot sees them, and the chat's username.
     private sealed class DetailsCommand : MessageCommand
     {

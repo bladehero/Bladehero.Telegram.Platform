@@ -446,6 +446,8 @@ public sealed partial class FakeBotApi
             "getMyCommands" => GetCommandMenu(parameters),
             "setMyCommands" => SetCommandMenu(parameters),
             "getFile" => GetFile(parameters),
+            "forwardMessage" => Forward(parameters),
+            "copyMessage" => Copy(parameters),
             _ => throw Refuse(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
     }
@@ -510,6 +512,11 @@ public sealed partial class FakeBotApi
         if (InlineKeyboardOf(parameters) is { } keyboard)
         {
             content["reply_markup"] = keyboard;
+        }
+
+        if (ReplyTargetOf(chat, parameters) is { } target)
+        {
+            content["reply_to_message"] = target;
         }
 
         return WithReplyMarkup(chat, parameters, chat.Post(Bot(), content)).DeepClone().AsObject();
