@@ -145,6 +145,9 @@ public sealed partial class TelegramTestHost
                 { } webhook when _entryPoint is not null && _api.Polls == _pollsBefore =>
                     $"The app set a webhook, {webhook}, and does not poll; start it with "
                         + $"ForWebhookAsync<{_entryPoint}>.",
+                _ when _api.ConflictedPolling =>
+                    "Another host polls this fake too, and Telegram ends one of two polls with 409; dispose a host "
+                        + "before starting another on the same fake.",
                 _ => "Is long polling registered, for example with AddTelegramLongPollingReceiving?",
             };
     }

@@ -18,7 +18,7 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// would, its errors and limits included; the bot can write only to a chat a test user opened or an update brought. A
 /// method the fake does not support fails with an error naming it. <see cref="Fail"/> makes Telegram refuse a call,
 /// and <see cref="FailNetwork"/> makes it never arrive. One host at a time: dispose a host before starting another on
-/// the same fake, as for a restart, since the fake doesn't refuse a second poller as Telegram does.
+/// the same fake, as for a restart, since a second host polling at once gets Telegram's 409.
 /// </remarks>
 public sealed partial class FakeBotApi
 {
@@ -644,7 +644,12 @@ public sealed partial class FakeBotApi
 
             // Before the poll counts as listening, so a delivery checks the list this poll asked for.
             UpdateAllowedUpdates(parameters);
-            var updates = await _updates.TakeAsync(parameters, token);
+            if (await _updates.TakeAsync(parameters, token) is not { } updates)
+            {
+                await Task.Delay(ConflictPause, token);
+                return Respond(new BotApiError(409, TerminatedByOtherPoll));
+            }
+
             return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = updates });
         }
 
