@@ -1,7 +1,9 @@
+using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
-using Telegram.Bot.Types;
+using Microsoft.Extensions.DependencyInjection;
+using Telegram.Bot;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Tests.Coffee;
 
@@ -188,31 +190,40 @@ public sealed class OrderCoffeeTests
         await nick.SendsAsync("/coffee");
         var card = nick.LastMessage;
         await nick.TapsAsync("Medium");
-        var large = card.Message.ReplyMarkup!.InlineKeyboard.SelectMany(row => row).Single(x => x.Text == "Large");
 
         // Act
-        await bot.SendAsync(
-            new Update
-            {
-                CallbackQuery = new CallbackQuery
-                {
-                    Id = "stale-tap",
-                    From = new User { Id = nick.Id, FirstName = "Nick" },
-                    Message = card.Message,
-                    ChatInstance = "1",
-                    Data = large.CallbackData,
-                },
-            }
-        );
+        var answer = await nick.TapsAsync("Large", on: card, asShown: true);
 
         // Assert
         using (new AssertionScope())
         {
-            bot.Api.Calls.Last(x => x.Method == "answerCallbackQuery").Parameters["text"]!
-                .GetValue<string>()
-                .Should()
-                .Be("That button is no longer active.");
+            answer.Text.Should().Be("That button is no longer active.");
             nick.Messages.Single(x => x.Id == card.Id).Text.Should().Be("Size: Medium ✓");
+        }
+    }
+
+    [Fact]
+    public async Task SizeButton_OnADeletedCard_ShouldSayItIsNoLongerActive()
+    {
+        // Arrange: the size card is gone, but Nick's app still shows it.
+        await using var bot = await StartBotAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/coffee");
+        var card = nick.LastMessage;
+        await bot.Services.GetRequiredService<ITelegramBotClient>().DeleteMessage(nick.Chat.Id, card.Id);
+        var store = bot.Services.GetRequiredService<IConversationStore>();
+        var key = new ConversationKey(nick.Chat.Id, nick.Id);
+        var order = await store.GetAsync(key, CancellationToken.None);
+
+        // Act
+        var answer = await nick.TapsAsync("Large", on: card, asShown: true);
+
+        // Assert
+        var after = await store.GetAsync(key, CancellationToken.None);
+        using (new AssertionScope())
+        {
+            answer.ToString().Should().Be("Notification: That button is no longer active.");
+            after.Should().NotBeNull().And.Be(order);
         }
     }
 
