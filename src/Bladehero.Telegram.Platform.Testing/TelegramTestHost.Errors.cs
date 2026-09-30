@@ -16,6 +16,9 @@ public sealed partial class TelegramTestHost
         // Updates whose action is over: it returned, or the test stopped waiting for it.
         private readonly HashSet<long> _over = [];
 
+        // Updates whose action has also checked its own logged errors, so later entries are for other actions.
+        private readonly HashSet<long> _settled = [];
+
         // Every error ever recorded, so its log isn't reported as a logged error too.
         private readonly HashSet<Exception> _recorded = new(ReferenceEqualityComparer.Instance);
 
@@ -77,13 +80,13 @@ public sealed partial class TelegramTestHost
             }
         }
 
-        // Throws for the unclaimed Error and Critical entries of the update, of none, or of one whose action is over,
-        // other than recorded errors.
+        // Throws for the unclaimed Error and Critical entries of the update, of none, or of a settled one, other than
+        // recorded errors.
         public void ThrowForLoggedErrors(long? updateId)
         {
             var logged = Logs.Claim(x =>
                 x.Level is LogLevel.Error or LogLevel.Critical
-                && (x.UpdateId is null || x.UpdateId == updateId || IsOver(x.UpdateId.Value))
+                && (x.UpdateId is null || x.UpdateId == updateId || IsSettled(x.UpdateId.Value))
                 && !WasRecorded(x.Exception)
             );
 
@@ -92,7 +95,12 @@ public sealed partial class TelegramTestHost
                 return;
             }
 
-            var where = first.UpdateId is { } id ? $"while handling update {id}" : "outside any update";
+            var where = first.UpdateId switch
+            {
+                null => "outside any update",
+                { } id when id == updateId => $"while handling update {id}",
+                { } id => $"by work update {id} started, after its action returned",
+            };
             var more = logged.Count > 1 ? $" (and {logged.Count - 1} more)" : "";
             throw new InvalidOperationException($"The bot logged an error {where}: {first}{more}", first.Exception);
         }
@@ -105,11 +113,23 @@ public sealed partial class TelegramTestHost
             }
         }
 
-        private bool IsOver(long updateId)
+        // After the action has thrown or checked for its update's errors.
+        public void Settle(long? updateId)
         {
             lock (_errors)
             {
-                return _over.Contains(updateId);
+                if (updateId is { } id)
+                {
+                    _settled.Add(id);
+                }
+            }
+        }
+
+        private bool IsSettled(long updateId)
+        {
+            lock (_errors)
+            {
+                return _settled.Contains(updateId);
             }
         }
 

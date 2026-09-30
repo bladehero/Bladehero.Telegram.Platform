@@ -3,7 +3,6 @@ using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Telegram.Bot.Exceptions;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
@@ -159,12 +158,13 @@ public sealed partial class TelegramTestHostTests
     [Fact]
     public async Task FailOnErrorLogs_WhenOn_ShouldFailTheNextActionForAnErrorLoggedOutsideAnyUpdate()
     {
-        // Arrange: publishing the command menu fails at startup, which the library logs as an error.
-        var api = new FakeBotApi();
-        api.Fail("setMyCommands", new BotApiError(500, "Internal Server Error"));
-        await using var bot = await TestBot.StartAsync(api);
+        // Arrange: a background job of the app logs an error, outside any update.
+        await using var bot = await TestBot.StartAsync();
         bot.FailOnErrorLogs = true;
         var nick = bot.PrivateChat("Nick");
+        bot.Services.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Nightly")
+            .LogError(new TimeoutException("The bank timed out"), "Import failed");
 
         // Act
         var failure = await Record.ExceptionAsync(() => nick.SendsAsync("hello"));
@@ -176,12 +176,8 @@ public sealed partial class TelegramTestHostTests
         {
             logged
                 .Message.Should()
-                .Be(
-                    "The bot logged an error outside any update: Error "
-                        + "[Bladehero.Telegram.Platform.Receiving.Background.TelegramCommandMenuInitializer] Failed to "
-                        + "update the command menu (ApiRequestException)"
-                );
-            logged.InnerException.Should().BeOfType<ApiRequestException>();
+                .Be("The bot logged an error outside any update: Error [Nightly] Import failed (TimeoutException)");
+            logged.InnerException.Should().BeOfType<TimeoutException>();
             await next.Should().NotThrowAsync();
         }
     }
@@ -244,7 +240,26 @@ public sealed partial class TelegramTestHostTests
             .Should()
             .BeOfType<InvalidOperationException>()
             .Which.Message.Should()
-            .Be($"The bot logged an error while handling update 1: Error [{LateFailure}] Late failure for Nick");
+            .Be(
+                "The bot logged an error by work update 1 started, after its action returned: "
+                    + $"Error [{LateFailure}] Late failure for Nick"
+            );
+    }
+
+    [Fact]
+    public async Task FailOnErrorLogs_TurnedOnAfterAnErrorWasLogged_ShouldNotFailTheNextAction()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/probe Error");
+
+        // Act
+        bot.FailOnErrorLogs = true;
+        var next = () => nick.SendsAsync("/probe");
+
+        // Assert
+        await next.Should().NotThrowAsync();
     }
 
     // Logs an error of its own, without the exception.

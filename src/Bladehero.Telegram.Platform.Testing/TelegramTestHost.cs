@@ -373,13 +373,22 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
         catch when (updateId is not null)
         {
             _errors.Abandon(updateId.Value);
+            _errors.Settle(updateId);
             throw;
         }
 
-        _errors.ThrowFor(updateId);
-        if (FailOnErrorLogs)
+        // Only a settled update's late entries may fail another action, so concurrent actions don't take each other's.
+        try
         {
-            _errors.ThrowForLoggedErrors(updateId);
+            _errors.ThrowFor(updateId);
+            if (FailOnErrorLogs)
+            {
+                _errors.ThrowForLoggedErrors(updateId);
+            }
+        }
+        finally
+        {
+            _errors.Settle(updateId);
         }
     }
 

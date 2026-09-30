@@ -86,15 +86,18 @@ public sealed partial class FakeBotApi
     private HttpResponseMessage? FailedDownload(string fileId)
     {
         DownloadFailure? failure;
+        string asker;
         lock (_gate)
         {
-            var failures = _downloadFailures.GetValueOrDefault(fileId) is [_, ..] own ? own : _anyDownloadFailures;
+            var own = _downloadFailures.GetValueOrDefault(fileId) is [_, ..] forFile ? forFile : null;
+            var failures = own ?? _anyDownloadFailures;
             if (failures is not [var first, ..])
             {
                 return null;
             }
 
             failure = first;
+            asker = own is null ? nameof(FailDownloads) : nameof(FailDownload);
             if (failure.Happen())
             {
                 failures.Remove(failure);
@@ -103,7 +106,7 @@ public sealed partial class FakeBotApi
 
         return failure.Error is { } error
             ? Respond(error)
-            : throw new HttpRequestException($"The download of {fileId} broke off, as FakeBotApi.FailDownload asked.");
+            : throw new HttpRequestException($"The download of {fileId} broke off, as FakeBotApi.{asker} asked.");
     }
 
     // Never the caller's token: this is a time-out, not a cancellation.
