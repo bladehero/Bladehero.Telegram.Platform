@@ -423,9 +423,38 @@ public sealed partial class FakeBotApi
     internal string NextMediaGroupId() =>
         Interlocked.Increment(ref _lastMediaGroupId).ToString(CultureInfo.InvariantCulture);
 
+    // The methods below, by any case, as the Bot API takes them.
+    private static readonly HashSet<string> AnsweredMethods = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "getMe",
+        "sendMessage",
+        "sendPhoto",
+        "sendDocument",
+        "sendVoice",
+        "editMessageText",
+        "editMessageCaption",
+        "editMessageReplyMarkup",
+        "deleteMessage",
+        "sendChatAction",
+        "answerCallbackQuery",
+        "setWebhook",
+        "getWebhookInfo",
+        "deleteWebhook",
+        "getMyCommands",
+        "setMyCommands",
+        "getFile",
+        "forwardMessage",
+        "copyMessage",
+        "sendMediaGroup",
+        "editMessageMedia",
+        "setMessageReaction",
+        "deleteMessages",
+    };
+
     private JsonNode Answer(string method, JsonObject parameters, IReadOnlyDictionary<string, Attachment> attachments)
     {
         ThrowIfBlocked(method, parameters);
+        method = AnsweredMethods.TryGetValue(method, out var name) ? name : method;
 
         return method switch
         {
@@ -682,7 +711,7 @@ public sealed partial class FakeBotApi
         var method = request.RequestUri.Segments[^1];
         var (parameters, attachments) = await ReadAsync(request.Content, token);
 
-        if (method == "getUpdates")
+        if (method.Equals("getUpdates", StringComparison.OrdinalIgnoreCase))
         {
             if (HasWebhook)
             {
