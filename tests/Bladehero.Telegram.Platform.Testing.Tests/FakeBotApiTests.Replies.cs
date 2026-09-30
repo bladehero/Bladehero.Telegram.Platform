@@ -225,6 +225,26 @@ public sealed partial class FakeBotApiTests
     }
 
     [Fact]
+    public async Task CopyMessage_OfATextMessageWithACaption_ShouldIgnoreTheCaption()
+    {
+        // Arrange
+        var api = ApiWithChats();
+        var client = api.CreateClient();
+        var original = await client.SendMessage(Chat, "Your limit is near");
+
+        // Act
+        await client.CopyMessage(7, Chat, original.Id, caption: "A caption");
+
+        // Assert
+        var copied = api.MessagesIn(7).Single();
+        using (new AssertionScope())
+        {
+            copied["text"]!.GetValue<string>().Should().Be("Your limit is near");
+            copied.ContainsKey("caption").Should().BeFalse();
+        }
+    }
+
+    [Fact]
     public async Task CopyMessage_OfAMissingMessage_ShouldBeRefused()
     {
         // Arrange

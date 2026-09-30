@@ -712,7 +712,7 @@ A user can have a last name, a username and a language, kept once given:
 
 A user who blocks the bot sends it a `my_chat_member` update; the bot's sends to that chat then fail with 403, while its
 edits, deletions and answers to taps still go through (unverified against Telegram). Reactions reach the bot only when
-it asks for `message_reaction`.
+it asks for `message_reaction`, and in a group only as an admin; in a private chat without admin rights (unverified).
 
 An action waits up to `bot.UpdateTimeout` (30 s, no limit under a debugger), then says whether the bot never fetched
 the update or is stuck in a command. A bot that long-polls, on a generic host or in an ASP.NET Core app, fails the
@@ -1165,6 +1165,7 @@ optionally, `Telegram:SecretToken`.
 - `bot_command` entities follow Telegram's rules anywhere in the text.
 - `UserIdOf`, `PrivateChat` and `Member` take optional details.
 - Deleting another user's message in a group needs the bot to be an admin.
+- `IsCommand` ends a command where Telegram does: `/last.` and `/last-10` are `/last`, and `/last@ab` isn't a command.
 
 ## License
 

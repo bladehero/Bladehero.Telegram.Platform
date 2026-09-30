@@ -95,7 +95,9 @@ public sealed partial class FakeBotApi
         var original = SourceOf(parameters) ?? throw Refuse(400, "Bad Request: message to copy not found");
 
         var content = ContentOf(original);
-        if (parameters.ContainsKey("caption"))
+
+        // A text message has no caption, so one given is ignored.
+        if (parameters.ContainsKey("caption") && !content.ContainsKey("text"))
         {
             var (caption, entities) = Trimmed(
                 parameters["caption"]?.GetValue<string>(),

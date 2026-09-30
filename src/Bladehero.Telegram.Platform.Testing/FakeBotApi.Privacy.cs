@@ -119,7 +119,7 @@ public sealed partial class FakeBotApi
     private JsonNode DeleteMessages(JsonObject parameters)
     {
         var chat = ChatOf(parameters);
-        if (parameters["message_ids"] is not JsonArray { Count: > 0 } ids)
+        if (parameters["message_ids"] is not JsonArray ids)
         {
             throw Refuse(400, "Bad Request: message identifiers are not specified");
         }
@@ -168,7 +168,7 @@ public sealed partial class FakeBotApi
             ["user"] = Bot(),
             ["can_be_edited"] = false,
             ["is_anonymous"] = false,
-            ["can_manage_chat"] = false,
+            ["can_manage_chat"] = true,
             ["can_delete_messages"] = canDeleteMessages,
             ["can_manage_video_chats"] = false,
             ["can_restrict_members"] = false,

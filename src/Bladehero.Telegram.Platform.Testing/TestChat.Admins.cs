@@ -23,10 +23,14 @@ public sealed partial class TestChat
     }
 
     /// <summary>Takes the bot's admin rights away (administrator → member).</summary>
-    /// <exception cref="InvalidOperationException">This is a private chat.</exception>
+    /// <exception cref="InvalidOperationException">This is a private chat, or the bot isn't an admin.</exception>
     public Task DemotesBotAsync(CancellationToken token = default)
     {
         ThrowIfPrivate();
+        if (!BotIsAdmin)
+        {
+            throw new InvalidOperationException($"The bot isn't an admin in {Description}.");
+        }
 
         var update = _host.Api.SetAdmin(Id, admin: false, canDeleteMessages: false);
         return _host.DeliverIfAllowedAsync("my_chat_member", () => update, token);

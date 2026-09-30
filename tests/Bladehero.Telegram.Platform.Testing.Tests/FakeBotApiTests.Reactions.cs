@@ -111,6 +111,20 @@ public sealed partial class FakeBotApiTests
         }
     }
 
+    [Fact]
+    public async Task DeleteMessages_WithAnEmptyList_ShouldSucceed()
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        var body = new JsonObject { ["chat_id"] = Chat, ["message_ids"] = new JsonArray() };
+
+        // Act
+        var deleted = await client.SendRequest(new RawRequest<bool>("deleteMessages", body));
+
+        // Assert
+        deleted.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData("absent", "Bad Request: message identifiers are not specified")]
     [InlineData("101", "Bad Request: too many message identifiers specified")]

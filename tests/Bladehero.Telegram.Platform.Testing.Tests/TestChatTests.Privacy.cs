@@ -198,6 +198,7 @@ public sealed partial class TestChatTests
             change.OldChatMember.Should().BeOfType<ChatMemberMember>();
             var admin = change.NewChatMember.Should().BeOfType<ChatMemberAdministrator>().Subject;
             admin.CanDeleteMessages.Should().BeTrue();
+            admin.CanManageChat.Should().BeTrue();
             admin.User.Username.Should().Be("test_bot");
             family.BotIsAdmin.Should().BeTrue();
         }
@@ -244,5 +245,21 @@ public sealed partial class TestChatTests
             family.BotIsAdmin.Should().BeFalse();
             family.Messages.Select(x => x.ToString()).Should().Equal("Anna: hello");
         }
+    }
+
+    [Fact]
+    public async Task DemotesBotAsync_WhenTheBotIsNotAnAdmin_ShouldThrow()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var family = bot.GroupChat("Family");
+
+        // Act
+        var act = () => family.DemotesBotAsync();
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("The bot isn't an admin in the Family group.");
     }
 }

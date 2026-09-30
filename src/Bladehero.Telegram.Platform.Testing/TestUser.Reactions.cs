@@ -5,8 +5,8 @@ public sealed partial class TestUser
 {
     /// <summary>Reacts to <paramref name="message"/> with <paramref name="emoji"/>, or takes the reaction back with <c>null</c>.</summary>
     /// <remarks>
-    /// The bot gets a <c>message_reaction</c> update only when it asks for one and, in a group, only as an admin; the
-    /// reaction shows either way.
+    /// The bot gets a <c>message_reaction</c> update only when it asks for one and, in a group, only as an admin; in a
+    /// private chat it gets one without admin rights (unverified against Telegram). The reaction shows either way.
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="emoji"/> isn't a reaction Telegram offers.</exception>
     /// <exception cref="InvalidOperationException">
