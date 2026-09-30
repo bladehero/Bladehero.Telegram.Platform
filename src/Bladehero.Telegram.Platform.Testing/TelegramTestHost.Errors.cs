@@ -55,6 +55,12 @@ public sealed partial class TelegramTestHost
                 first ??= Forget(x => x.UpdateId is null);
             }
 
+            // The action fails with the error itself, so what its update logged isn't reported later.
+            if (first?.UpdateId is { } failed)
+            {
+                Logs.Claim(x => x.UpdateId == failed && x.Level is LogLevel.Error or LogLevel.Critical);
+            }
+
             if (first is { HandlerFailure: { } failure })
             {
                 var whose = first.UpdateId is { } id ? $"update {id}'s error" : "an error with no update";
@@ -71,12 +77,13 @@ public sealed partial class TelegramTestHost
             }
         }
 
-        // Throws for the unclaimed Error and Critical entries of the update or of none, other than recorded errors.
+        // Throws for the unclaimed Error and Critical entries of the update, of none, or of one whose action is over,
+        // other than recorded errors.
         public void ThrowForLoggedErrors(long? updateId)
         {
             var logged = Logs.Claim(x =>
                 x.Level is LogLevel.Error or LogLevel.Critical
-                && (x.UpdateId is null || x.UpdateId == updateId)
+                && (x.UpdateId is null || x.UpdateId == updateId || IsOver(x.UpdateId.Value))
                 && !WasRecorded(x.Exception)
             );
 
@@ -95,6 +102,14 @@ public sealed partial class TelegramTestHost
             lock (_errors)
             {
                 Forget(updateId);
+            }
+        }
+
+        private bool IsOver(long updateId)
+        {
+            lock (_errors)
+            {
+                return _over.Contains(updateId);
             }
         }
 

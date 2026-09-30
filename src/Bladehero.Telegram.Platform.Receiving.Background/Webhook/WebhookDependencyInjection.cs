@@ -83,6 +83,7 @@ public static class WebhookDependencyInjection
     // The error handler logs the error, as with polling; one that fails itself is logged here and goes no further.
     private static async Task ReportAsync(IServiceProvider services, TelegramError error, ILogger logger)
     {
+        using var scope = UpdateLogScope.Begin(logger, error.Update);
         try
         {
             await services.GetRequiredService<ITelegramErrorHandler>().HandleAsync(error);

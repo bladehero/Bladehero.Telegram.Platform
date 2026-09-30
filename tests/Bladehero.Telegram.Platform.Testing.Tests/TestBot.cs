@@ -153,6 +153,37 @@ internal static class TestBot
         }
     }
 
+    // Lets "/latefail" log its error once Go is set; Done is set once it has.
+    internal sealed class LateWork
+    {
+        public TaskCompletionSource Go { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    // "/latefail" starts work it doesn't wait for, which logs an error; optional, so hosts without LateWork still start.
+    private sealed class LateFailureCommand(ILogger<LateFailureCommand> logger, LateWork? late = null) : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(late is not null && request.Payload.IsCommand("/latefail"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var name = request.Payload.From!.FirstName;
+            _ = Task.Run(
+                async () =>
+                {
+                    await late!.Go.Task;
+                    logger.LogError("Late failure for {Name}", name);
+                    late.Done.TrySetResult();
+                },
+                CancellationToken.None
+            );
+
+            return Task.CompletedTask;
+        }
+    }
+
     [BotCommand("whoami", "Say who you are")]
     private sealed class WhoAmICommand : MessageCommand
     {

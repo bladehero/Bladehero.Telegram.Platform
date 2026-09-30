@@ -15,14 +15,13 @@ internal sealed class ReceivingUpdateHandler(
     ILogger<ReceivingUpdateHandler> logger
 ) : IUpdateHandler
 {
-    // Logs written while the update is handled carry its id as TelegramUpdateId.
     public async Task HandleUpdateAsync(
         ITelegramBotClient botClient,
         Update update,
         CancellationToken cancellationToken
     )
     {
-        using var scope = logger.BeginScope(new Dictionary<string, object> { ["TelegramUpdateId"] = update.Id });
+        using var scope = UpdateLogScope.Begin(logger, update);
 
         conversation.Bind(update);
         var request = new CommandRequest(update, botClient);

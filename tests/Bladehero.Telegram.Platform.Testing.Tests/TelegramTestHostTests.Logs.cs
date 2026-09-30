@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.Receiving.Errors;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,6 +10,9 @@ namespace Bladehero.Telegram.Platform.Testing.Tests;
 public sealed partial class TelegramTestHostTests
 {
     private const string Probe = "Bladehero.Telegram.Platform.Testing.Tests.TestBot.ProbeCommand";
+    private const string LateFailure = "Bladehero.Telegram.Platform.Testing.Tests.TestBot.LateFailureCommand";
+    private const string Apology =
+        "Bladehero.Telegram.Platform.Testing.Tests.TelegramTestHostTests.ApologizingErrorHandler";
 
     [Fact]
     public async Task Logs_ShouldHoldWhatTheBotLoggedWithItsUpdate()
@@ -179,6 +183,77 @@ public sealed partial class TelegramTestHostTests
                 );
             logged.InnerException.Should().BeOfType<ApiRequestException>();
             await next.Should().NotThrowAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Logs_FromTheAppsErrorHandler_ShouldCarryTheUpdateId()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(services: services =>
+            services.AddScoped<ITelegramErrorHandler, ApologizingErrorHandler>()
+        );
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await Record.ExceptionAsync(() => nick.SendsAsync("/boom"));
+
+        // Assert
+        bot.Logs.Should().ContainSingle(x => x.Category == Apology).Which.UpdateId.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task FailOnErrorLogs_WhenTheErrorHandlerLogsAnError_ShouldNotFailTheNextAction()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(services: services =>
+            services.AddScoped<ITelegramErrorHandler, ApologizingErrorHandler>()
+        );
+        bot.FailOnErrorLogs = true;
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var thrown = await Record.ExceptionAsync(() => nick.SendsAsync("/boom"));
+        var next = () => nick.SendsAsync("/ping");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            thrown.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("boom from Nick");
+            await next.Should().NotThrowAsync();
+        }
+    }
+
+    [Fact]
+    public async Task FailOnErrorLogs_ForAnErrorLoggedAfterItsActionReturned_ShouldFailTheNextAction()
+    {
+        // Arrange: /latefail logs from work it doesn't wait for, once let go after its action returned.
+        var late = new TestBot.LateWork();
+        await using var bot = await TestBot.StartAsync(services: services => services.AddSingleton(late));
+        bot.FailOnErrorLogs = true;
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/latefail");
+        late.Go.SetResult();
+        await late.Done.Task;
+
+        // Act
+        var failure = await Record.ExceptionAsync(() => nick.SendsAsync("hello"));
+
+        // Assert
+        failure
+            .Should()
+            .BeOfType<InvalidOperationException>()
+            .Which.Message.Should()
+            .Be($"The bot logged an error while handling update 1: Error [{LateFailure}] Late failure for Nick");
+    }
+
+    // Logs an error of its own, without the exception.
+    private sealed class ApologizingErrorHandler(ILogger<ApologizingErrorHandler> logger) : ITelegramErrorHandler
+    {
+        public Task HandleAsync(TelegramError telegramError)
+        {
+            logger.LogError("Apologised for update {UpdateId}", telegramError.Update?.Id);
+            return Task.CompletedTask;
         }
     }
 }
