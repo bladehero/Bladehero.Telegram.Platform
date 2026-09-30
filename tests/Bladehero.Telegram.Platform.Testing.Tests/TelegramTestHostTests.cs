@@ -19,7 +19,7 @@ using Telegram.Bot.Types.Enums;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
-public sealed class TelegramTestHostTests
+public sealed partial class TelegramTestHostTests
 {
     [Fact]
     public async Task SendAsync_ShouldRunTheUpdateThroughTheRealPollingLoop()

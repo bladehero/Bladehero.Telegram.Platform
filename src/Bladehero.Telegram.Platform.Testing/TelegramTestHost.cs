@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -320,6 +321,10 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
         }
 
         _errors.ThrowFor(updateId);
+        if (FailOnErrorLogs)
+        {
+            _errors.ThrowForLoggedErrors(updateId);
+        }
     }
 
     /// <summary>Stops the bot and disposes its host; the fake keeps its chats for a host started on it again.</summary>
@@ -371,6 +376,12 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
                     : ServiceDescriptor.KeyedSingleton(type, key, client)
             );
         }
+
+        // Added last, so the app's ClearProviders can't remove it, with a rule its own filters can't override.
+        services.AddSingleton<ILoggerProvider>(errors.Logs);
+        services.Configure<LoggerFilterOptions>(options =>
+            options.Rules.Add(new LoggerFilterRule(typeof(TestLogProvider).FullName, null, LogLevel.Debug, null))
+        );
     }
 
     // Disposing the factory disposes the derived one that runs the app.

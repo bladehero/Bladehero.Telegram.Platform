@@ -9,6 +9,7 @@ using Bladehero.Telegram.Platform.Receiving.Commands.Typed.ChatMembers;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.EditedMessages;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -131,6 +132,25 @@ internal static class TestBot
 
         protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
             throw new TaskCanceledException("Claude timed out");
+    }
+
+    // "/probe Error Critical" logs one entry per level, with an exception from Error up; "/probe" logs at Debug.
+    private sealed class ProbeCommand(ILogger<ProbeCommand> logger) : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.Text?.Split(' ') is ["/probe", ..]);
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var levels = request.Payload.Text!.Split(' ')[1..] is { Length: > 0 } names ? names : ["Debug"];
+            foreach (var level in levels.Select(Enum.Parse<LogLevel>))
+            {
+                var failure = level >= LogLevel.Error ? new InvalidOperationException("The ledger is off") : null;
+                logger.Log(level, failure, "Probed by {Name}", request.Payload.From!.FirstName);
+            }
+
+            return Task.CompletedTask;
+        }
     }
 
     [BotCommand("whoami", "Say who you are")]

@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
@@ -15,10 +16,16 @@ public sealed partial class TelegramTestHost
         // Updates whose action is over: it returned, or the test stopped waiting for it.
         private readonly HashSet<long> _over = [];
 
+        // Every error ever recorded, so its log isn't reported as a logged error too.
+        private readonly HashSet<Exception> _recorded = new(ReferenceEqualityComparer.Instance);
+
+        public TestLogProvider Logs { get; } = new();
+
         public void Add(long? updateId, Exception exception)
         {
             lock (_errors)
             {
+                _recorded.Add(exception);
                 if (updateId is not { } id || !_over.Contains(id))
                 {
                     _errors.Add(new Recorded(updateId, exception));
@@ -64,11 +71,44 @@ public sealed partial class TelegramTestHost
             }
         }
 
+        // Throws for the unclaimed Error and Critical entries of the update or of none, other than recorded errors.
+        public void ThrowForLoggedErrors(long? updateId)
+        {
+            var logged = Logs.Claim(x =>
+                x.Level is LogLevel.Error or LogLevel.Critical
+                && (x.UpdateId is null || x.UpdateId == updateId)
+                && !WasRecorded(x.Exception)
+            );
+
+            if (logged is not [var first, ..])
+            {
+                return;
+            }
+
+            var where = first.UpdateId is { } id ? $"while handling update {id}" : "outside any update";
+            var more = logged.Count > 1 ? $" (and {logged.Count - 1} more)" : "";
+            throw new InvalidOperationException($"The bot logged an error {where}: {first}{more}", first.Exception);
+        }
+
         public void Abandon(long updateId)
         {
             lock (_errors)
             {
                 Forget(updateId);
+            }
+        }
+
+        // Also an aggregate of one, as the library logs when an error handler fails.
+        private bool WasRecorded(Exception? exception)
+        {
+            lock (_errors)
+            {
+                return exception is not null
+                    && (
+                        _recorded.Contains(exception)
+                        || exception is AggregateException aggregate
+                            && aggregate.InnerExceptions.Any(_recorded.Contains)
+                    );
             }
         }
 
