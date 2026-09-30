@@ -9,7 +9,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
 // The pages of a multi-page receipt, sent as an album: the first announces it, and each later one updates the count.
-internal sealed class ReceiptAlbumCommand(ReceiptAlbums albums) : KnownUserCommand<Member>
+internal sealed class ReceiptAlbumCommand(ReceiptAlbums albums) : KnownUserMessageCommand<Member>
 {
     protected override bool Matches(Message message) =>
         message.MediaGroupId is not null && ReceiptFiles.IsReceipt(message);

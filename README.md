@@ -220,7 +220,7 @@ public sealed class HelpCommand(IBotCommandMenu menu) : MessageCommand
 
 ### Known users
 
-`KnownUserCommand<TUser>` runs only for users your `ITelegramUserResolver<TUser>` recognises; strangers are ignored.
+`KnownUserMessageCommand<TUser>` runs only for users your `ITelegramUserResolver<TUser>` recognises; strangers are ignored.
 
 ```csharp
 services.AddScoped<ITelegramUserResolver<User>, UserResolver>();
@@ -231,7 +231,7 @@ internal sealed class UserResolver(IUsers users) : ITelegramUserResolver<User>
         users.FindByTelegramIdAsync(userId, token);
 }
 
-internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserCommand<User>
+internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserMessageCommand<User>
 {
     protected override bool Matches(Message message) => message.IsCommand("/last");
 
@@ -313,7 +313,7 @@ protected override (string Field, int Step)? Parse(string data) =>
 **Checks on a tap.** After `Parse` (and, for known users, the resolver), `CheckAsync` returns `Accept`, `Decline`
 (another command's tap) or `Reject(answer, showAlert)`, which is answered instead of running `HandleAsync`; override
 `RejectedAsync` to edit or delete the card too. Keep it free of side effects: it runs alongside other commands'
-checks. `KnownUserCommand<TUser>` has `AcceptsAsync` for the same.
+checks. `KnownUserMessageCommand<TUser>` has `AcceptsAsync` for the same.
 
 **Taps no command takes**, on a registered prefix, are answered: "That button is no longer active." when the data no
 longer decodes, and silently otherwise, e.g. for a stranger. Register an `IButtonRefusalHandler`, in any order, to
@@ -924,7 +924,7 @@ optionally, `Telegram:SecretToken`.
   `chatId` to keep the old behaviour.
 - Known-user commands get their resolver from the container:
   `class X(ITelegramUserResolver<User> users) : KnownUserCommand<User>(users)` becomes
-  `class X : KnownUserCommand<User>`. Test them through `TelegramTestHost` rather than building them by hand.
+  `class X : KnownUserMessageCommand<User>`. Test them through `TelegramTestHost` rather than building them by hand.
 - A hand-written base that parses callback data and resolves the user, such as a
   `ParsedCallbackQueryCommand<TUser, TParsed>`, becomes `KnownUserCallbackQueryCommand<TUser, TData>` overriding
   `Parse`, or a `[ButtonData]` type with no `Parse` at all. Checks that need the user go in `CheckAsync`.
@@ -937,6 +937,8 @@ optionally, `Telegram:SecretToken`.
 
 ### To 10.2
 
+- `KnownUserCommand<TUser>` is renamed `KnownUserMessageCommand<TUser>`, next to
+  `KnownUserCallbackQueryCommand<TUser, TData>`.
 - `CallbackQueryCommand<TData>.Parse` is no longer abstract. Overrides keep working; a command for a type without
   `[ButtonData]` that forgets it now fails at startup, not at compile time.
 - New hooks: `CheckAsync`, `RejectedAsync` and `AcceptsAsync`. An existing method with the same signature gets warning

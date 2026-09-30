@@ -8,7 +8,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands.Typed.Messages;
 
-public sealed class KnownUserCommandTests
+public sealed class KnownUserMessageCommandTests
 {
     private const long KnownChat = 42;
     private const long Family = -1001;
@@ -193,7 +193,7 @@ public sealed class KnownUserCommandTests
         }
     }
 
-    private sealed class ProbeCommand : KnownUserCommand<TestUser>
+    private sealed class ProbeCommand : KnownUserMessageCommand<TestUser>
     {
         public ProbeCommand(ITelegramUserResolver<TestUser> users)
         {

@@ -41,7 +41,7 @@ internal sealed class KnownUserResolverValidator(
         return failures.Length == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
 
-    // The TUser of a KnownUserCommand<TUser> or KnownUserCallbackQueryCommand<TUser, TData>.
+    // The TUser of a KnownUserMessageCommand<TUser> or KnownUserCallbackQueryCommand<TUser, TData>.
     private static Type? UserOf(Type command)
     {
         for (var type = command.BaseType; type is not null; type = type.BaseType)
@@ -49,7 +49,10 @@ internal sealed class KnownUserResolverValidator(
             if (
                 type.IsGenericType
                 && type.GetGenericTypeDefinition() is var definition
-                && (definition == typeof(KnownUserCommand<>) || definition == typeof(KnownUserCallbackQueryCommand<,>))
+                && (
+                    definition == typeof(KnownUserMessageCommand<>)
+                    || definition == typeof(KnownUserCallbackQueryCommand<,>)
+                )
             )
             {
                 return type.GetGenericArguments()[0];

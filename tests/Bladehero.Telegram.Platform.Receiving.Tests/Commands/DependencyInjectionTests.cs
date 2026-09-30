@@ -16,7 +16,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands;
 public sealed class DependencyInjectionTests
 {
     [Fact]
-    public void AddTelegramCommands_WhenCommandDerivesFromKnownUserCommand_ShouldInjectTheMatchingUserResolver()
+    public void AddTelegramCommands_WhenCommandDerivesFromKnownUserMessageCommand_ShouldInjectTheMatchingUserResolver()
     {
         // Arrange
         var services = new ServiceCollection();
@@ -50,7 +50,7 @@ public sealed class DependencyInjectionTests
     }
 
     [Fact]
-    public void AddTelegramCommands_WhenAKnownUserCommandsDependencyIsMissing_ShouldFailNamingIt()
+    public void AddTelegramCommands_WhenAKnownUserMessageCommandsDependencyIsMissing_ShouldFailNamingIt()
     {
         // Arrange: nothing registers the ledger.
         var services = new ServiceCollection();
@@ -217,7 +217,7 @@ public sealed class DependencyInjectionTests
             Task.FromResult<DiTestUser?>(null);
     }
 
-    private sealed class DiProbeCommand : KnownUserCommand<DiTestUser>
+    private sealed class DiProbeCommand : KnownUserMessageCommand<DiTestUser>
     {
         public bool HasResolver => UserResolver is not null;
 
@@ -230,7 +230,7 @@ public sealed class DependencyInjectionTests
     // No test in this assembly resolves every scanned command, so the missing ledger breaks only the test that asks.
     private interface IDiLedger;
 
-    private sealed class DiLedgerCommand(IDiLedger ledger) : KnownUserCommand<DiTestUser>
+    private sealed class DiLedgerCommand(IDiLedger ledger) : KnownUserMessageCommand<DiTestUser>
     {
         public IDiLedger Ledger { get; } = ledger;
 

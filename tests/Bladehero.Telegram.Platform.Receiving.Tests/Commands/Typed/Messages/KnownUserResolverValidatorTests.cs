@@ -92,7 +92,7 @@ public sealed class KnownUserResolverValidatorTests
     }
 
     [Fact]
-    public void RequirementsOf_ShouldGroupTheKnownUserCommandsByUserType()
+    public void RequirementsOf_ShouldGroupTheKnownUserMessageCommandsByUserType()
     {
         // Act
         var requirements = KnownUserResolverValidator.RequirementsOf([
@@ -142,11 +142,11 @@ public sealed class KnownUserResolverValidatorTests
             Task.FromResult<TUser?>(null);
     }
 
-    private abstract class CheckInCommand : KnownUserCommand<Guest>;
+    private abstract class CheckInCommand : KnownUserMessageCommand<Guest>;
 
     private abstract class RoomButton : KnownUserCallbackQueryCommand<Guest, int>;
 
-    private abstract class ShiftCommand : KnownUserCommand<Clerk>;
+    private abstract class ShiftCommand : KnownUserMessageCommand<Clerk>;
 
     private abstract class PlainCommand : MessageCommand
     {

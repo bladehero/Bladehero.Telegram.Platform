@@ -7,7 +7,7 @@ namespace Bladehero.Telegram.Platform.Sandbox.Loyalty;
 
 // Strangers are declined before this runs, so a /points from them goes unanswered.
 [BotCommand("points", "Your loyalty points")]
-internal sealed class PointsCommand(PointsCard card) : KnownUserCommand<Member>
+internal sealed class PointsCommand(PointsCard card) : KnownUserMessageCommand<Member>
 {
     protected override bool Matches(Message message) => message.IsCommand("/points");
 

@@ -8,7 +8,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 /// sender, or one sent on behalf of a chat (a channel's post in a group, or an anonymous admin), whose sender is a
 /// placeholder rather than a person, is declined without a lookup.
 /// </remarks>
-public abstract class KnownUserCommand<TUser> : MessageCommand
+public abstract class KnownUserMessageCommand<TUser> : MessageCommand
     where TUser : class
 {
     internal ITelegramUserResolver<TUser> UserResolver { get; init; } = null!;

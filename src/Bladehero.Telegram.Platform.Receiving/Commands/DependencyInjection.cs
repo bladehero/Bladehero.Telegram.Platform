@@ -13,23 +13,23 @@ internal static class DependencyInjection
 {
     private static readonly Type TelegramCommandMarker = typeof(ITelegramCommand);
 
-    private static readonly Type[] KnownUserCommands =
+    private static readonly Type[] KnownUserMessageCommands =
     [
-        typeof(KnownUserCommand<>),
+        typeof(KnownUserMessageCommand<>),
         typeof(KnownUserCallbackQueryCommand<,>),
     ];
 
     private static readonly CommandInjectionStrategy[] InjectionStrategies =
     [
         new(
-            type => KnownUserCommands.Any(type.DerivesFromOpenGeneric),
+            type => KnownUserMessageCommands.Any(type.DerivesFromOpenGeneric),
             // Built like any other command, so a missing dependency fails naming it, then given its resolver.
             (type, provider) =>
             {
                 var instance = ActivatorUtilities.CreateInstance(provider, type);
 
                 var userResolver = type.GetProperty(
-                    nameof(KnownUserCommand<>.UserResolver),
+                    nameof(KnownUserMessageCommand<>.UserResolver),
                     BindingFlags.NonPublic | BindingFlags.Instance
                 )!;
                 userResolver.SetValue(instance, provider.GetRequiredService(userResolver.PropertyType));
