@@ -45,7 +45,7 @@ internal sealed class ConversationAwareCommandExecutor(
         CancellationToken token
     )
     {
-        if (query.Message is not { } message || message.Date == DateTime.UnixEpoch || conversation.Key is not { } key)
+        if (query.Message is not { } message || message.Date == default || conversation.Key is not { } key)
         {
             await RefuseAsync(request, query, ButtonRefusalReason.NoLongerActive, codec, binding, state: null, token);
             return;

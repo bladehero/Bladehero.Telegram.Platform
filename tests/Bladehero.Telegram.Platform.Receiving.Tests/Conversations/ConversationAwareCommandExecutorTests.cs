@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
@@ -588,7 +589,7 @@ public sealed class ConversationAwareCommandExecutorTests
                 }
             );
 
-        // An inaccessible message is one Telegram no longer shows the bot, which it dates 0.
+        // An inaccessible message is one Telegram no longer shows the bot, dated 0; read as Telegram.Bot reads it.
         public Task TapAsync(string data, long userId = UserId, bool inaccessible = false) =>
             HandleAsync(
                 new Update
@@ -598,11 +599,16 @@ public sealed class ConversationAwareCommandExecutorTests
                         Id = "query",
                         Data = data,
                         From = new User { Id = userId },
-                        Message = new Message
-                        {
-                            Chat = new Chat { Id = ChatId },
-                            Date = inaccessible ? DateTime.UnixEpoch : DateTime.UtcNow,
-                        },
+                        Message = inaccessible
+                            ? JsonSerializer.Deserialize<Message>(
+                                $$$"""{"message_id":1,"date":0,"chat":{"id":{{{ChatId}}},"type":"private"}}""",
+                                JsonBotAPI.Options
+                            )
+                            : new Message
+                            {
+                                Chat = new Chat { Id = ChatId },
+                                Date = DateTime.UtcNow,
+                            },
                     },
                 }
             );
