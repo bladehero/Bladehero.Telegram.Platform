@@ -20,10 +20,14 @@ public sealed partial class FakeBotApiTests
         var stored = bot.Api.StoreUserPhoto("jpeg bytes"u8.ToArray());
 
         // Assert
-        stored
-            .Select(x => (x.Width, x.Height, x.FileSize))
-            .Should()
-            .Equal(sent.Message.Photo!.Select(x => (x.Width, x.Height, x.FileSize)));
+        using (new AssertionScope())
+        {
+            stored.Select(x => $"{x.Width}x{x.Height}").Should().Equal("90x68", "320x240", "800x600", "1280x960");
+            stored
+                .Select(x => (x.Width, x.Height, x.FileSize))
+                .Should()
+                .Equal(sent.Message.Photo!.Select(x => (x.Width, x.Height, x.FileSize)));
+        }
     }
 
     [Fact]

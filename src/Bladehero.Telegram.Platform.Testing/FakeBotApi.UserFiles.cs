@@ -9,9 +9,6 @@ namespace Bladehero.Telegram.Platform.Testing;
 // Files a user sends, stored as the Telegram app sends them: for TestUser, and for hand-built updates.
 public sealed partial class FakeBotApi
 {
-    // The small photo size, so a bot reading Photo[0] instead of the largest gets the wrong bytes, as with Telegram.
-    private static readonly byte[] Thumbnail = "thumbnail"u8.ToArray();
-
     /// <summary>Stores a user's photo for a hand-built update; returns its sizes, smallest first.</summary>
     /// <exception cref="ArgumentException"><paramref name="photo"/> is empty.</exception>
     public PhotoSize[] StoreUserPhoto(byte[] photo)
@@ -42,17 +39,9 @@ public sealed partial class FakeBotApi
         return UserVoice(voice, duration)["voice"].Deserialize<Voice>(JsonBotAPI.Options)!;
     }
 
-    // A photo in two sizes, smallest first; the dimensions are nominal.
-    internal JsonObject UserPhoto(byte[] photo)
-    {
-        var thumbnail = StoreFile(FileKind.Photo, Thumbnail, new JsonObject { ["width"] = 90, ["height"] = 68 })[
-            "photo"
-        ]![0]!;
-
-        var content = StoreFile(FileKind.Photo, photo, new JsonObject { ["width"] = 1280, ["height"] = 960 });
-        content["photo"]!.AsArray().Insert(0, thumbnail.DeepClone());
-        return content;
-    }
+    // In Telegram's four sizes, smallest first; only the largest downloads as the photo.
+    internal JsonObject UserPhoto(byte[] photo) =>
+        StoreFile(FileKind.Photo, photo, new JsonObject { ["width"] = 1280, ["height"] = 960 });
 
     internal JsonObject UserDocument(byte[] content, string fileName, string? mimeType) =>
         StoreFile(
