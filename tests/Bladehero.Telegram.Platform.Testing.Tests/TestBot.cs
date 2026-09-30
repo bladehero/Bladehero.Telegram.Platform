@@ -8,6 +8,7 @@ using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.ChatMembers;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.EditedMessages;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.MyChatMembers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
@@ -38,6 +39,7 @@ internal static class TestBot
                     typeof(TestBot).Assembly
                 );
                 collection.AddSingleton<SeenTaps>();
+                collection.AddSingleton<SeenMemberships>();
                 services?.Invoke(collection);
             },
             api
@@ -163,6 +165,46 @@ internal static class TestBot
                 InlineKeyboardButton.WithCallbackData("Done", "steps-done"),
                 cancellationToken: token
             );
+        }
+    }
+
+    // The bot's own membership changes, as it saw them.
+    internal sealed class SeenMemberships
+    {
+        private readonly List<ChatMemberUpdated> _changes = [];
+
+        public IReadOnlyList<ChatMemberUpdated> All
+        {
+            get
+            {
+                lock (_changes)
+                {
+                    return [.. _changes];
+                }
+            }
+        }
+
+        public void Add(ChatMemberUpdated change)
+        {
+            lock (_changes)
+            {
+                _changes.Add(change);
+            }
+        }
+    }
+
+    // Records my_chat_member updates; optional, so hosts that don't register the probe still validate.
+    private sealed class MembershipCommand(SeenMemberships? seen = null) : MyChatMemberCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<ChatMemberUpdated> request,
+            CancellationToken token
+        ) => Task.FromResult(true);
+
+        protected override Task HandleAsync(TypedCommandRequest<ChatMemberUpdated> request, CancellationToken token)
+        {
+            seen?.Add(request.Payload);
+            return Task.CompletedTask;
         }
     }
 

@@ -37,6 +37,8 @@ public sealed class TestChat
 
     internal string Description => _isGroup ? $"the {_name} group" : $"the chat with {_name}";
 
+    internal bool IsGroup => _isGroup;
+
     /// <summary><paramref name="message"/> as it now stands, or <c>null</c> once deleted.</summary>
     /// <exception cref="ArgumentException"><paramref name="message"/> is from another chat.</exception>
     public TestMessage? Current(TestMessage message)

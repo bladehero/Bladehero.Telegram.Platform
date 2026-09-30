@@ -423,12 +423,11 @@ public sealed partial class FakeBotApi
     internal string NextMediaGroupId() =>
         Interlocked.Increment(ref _lastMediaGroupId).ToString(CultureInfo.InvariantCulture);
 
-    private JsonNode Answer(
-        string method,
-        JsonObject parameters,
-        IReadOnlyDictionary<string, Attachment> attachments
-    ) =>
-        method switch
+    private JsonNode Answer(string method, JsonObject parameters, IReadOnlyDictionary<string, Attachment> attachments)
+    {
+        ThrowIfBlocked(method, parameters);
+
+        return method switch
         {
             "getMe" => Bot(),
             "sendMessage" => Send(parameters),
@@ -449,6 +448,7 @@ public sealed partial class FakeBotApi
             "getFile" => GetFile(parameters),
             _ => throw Refuse(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
+    }
 
     private JsonNode GetCommandMenu(JsonObject parameters) =>
         _commandMenus.GetValueOrDefault(MenuKey(parameters["scope"], parameters["language_code"]))?.DeepClone()

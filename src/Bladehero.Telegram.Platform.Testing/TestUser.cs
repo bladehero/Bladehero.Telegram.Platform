@@ -13,7 +13,7 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// An action Telegram would not send to the bot, as the bot left its type out of <c>allowed_updates</c>, fails with an
 /// <see cref="InvalidOperationException"/> before anything changes.
 /// </remarks>
-public sealed class TestUser
+public sealed partial class TestUser
 {
     private readonly TelegramTestHost _host;
     private readonly JsonObject _opened;
@@ -214,6 +214,7 @@ public sealed class TestUser
     {
         ArgumentNullException.ThrowIfNull(message);
         text = CheckedText(text);
+        ThrowIfBlocked();
 
         var current = StillShown(message, Messages);
         if (current.Message.From?.Id != Id)
@@ -467,6 +468,7 @@ public sealed class TestUser
 
     private async Task<TestCallbackAnswer> TapAsync(JsonObject message, string data, CancellationToken token)
     {
+        ThrowIfBlocked();
         var queryId = _host.Api.NextCallbackQueryId();
         var query = new JsonObject
         {
@@ -592,6 +594,7 @@ public sealed class TestUser
     // The message is posted only once the bot can take it; returns it as posted.
     private async Task<TestMessage> DeliverAsync(Func<JsonObject> message, CancellationToken token)
     {
+        ThrowIfBlocked();
         TestMessage? posted = null;
         await _host.DeliverAsync(
             "message",
