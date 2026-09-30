@@ -696,7 +696,7 @@ public sealed partial class TestUserTests
     }
 
     [Fact]
-    public async Task SendsPhotoAsync_ShouldCarryAThumbnailFirstAndThePhotoLast()
+    public async Task SendsPhotoAsync_ShouldGiveTheBotFourSizes()
     {
         // Arrange
         await using var bot = await TestBot.StartAsync();
@@ -706,7 +706,10 @@ public sealed partial class TestUserTests
         await nick.SendsPhotoAsync("lunch"u8.ToArray());
 
         // Assert
-        nick.Messages[0].Message.Photo!.Select(x => x.Width).Should().BeInAscendingOrder().And.HaveCount(2);
+        nick.Messages[0]
+            .Message.Photo!.Select(x => $"{x.Width}x{x.Height}")
+            .Should()
+            .Equal("90x68", "320x240", "800x600", "1280x960");
     }
 
     [Fact]

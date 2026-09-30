@@ -84,7 +84,7 @@ public sealed partial class TestUser
     }
 
     /// <summary>
-    /// Sends a photo in two sizes, smallest first, as Telegram does; the largest downloads as <paramref name="photo"/>.
+    /// Sends a photo in four sizes, smallest first, as Telegram does; the largest downloads as <paramref name="photo"/>.
     /// Any bytes will do; the reported dimensions are nominal.
     /// </summary>
     /// <returns>The message as posted: a snapshot that stays valid even if the bot then deletes it.</returns>
@@ -135,7 +135,7 @@ public sealed partial class TestUser
     }
 
     /// <summary>
-    /// Sends <paramref name="photos"/> as an album: each its own photo message, in two sizes as
+    /// Sends <paramref name="photos"/> as an album: each its own photo message, in four sizes as
     /// <see cref="SendsPhotoAsync"/> sends one, all in one media group, and each delivered as its own update, in
     /// order, once the bot has handled the one before.
     /// </summary>
