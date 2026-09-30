@@ -914,6 +914,9 @@ dotnet user-secrets set "TelegramReceiverConfiguration:Token" "123456:ABC-DEF...
 dotnet run
 ```
 
+Set `CoffeeShop:Demo` to `true` (e.g. in user secrets) to try receipts and voice orders in Telegram without an AI
+service.
+
 `Sandbox.Webhook` reads `Telegram:Token`, and for a webhook also `Telegram:BaseUrl`, `Telegram:UpdateEndpoint` and,
 optionally, `Telegram:SecretToken`.
 
