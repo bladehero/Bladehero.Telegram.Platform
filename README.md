@@ -315,6 +315,9 @@ protected override (string Field, int Step)? Parse(string data) =>
 `RejectedAsync` to edit or delete the card too. Keep it free of side effects: it runs alongside other commands'
 checks. `KnownUserMessageCommand<TUser>` has `AcceptsAsync` for the same.
 
+**Several actions on one card:** an enum field and one command that switches on it, as the Sandbox's `ReceiptChoice`.
+Take from a take-once store in `HandleAsync`, not in `CheckAsync`.
+
 **Taps no command takes**, on a registered prefix, are answered: "That button is no longer active." when the data no
 longer decodes, and silently otherwise, e.g. for a stranger. Register an `IButtonRefusalHandler`, in any order, to
 answer differently. Hand-written data is left alone, and a custom `ITelegramCommandExecutor` does none of this.
@@ -426,6 +429,8 @@ await conversation.MoveToAsync("size", order with { CardId = card.Id }, token);
   the run takes, "That button is no longer active." Nothing is edited; an `IButtonRefusalHandler` answers differently.
 - A typed button handled by a step must be bound: an unbound one never reaches the step, and a warning says so.
 - Bind the buttons of one run of a flow; pagers, lasting notices and buttons for someone else's chat stay unbound.
+- An app with its own conversation store binds nothing: it checks its card id in `CheckAsync` and refuses a stale one
+  with `ButtonCheck.Reject(…)`.
 - **Persistence:** a store must keep `ConversationState.Id`, or bound buttons stop working after a reload. The
   in-memory store loses it on restart, so old buttons become "no longer active".
 - **Background jobs:** save `new ConversationState(flow, step, data) { Id = ConversationState.NewId() }` and bind with
@@ -963,13 +968,16 @@ optionally, `Telegram:SecretToken`.
   `class X : KnownUserMessageCommand<User>`. Test them through `TelegramTestHost` rather than building them by hand.
 - A hand-written base that parses callback data and resolves the user, such as a
   `ParsedCallbackQueryCommand<TUser, TParsed>`, becomes `KnownUserCallbackQueryCommand<TUser, TData>` overriding
-  `Parse`, or a `[ButtonData]` type with no `Parse` at all. Checks that need the user go in `CheckAsync`.
+  `Parse`, or a `[ButtonData]` type with no `Parse` at all. Checks that need the user go in `CheckAsync`. Cards already
+  sent keep their old data. Its prefix isn't registered, so a tap on one gets no answer at all. Keep accepting it while
+  those cards can be tapped: `protected override TData? Parse(string data) => base.Parse(data) ?? Legacy(data);`.
 - Behaviour since 10.0.x:
   - `IsCommand` ends a command at any whitespace.
   - An unset `AllowedUpdates` asks for Telegram's default explicitly.
   - The default error handler logs every error.
   - The webhook answers 200 once handling has started.
   - An `ITelegramBotClient` the app registers is used.
+  - Long polling deletes an active webhook at startup.
 
 ### To 10.2
 
