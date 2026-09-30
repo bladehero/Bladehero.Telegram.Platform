@@ -102,8 +102,12 @@ public sealed partial class FakeBotApi
     }
 
     /// <summary>A real bot client whose requests this fake answers.</summary>
-    public ITelegramBotClient CreateClient() =>
-        new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));
+    public ITelegramBotClient CreateClient()
+    {
+        var client = new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));
+        client.OnMakingApiRequest += RecordRequestAsync;
+        return client;
+    }
 
     /// <summary>The command menu the bot set for <paramref name="scope"/>; the default scope when null.</summary>
     public IReadOnlyList<BotCommand> CommandMenu(BotCommandScope? scope = null, string? languageCode = null)
@@ -677,7 +681,7 @@ public sealed partial class FakeBotApi
         JsonNode result;
         lock (_gate)
         {
-            _calls.Add(new BotApiCall(method, parameters.DeepClone().AsObject()));
+            Record(new BotApiCall(method, parameters.DeepClone().AsObject()));
 
             var failure = TakeFailure(method, parameters);
             switch (failure?.Kind)
