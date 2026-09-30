@@ -3,7 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -322,21 +322,23 @@ public sealed partial class FakeBotApi
         return Receive(chatId, from, content);
     }
 
-    // The bot_command entity Telegram adds over a leading /command, as far as the characters a command allows go.
-    internal static JsonArray? BotCommandEntities(string text) =>
-        LeadingBotCommand().Match(text) is { Success: true } command
-            ? new JsonArray(
-                new JsonObject
+    // The bot_command entities Telegram adds, anywhere in the text; null when there are none.
+    internal static JsonArray? BotCommandEntities(string text)
+    {
+        JsonNode?[] entities =
+        [
+            .. BotCommands
+                .Find(text)
+                .Select(command => new JsonObject
                 {
                     ["type"] = "bot_command",
-                    ["offset"] = 0,
+                    ["offset"] = command.Offset,
                     ["length"] = command.Length,
-                }
-            )
-            : null;
+                }),
+        ];
 
-    [GeneratedRegex("^/[A-Za-z0-9_]{1,32}(@[A-Za-z0-9_]{3,32})?")]
-    private static partial Regex LeadingBotCommand();
+        return entities.Length == 0 ? null : new JsonArray(entities);
+    }
 
     internal JsonObject Receive(long chatId, JsonObject from, JsonObject content)
     {
