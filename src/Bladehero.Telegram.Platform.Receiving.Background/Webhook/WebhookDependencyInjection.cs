@@ -289,6 +289,7 @@ public static class WebhookDependencyInjection
             .Validate(configuration => configuration.SecretTokenIsValid, TelegramWebhookConfiguration.SecretTokenRule)
             .Validate(configuration => configuration.BaseUrlIsValid, TelegramWebhookConfiguration.BaseUrlRule)
             .ValidateOnStart();
+        services.AddHostedService<TelegramBotIdentityInitializer>();
         services.AddHostedService<TelegramWebhookInitializer>();
         services.AddHostedService<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>();
     }

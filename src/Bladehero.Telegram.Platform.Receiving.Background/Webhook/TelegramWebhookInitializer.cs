@@ -8,7 +8,8 @@ namespace Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 internal sealed class TelegramWebhookInitializer(
     ITelegramBotClient client,
     IOptions<TelegramWebhookConfiguration> options,
-    ILogger<TelegramWebhookInitializer> logger
+    ILogger<TelegramWebhookInitializer> logger,
+    ITelegramBotIdentity identity
 ) : IHostedLifecycleService
 {
     public async Task StartingAsync(CancellationToken cancellationToken)
@@ -18,7 +19,8 @@ internal sealed class TelegramWebhookInitializer(
         {
             logger.LogDebug("Starting webhook initializer");
 
-            var me = await client.GetMe(cancellationToken);
+            // The identity initializer's getMe, unless it failed.
+            var me = await identity.GetAsync(cancellationToken);
             logger.LogDebug("Bot info: {Id}, @{Username}", me.Id, me.Username);
 
             var webhook = await client.GetWebhookInfo(cancellationToken);

@@ -1,5 +1,6 @@
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace Bladehero.Telegram.Platform.Receiving.Tests.Commands.Typed.Messages;
 
@@ -59,4 +60,100 @@ public sealed class MessageExtensionsTests
     {
         Assert.Null(new Message { Text = text }.ArgumentsOf("/last"));
     }
+
+    [Theory]
+    [InlineData("/last")]
+    [InlineData("/last@test_bot")]
+    [InlineData("/last@Test_Bot 10")]
+    public void InsideAnUpdateACommandAddressedToThisBotCountsIgnoringCase(string text)
+    {
+        Assert.True(InsideAnUpdateOf("test_bot", () => new Message { Text = text }.IsCommand("/last")));
+    }
+
+    [Fact]
+    public void InsideAnUpdateACommandAddressedToAnotherBotDoesnt()
+    {
+        Assert.False(InsideAnUpdateOf("test_bot", () => new Message { Text = "/last@other_bot" }.IsCommand("/last")));
+    }
+
+    [Fact]
+    public void OutsideAnUpdateAnyAddressedCommandCounts()
+    {
+        Assert.True(new Message { Text = "/last@other_bot" }.IsCommand("/last"));
+    }
+
+    [Theory]
+    [InlineData("test_bot", true)]
+    [InlineData("TEST_BOT", true)]
+    [InlineData(null, true)]
+    [InlineData("other_bot", false)]
+    public void AnExplicitUsernameDecidesWhateverTheUpdate(string? botUsername, bool isCommand)
+    {
+        var message = new Message { Text = "/last@test_bot 10" };
+
+        var (isIt, arguments) = InsideAnUpdateOf(
+            "some_bot",
+            () => (message.IsCommand("/last", botUsername), message.ArgumentsOf("/last", botUsername))
+        );
+
+        Assert.Equal(isCommand, isIt);
+        Assert.Equal(isCommand ? "10" : null, arguments);
+    }
+
+    [Theory]
+    [InlineData("/help.", null, "/help", ".")]
+    [InlineData("/start-x", null, "/start", "-x")]
+    [InlineData("/last10", 5, "/last", "10")]
+    public void TheBotCommandEntityDecidesWhereTheCommandEnds(
+        string text,
+        int? entityLength,
+        string command,
+        string arguments
+    )
+    {
+        var message = new Message
+        {
+            Text = text,
+            Entities = entityLength is { } length
+                ?
+                [
+                    new MessageEntity
+                    {
+                        Type = MessageEntityType.BotCommand,
+                        Offset = 0,
+                        Length = length,
+                    },
+                ]
+                : null,
+        };
+
+        Assert.True(message.IsCommand(command));
+        Assert.Equal(arguments, message.ArgumentsOf(command));
+    }
+
+    [Theory]
+    [InlineData("/last@ab")]
+    [InlineData("/last@a 10")]
+    public void ANameOfFewerThan3CharactersAfterTheAtIsntACommand(string text)
+    {
+        Assert.False(new Message { Text = text }.IsCommand("/last"));
+    }
+
+    [Fact]
+    public void ArgumentsOfACommandAddressedToAnotherBotAreNull()
+    {
+        Assert.Null(
+            InsideAnUpdateOf("test_bot", () => new Message { Text = "/last@other_bot 10" }.ArgumentsOf("/last"))
+        );
+    }
+
+    // As while the bot named username handles an update; the ambient name doesn't leak out.
+    private static T InsideAnUpdateOf<T>(string username, Func<T> act) =>
+        Task.Run(() =>
+            {
+                BotUsername.Current.Value = username;
+                return act();
+            })
+            .GetAwaiter()
+            .GetResult();
 }

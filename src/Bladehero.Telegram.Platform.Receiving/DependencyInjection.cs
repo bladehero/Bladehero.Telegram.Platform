@@ -7,6 +7,7 @@ using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Telegram.Bot;
 using Telegram.Bot.Polling;
 
 namespace Bladehero.Telegram.Platform.Receiving;
@@ -48,6 +49,12 @@ public static class DependencyInjection
             )
             .ValidateOnStart();
 
+        // Without a registered client, e.g. under an app's own receiving loop, the username stays unknown.
+        services.TryAddSingleton<ITelegramBotIdentity>(provider =>
+            provider.GetService<ITelegramBotClient>() is { } client
+                ? new TelegramBotIdentity(client, provider.GetService<TimeProvider>())
+                : new UnknownBotIdentity()
+        );
         services.AddScoped<ITelegramErrorHandler, LoggingTelegramErrorHandler>();
         services.TryAddScoped<IButtonRefusalHandler, DefaultButtonRefusalHandler>();
         services.AddScoped<ParallelTelegramCommandExecutor>();

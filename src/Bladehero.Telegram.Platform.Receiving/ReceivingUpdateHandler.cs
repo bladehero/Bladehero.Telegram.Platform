@@ -12,6 +12,7 @@ internal sealed class ReceivingUpdateHandler(
     ITelegramCommandExecutor telegramCommandExecutor,
     ITelegramErrorHandler telegramErrorHandler,
     Conversation conversation,
+    ITelegramBotIdentity identity,
     ILogger<ReceivingUpdateHandler> logger
 ) : IUpdateHandler
 {
@@ -22,6 +23,11 @@ internal sealed class ReceivingUpdateHandler(
     )
     {
         using var scope = UpdateLogScope.Begin(logger, update);
+
+        // IsCommand then refuses commands addressed to another bot; while the username is unknown, it accepts them.
+        var me =
+            identity.Current ?? (identity is TelegramBotIdentity own ? await own.TryGetAsync(cancellationToken) : null);
+        BotUsername.Current.Value = me?.Username;
 
         conversation.Bind(update);
         var request = new CommandRequest(update, botClient);
