@@ -15,9 +15,6 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// </remarks>
 public sealed class TestUser
 {
-    // The small photo size, so a bot reading Photo[0] instead of the largest gets the wrong bytes, as with Telegram.
-    private static readonly byte[] Thumbnail = "thumbnail"u8.ToArray();
-
     private readonly TelegramTestHost _host;
     private readonly JsonObject _person;
 
@@ -96,20 +93,7 @@ public sealed class TestUser
         ThrowIfEmpty(voice);
         ArgumentOutOfRangeException.ThrowIfLessThan(duration ?? TimeSpan.Zero, TimeSpan.Zero, nameof(duration));
 
-        return SendsFileAsync(
-            () =>
-                _host.Api.StoreFile(
-                    FileKind.Voice,
-                    voice,
-                    new JsonObject
-                    {
-                        ["duration"] = (int)Math.Ceiling((duration ?? TimeSpan.FromSeconds(1)).TotalSeconds),
-                        ["mime_type"] = "audio/ogg",
-                    }
-                ),
-            caption: null,
-            token
-        );
+        return SendsFileAsync(() => _host.Api.UserVoice(voice, duration), caption: null, token);
     }
 
     /// <summary>
@@ -523,35 +507,10 @@ public sealed class TestUser
         return string.IsNullOrEmpty(caption) ? null : caption;
     }
 
-    private Func<JsonObject> PhotoOf(byte[] photo) =>
-        () =>
-        {
-            var thumbnail = _host.Api.StoreFile(
-                FileKind.Photo,
-                Thumbnail,
-                new JsonObject { ["width"] = 90, ["height"] = 68 }
-            )["photo"]![0]!;
-
-            var content = _host.Api.StoreFile(
-                FileKind.Photo,
-                photo,
-                new JsonObject { ["width"] = 1280, ["height"] = 960 }
-            );
-            content["photo"]!.AsArray().Insert(0, thumbnail.DeepClone());
-            return content;
-        };
+    private Func<JsonObject> PhotoOf(byte[] photo) => () => _host.Api.UserPhoto(photo);
 
     private Func<JsonObject> DocumentOf(byte[] document, string fileName, string? mimeType = null) =>
-        () =>
-            _host.Api.StoreFile(
-                FileKind.Document,
-                document,
-                new JsonObject
-                {
-                    ["file_name"] = fileName,
-                    ["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypes.Of(fileName) : mimeType,
-                }
-            );
+        () => _host.Api.UserDocument(document, fileName, mimeType);
 
     // As Telegram: a caption, already checked, carries a leading /command marked.
     private Task<TestMessage> SendsFileAsync(Func<JsonObject> file, string? caption, CancellationToken token) =>
@@ -636,15 +595,8 @@ public sealed class TestUser
         return posted!;
     }
 
-    private static void ThrowIfEmpty(byte[] content, [CallerArgumentExpression(nameof(content))] string? name = null)
-    {
-        ArgumentNullException.ThrowIfNull(content, name);
-
-        if (content.Length == 0)
-        {
-            throw new ArgumentException("The Telegram app never sends an empty file.", name);
-        }
-    }
+    private static void ThrowIfEmpty(byte[] content, [CallerArgumentExpression(nameof(content))] string? name = null) =>
+        FakeBotApi.ThrowIfEmpty(content, name);
 
     private static string Quote(TestMessage message) => $"\"{message.Content}\"";
 
