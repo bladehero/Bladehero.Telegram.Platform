@@ -512,13 +512,14 @@ public sealed partial class FakeBotApi
             content["reply_markup"] = keyboard;
         }
 
-        return chat.Post(Bot(), content).DeepClone().AsObject();
+        return WithReplyMarkup(chat, parameters, chat.Post(Bot(), content)).DeepClone().AsObject();
     }
 
     // Edits the text, the caption, or (field null) only the keyboard. As in Telegram, entities go with their text, and
     // a keyboard or caption the edit leaves out is removed.
     private JsonObject Edit(JsonObject parameters, string? field)
     {
+        ThrowIfNotInline(parameters);
         var chat = ChatOf(parameters);
         var message = chat.Find(MessageIdOf(parameters)) ?? throw Refuse(400, "Bad Request: message to edit not found");
 

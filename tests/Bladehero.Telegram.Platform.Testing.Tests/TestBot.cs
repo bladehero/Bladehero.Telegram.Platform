@@ -346,6 +346,61 @@ internal static class TestBot
         }
     }
 
+    // Sends a reply keyboard, a removal or a ForceReply, one per trigger.
+    private sealed class ReplyMarkupCommand : MessageCommand
+    {
+        private static readonly Dictionary<string, (string Text, ReplyMarkup Markup)> Markups = new()
+        {
+            ["/keyboard"] = (
+                "Pick a drink",
+                new ReplyKeyboardMarkup([
+                    ["Tea", "Coffee"],
+                    ["/whoami"],
+                ])
+            ),
+            ["/onetime"] = (
+                "Sure?",
+                new ReplyKeyboardMarkup([
+                    ["Yes", "No"],
+                ])
+                {
+                    OneTimeKeyboard = true,
+                }
+            ),
+            ["/contact"] = (
+                "Your phone?",
+                new ReplyKeyboardMarkup([
+                    [KeyboardButton.WithRequestContact("Share")],
+                ])
+            ),
+            ["/nokeyboard"] = ("Keyboard gone", new ReplyKeyboardRemove()),
+            ["/ask"] = ("What's your name?", new ForceReplyMarkup { InputFieldPlaceholder = "Your name" }),
+            ["/selective"] = (
+                "@anna_k, pick one",
+                new ReplyKeyboardMarkup([
+                    ["A"],
+                ])
+                {
+                    Selective = true,
+                }
+            ),
+        };
+
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(Markups.Keys.Any(request.Payload.IsCommand));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (text, markup) = Markups[Markups.Keys.First(request.Payload.IsCommand)];
+            return request.Client.SendMessage(
+                request.Payload.Chat,
+                text,
+                replyMarkup: markup,
+                cancellationToken: token
+            );
+        }
+    }
+
     // Replies with the sender's details as the bot sees them, and the chat's username.
     private sealed class DetailsCommand : MessageCommand
     {

@@ -123,7 +123,7 @@ public sealed partial class FakeBotApi
             content["reply_markup"] = keyboard;
         }
 
-        return chat.Post(Bot(), content).DeepClone().AsObject();
+        return WithReplyMarkup(chat, parameters, chat.Post(Bot(), content)).DeepClone().AsObject();
     }
 
     // An upload (attach://<part>), a URL, or the id of a known file of the same kind.

@@ -74,11 +74,13 @@ public sealed partial class TestUser
     /// <exception cref="ArgumentException">
     /// <paramref name="text"/> is blank, or longer than the 4096 characters of a Telegram message.
     /// </exception>
+    /// <remarks>While a ForceReply asks the user to reply, it's sent as that reply, as the app opens the field so.</remarks>
     public Task<TestMessage> SendsAsync(string text, CancellationToken token = default)
     {
         text = CheckedText(text);
+        ThrowIfBlocked();
 
-        return DeliverAsync(new JsonObject { ["text"] = text }, () => _host.Api.Receive(Chat.Id, Person, text), token);
+        return SendsTextAsync(text, _host.Api.TakeForceReply(Chat.Id, Id), token);
     }
 
     /// <summary>
