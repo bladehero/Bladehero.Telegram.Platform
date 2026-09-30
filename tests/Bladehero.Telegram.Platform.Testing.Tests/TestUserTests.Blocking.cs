@@ -24,7 +24,11 @@ public sealed partial class TestUserTests
         await nick.BlocksBotAsync();
 
         // Assert
-        var change = bot.Services.GetRequiredService<TestBot.SeenMemberships>().All.Should().ContainSingle().Subject;
+        var change = bot
+            .Services.GetRequiredService<TestBot.Seen<ChatMemberUpdated>>()
+            .All.Should()
+            .ContainSingle()
+            .Subject;
         using (new AssertionScope())
         {
             change.Chat.Id.Should().Be(nick.Chat.Id);
@@ -52,7 +56,7 @@ public sealed partial class TestUserTests
         using (new AssertionScope())
         {
             (await send.Should().ThrowAsync<ApiRequestException>()).Which.ErrorCode.Should().Be(403);
-            bot.Services.GetRequiredService<TestBot.SeenMemberships>().All.Should().BeEmpty();
+            bot.Services.GetRequiredService<TestBot.Seen<ChatMemberUpdated>>().All.Should().BeEmpty();
         }
     }
 
@@ -134,7 +138,7 @@ public sealed partial class TestUserTests
         // Assert
         using (new AssertionScope())
         {
-            bot.Services.GetRequiredService<TestBot.SeenMemberships>()
+            bot.Services.GetRequiredService<TestBot.Seen<ChatMemberUpdated>>()
                 .All.Select(x => x.NewChatMember.Status)
                 .Should()
                 .Equal(ChatMemberStatus.Kicked, ChatMemberStatus.Member);

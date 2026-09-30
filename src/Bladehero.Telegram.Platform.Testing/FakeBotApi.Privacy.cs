@@ -115,6 +115,40 @@ public sealed partial class FakeBotApi
         }
     }
 
+    // Under _gate. Deletes the messages found, skipping unknown ids; if any found can't be deleted, deletes none.
+    private JsonNode DeleteMessages(JsonObject parameters)
+    {
+        var chat = ChatOf(parameters);
+        if (parameters["message_ids"] is not JsonArray { Count: > 0 } ids)
+        {
+            throw Refuse(400, "Bad Request: message identifiers are not specified");
+        }
+
+        if (ids.Count > 100)
+        {
+            throw Refuse(400, "Bad Request: too many message identifiers specified");
+        }
+
+        var messageIds = ids.Select(NumberOf).ToArray();
+        if (messageIds.Any(id => id is null or <= 0))
+        {
+            throw Refuse(400, "Bad Request: invalid message identifier specified");
+        }
+
+        var found = messageIds.Select(id => chat.Find((int)id!.Value)).OfType<JsonObject>().ToArray();
+        foreach (var message in found)
+        {
+            ThrowIfCannotDelete(chat, message);
+        }
+
+        foreach (var message in found)
+        {
+            chat.Remove(message["message_id"]!.GetValue<int>());
+        }
+
+        return true;
+    }
+
     private static bool IsCommandForTheBot(string text)
     {
         if (BotCommands.LengthAtStart(text) is not { } length)

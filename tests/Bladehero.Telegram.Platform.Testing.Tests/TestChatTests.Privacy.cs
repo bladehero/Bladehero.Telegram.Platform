@@ -187,7 +187,11 @@ public sealed partial class TestChatTests
         await family.MakesBotAdminAsync();
 
         // Assert
-        var change = bot.Services.GetRequiredService<TestBot.SeenMemberships>().All.Should().ContainSingle().Subject;
+        var change = bot
+            .Services.GetRequiredService<TestBot.Seen<ChatMemberUpdated>>()
+            .All.Should()
+            .ContainSingle()
+            .Subject;
         using (new AssertionScope())
         {
             change.Chat.Id.Should().Be(family.Id);
@@ -228,7 +232,7 @@ public sealed partial class TestChatTests
         await family.Member("Anna").SendsAsync("hello");
 
         // Assert
-        var change = bot.Services.GetRequiredService<TestBot.SeenMemberships>().All[^1];
+        var change = bot.Services.GetRequiredService<TestBot.Seen<ChatMemberUpdated>>().All[^1];
         using (new AssertionScope())
         {
             change

@@ -450,6 +450,8 @@ public sealed partial class FakeBotApi
             "copyMessage" => Copy(parameters),
             "sendMediaGroup" => SendMediaGroup(parameters, attachments),
             "editMessageMedia" => EditMedia(parameters, attachments),
+            "setMessageReaction" => SetMessageReaction(parameters),
+            "deleteMessages" => DeleteMessages(parameters),
             _ => throw Refuse(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
     }

@@ -3,6 +3,8 @@ using Bladehero.Telegram.Platform.Receiving.Background;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
+using Bladehero.Telegram.Platform.Receiving.Commands;
+using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.ChatMembers;
@@ -39,7 +41,8 @@ internal static class TestBot
                     typeof(TestBot).Assembly
                 );
                 collection.AddSingleton<SeenTaps>();
-                collection.AddSingleton<SeenMemberships>();
+                collection.AddSingleton<Seen<ChatMemberUpdated>>();
+                collection.AddSingleton<Seen<MessageReactionUpdated>>();
                 services?.Invoke(collection);
             },
             api
@@ -168,33 +171,33 @@ internal static class TestBot
         }
     }
 
-    // The bot's own membership changes, as it saw them.
-    internal sealed class SeenMemberships
+    // What the probes below saw, e.g. the bot's own membership changes.
+    internal sealed class Seen<T>
     {
-        private readonly List<ChatMemberUpdated> _changes = [];
+        private readonly List<T> _items = [];
 
-        public IReadOnlyList<ChatMemberUpdated> All
+        public IReadOnlyList<T> All
         {
             get
             {
-                lock (_changes)
+                lock (_items)
                 {
-                    return [.. _changes];
+                    return [.. _items];
                 }
             }
         }
 
-        public void Add(ChatMemberUpdated change)
+        public void Add(T item)
         {
-            lock (_changes)
+            lock (_items)
             {
-                _changes.Add(change);
+                _items.Add(item);
             }
         }
     }
 
     // Records my_chat_member updates; optional, so hosts that don't register the probe still validate.
-    private sealed class MembershipCommand(SeenMemberships? seen = null) : MyChatMemberCommand
+    private sealed class MembershipCommand(Seen<ChatMemberUpdated>? seen = null) : MyChatMemberCommand
     {
         protected override Task<bool> CanHandleAsync(
             TypedCommandRequest<ChatMemberUpdated> request,
@@ -204,6 +207,19 @@ internal static class TestBot
         protected override Task HandleAsync(TypedCommandRequest<ChatMemberUpdated> request, CancellationToken token)
         {
             seen?.Add(request.Payload);
+            return Task.CompletedTask;
+        }
+    }
+
+    // Records message_reaction updates, for which there's no typed base.
+    private sealed class ReactionCommand(Seen<MessageReactionUpdated>? seen = null) : ITelegramCommand
+    {
+        public Task<bool> CanHandleAsync(CommandRequest request, CancellationToken token) =>
+            Task.FromResult(request.Update.MessageReaction is not null);
+
+        public Task HandleAsync(CommandRequest request, CancellationToken token)
+        {
+            seen?.Add(request.Update.MessageReaction!);
             return Task.CompletedTask;
         }
     }

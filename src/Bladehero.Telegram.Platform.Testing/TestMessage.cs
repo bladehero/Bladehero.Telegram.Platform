@@ -20,7 +20,11 @@ public sealed class TestMessage
         _json = json;
         _api = api;
         Message = json.Deserialize<Message>(JsonBotAPI.Options)!;
+        Reactions = Message.Chat is { } chat ? api.ReactionsOn(chat.Id, Message.Id) : [];
     }
+
+    /// <summary>The reactions under the message, one per reactor, as they were when this snapshot was taken.</summary>
+    public IReadOnlyList<string> Reactions { get; }
 
     /// <summary>The message id, unique within its chat.</summary>
     public int Id => Message.Id;
