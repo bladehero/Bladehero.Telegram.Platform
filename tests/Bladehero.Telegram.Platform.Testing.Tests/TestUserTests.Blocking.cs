@@ -125,6 +125,28 @@ public sealed partial class TestUserTests
     }
 
     [Fact]
+    public async Task TapsAsync_AsShownWhileBlocked_ShouldThrow()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/size");
+        var card = nick.LastMessage;
+        await nick.BlocksBotAsync();
+        var calls = bot.Api.Calls.Count;
+
+        // Act
+        var act = () => nick.TapsAsync("Small", on: card, asShown: true);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage(BlockedTheBot);
+            bot.Api.Calls.Should().HaveCount(calls);
+        }
+    }
+
+    [Fact]
     public async Task UnblocksBotAsync_WithRestart_ShouldSendMyChatMemberThenStart()
     {
         // Arrange

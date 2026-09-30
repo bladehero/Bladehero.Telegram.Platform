@@ -38,7 +38,7 @@ public sealed partial class TestUserTests
                 .BeOfType<ReactionTypeEmoji>()
                 .Which.Emoji.Should()
                 .Be("👍");
-            nick.Messages.Single(x => x.Id == reply.Id).Reactions.Should().Equal("👍");
+            nick.Current(reply)!.Reactions.Should().Equal("👍");
             reply.Reactions.Should().BeEmpty("a snapshot keeps the reactions it was taken with");
         }
     }

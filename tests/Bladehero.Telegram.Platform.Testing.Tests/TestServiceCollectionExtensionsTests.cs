@@ -14,6 +14,7 @@ public sealed class TestServiceCollectionExtensionsTests
         // Arrange
         var api = new FakeBotApi();
         int? pollsBefore = null;
+        int? callsBefore = null;
 
         // Act
         await using var bot = await TestBot.StartAsync(
@@ -23,15 +24,17 @@ public sealed class TestServiceCollectionExtensionsTests
                     async (provider, token) =>
                     {
                         pollsBefore = api.Polls;
+                        callsBefore = api.Calls.Count;
                         await provider.GetRequiredService<ITelegramBotClient>().GetMe(token);
                     }
                 )
         );
 
-        // Assert
+        // Assert: no call before it, so the first getMe is its own, not the bot's startup one.
         using (new AssertionScope())
         {
             pollsBefore.Should().Be(0);
+            callsBefore.Should().Be(0);
             api.Calls[0].Method.Should().Be("getMe");
         }
     }

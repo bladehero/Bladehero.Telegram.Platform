@@ -121,6 +121,7 @@ public sealed partial class FakeBotApi
 
         SetOrRemove(message, "reply_markup", keyboard);
         message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        chat.Revise(message);
         chat.Changed();
 
         return message.DeepClone().AsObject();

@@ -1,5 +1,7 @@
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Telegram.Bot;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
@@ -160,5 +162,28 @@ public sealed partial class TestUserTests
             .Select(x => x.ToString())
             .Should()
             .Equal("Bot: Pick a size [Small] [Large] [Remove]", "Bot: Size 250 [Small] [Large] [Remove]");
+    }
+
+    [Fact]
+    public async Task RevisionsOf_AMediaEdit_ShouldBeARevision()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        var client = bot.Api.CreateClient();
+        var notice = await client.SendMessage(nick.Chat.Id, "Your report is coming");
+
+        // Act
+        await client.EditMessageMedia(
+            nick.Chat.Id,
+            notice.Id,
+            new InputMediaDocument(InputFile.FromStream(new MemoryStream("a,b"u8.ToArray()), "report.csv"))
+        );
+
+        // Assert
+        nick.RevisionsOf(nick.LastReply)
+            .Select(x => x.ToString())
+            .Should()
+            .Equal("Bot: Your report is coming", "Bot: (document report.csv)");
     }
 }
