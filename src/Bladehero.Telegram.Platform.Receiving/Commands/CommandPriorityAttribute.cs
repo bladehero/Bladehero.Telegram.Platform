@@ -11,6 +11,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands;
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class CommandPriorityAttribute : Attribute
 {
+    /// <summary>The global priority and group this attribute gives the command.</summary>
     public CommandPriority Priority { get; }
 
     /// <summary>Runs after the commands with the same global priority that set a group.</summary>

@@ -1,4 +1,4 @@
-using System.Globalization;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Telegram.Bot;
@@ -6,50 +6,49 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Loyalty;
 
-// The points card's "redeem:{ownerId}:{points}" buttons. The data is parsed before the member is looked up, and a tap
-// from someone no longer a member goes unanswered.
+// A points card's button, "redeem:{ownerId}:{points}".
+[ButtonData("redeem")]
+internal readonly record struct Redeem(long OwnerId, int Points);
+
+// A tap from someone no longer a member is answered silently, as no command takes it.
 internal sealed class RedeemButton(MemberDirectory members, PointsCard card)
-    : KnownUserCallbackQueryCommand<Member, (long OwnerId, int Points)>
+    : KnownUserCallbackQueryCommand<Member, Redeem>
 {
-    private const string Prefix = "redeem";
+    protected override Task<ButtonCheck> CheckAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+    {
+        if (Parsed.Points <= 0)
+        {
+            return Task.FromResult(ButtonCheck.Decline);
+        }
 
-    public static string Data(long ownerId, int points) =>
-        string.Create(CultureInfo.InvariantCulture, $"{Prefix}:{ownerId}:{points}");
+        if (Parsed.OwnerId != User.UserId)
+        {
+            var owner = members.Find(Parsed.OwnerId)?.Name ?? "someone else";
+            return Task.FromResult(
+                ButtonCheck.Reject($"This card is {owner}'s — send /points for your own.", showAlert: true)
+            );
+        }
 
-    protected override (long OwnerId, int Points)? Parse(string data) =>
-        data.Split(':') is [Prefix, var owner, var amount]
-        && long.TryParse(owner, NumberStyles.None, CultureInfo.InvariantCulture, out var ownerId)
-        && int.TryParse(amount, NumberStyles.None, CultureInfo.InvariantCulture, out var points)
-        && points > 0
-            ? (ownerId, points)
-            : null;
+        return Task.FromResult(ButtonCheck.Accept);
+    }
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {
         var (_, query, client) = request;
-        var (ownerId, points) = Parsed;
-
-        if (ownerId != User.UserId)
-        {
-            var owner = members.Find(ownerId)?.Name ?? "someone else";
-            await AlertAsync(client, query, $"This card is {owner}'s — send /points for your own.", token);
-            return;
-        }
+        var (_, points) = Parsed;
 
         if (members.Spend(User.UserId, points) is not { } after)
         {
-            await AlertAsync(client, query, $"You have only {User.Points} points.", token);
+            await client.AnswerCallbackQuery(
+                query.Id,
+                $"You have only {User.Points} points.",
+                showAlert: true,
+                cancellationToken: token
+            );
             return;
         }
 
         await client.AnswerCallbackQuery(query.Id, $"Redeemed {points} points", cancellationToken: token);
-        await card.ShowAsync(client, query.Message!.Chat, after, token);
+        await card.UpdateAsync(client, query.Message!.Chat, query.Message.Id, after, token);
     }
-
-    private static Task AlertAsync(
-        ITelegramBotClient client,
-        CallbackQuery query,
-        string text,
-        CancellationToken token
-    ) => client.AnswerCallbackQuery(query.Id, text, showAlert: true, cancellationToken: token);
 }

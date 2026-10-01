@@ -7,7 +7,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Receipts;
 
 // A member's file that cannot be a receipt, such as a zip or a spreadsheet.
-internal sealed class UnsupportedFileCommand : KnownUserCommand<Member>
+internal sealed class UnsupportedFileCommand : KnownUserMessageCommand<Member>
 {
     protected override bool Matches(Message message) =>
         message.Document is { } document && !ReceiptFiles.IsReadable(document.MimeType);

@@ -30,6 +30,7 @@ public sealed class SendMessageBackCommandTests
         // Arrange
         await using var bot = await SandboxBot.StartAsync(mode);
         var family = bot.GroupChat("Family");
+        await family.MakesBotAdminAsync(); // so it hears plain text
 
         // Act
         await family.Member("Anna").SendsAsync("hi all");

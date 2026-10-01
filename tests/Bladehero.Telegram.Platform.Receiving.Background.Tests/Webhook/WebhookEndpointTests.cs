@@ -41,6 +41,22 @@ public sealed class WebhookEndpointTests
         );
     }
 
+    [Fact]
+    public async Task TheWebhookReportsAFailedUpdateInsideItsLogScope()
+    {
+        var logs = new LogRecorder();
+        var log = new ScopeLog { CommandFailure = new InvalidOperationException("original") };
+        await using var app = await StartAsync(log, logs);
+        using var client = app.GetTestClient();
+
+        using var response = await client.PostAsync(
+            "/telegram/updates",
+            new StringContent(Update, Encoding.UTF8, "application/json")
+        );
+
+        Assert.Equal(7, Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Error).UpdateId);
+    }
+
     // The ScopeLog's command and a ThrowingErrorHandler, behind UseTelegramWebhook; startup talks to a fake client.
     private static async Task<WebApplication> StartAsync(ScopeLog log, LogRecorder logs)
     {

@@ -1,16 +1,36 @@
 using System.Reflection;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution.Parallel;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Telegram.Bot;
 using Telegram.Bot.Polling;
 
 namespace Bladehero.Telegram.Platform.Receiving;
 
+/// <summary>
+/// Registers the receiving services; <c>AddTelegramLongPollingReceiving</c> and <c>AddTelegramWebhookReceiving</c> call
+/// it for you.
+/// </summary>
 public static class DependencyInjection
 {
+    /// <summary>
+    /// Registers the commands found in <paramref name="assemblies"/>, their execution, conversations, the command menu,
+    /// typed buttons and the default error handler; the hosting packages call it, so an app rarely does.
+    /// </summary>
+    /// <remarks>
+    /// A command is any class, public or not, that implements <see cref="ITelegramCommand"/> and is neither abstract
+    /// nor generic; each is registered as scoped. The host then fails to start when a known-user command's
+    /// <c>ITelegramUserResolver&lt;TUser&gt;</c> isn't registered.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="assemblies"/> is empty.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The typed buttons can't be set up, e.g. two share a prefix; the message lists every problem.
+    /// </exception>
     public static IServiceCollection AddTelegramReceiving(
         this IServiceCollection services,
         params Assembly[] assemblies
@@ -21,7 +41,22 @@ public static class DependencyInjection
             throw new ArgumentException("At least one assembly is required", nameof(assemblies));
         }
 
+        services
+            .AddOptions<ParallelCommandExecutionConfiguration>()
+            .Validate(
+                x => x.ParallelCount is null or > 0,
+                "ParallelCount must be at least 1, or null to run a batch as one chunk."
+            )
+            .ValidateOnStart();
+
+        // Without a registered client, e.g. under an app's own receiving loop, the username stays unknown.
+        services.TryAddSingleton<ITelegramBotIdentity>(provider =>
+            provider.GetService<ITelegramBotClient>() is { } client
+                ? new TelegramBotIdentity(client, provider.GetService<TimeProvider>())
+                : new UnknownBotIdentity()
+        );
         services.AddScoped<ITelegramErrorHandler, LoggingTelegramErrorHandler>();
+        services.TryAddScoped<IButtonRefusalHandler, DefaultButtonRefusalHandler>();
         services.AddScoped<ParallelTelegramCommandExecutor>();
         services.AddScoped<ITelegramCommandExecutor, ConversationAwareCommandExecutor>();
         services.AddScoped<IUpdateHandler, ReceivingUpdateHandler>();

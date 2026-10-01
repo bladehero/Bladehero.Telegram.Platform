@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace Bladehero.Telegram.Platform.Testing;
 
 /// <summary>A private or group chat with the bot, as its members see it.</summary>
-public sealed class TestChat
+public sealed partial class TestChat
 {
     private readonly TelegramTestHost _host;
     private readonly string _name;
@@ -29,7 +29,33 @@ public sealed class TestChat
     public TestMessage LastMessage =>
         Messages.LastOrDefault() ?? throw new InvalidOperationException($"There are no messages in {Description}.");
 
+    /// <summary>The newest message the bot sent here; an edit doesn't move it.</summary>
+    /// <exception cref="InvalidOperationException">The bot has sent nothing here.</exception>
+    public TestMessage LastReply =>
+        Messages.LastOrDefault(message => message.IsFromBot)
+        ?? throw new InvalidOperationException($"The bot has sent nothing in {Description}.");
+
     internal string Description => _isGroup ? $"the {_name} group" : $"the chat with {_name}";
+
+    internal bool IsGroup => _isGroup;
+
+    /// <summary><paramref name="message"/> as it now stands, or <c>null</c> once deleted.</summary>
+    /// <exception cref="ArgumentException"><paramref name="message"/> is from another chat.</exception>
+    public TestMessage? Current(TestMessage message)
+    {
+        ThrowIfFromAnotherChat(message);
+
+        return _host.Api.MessageIn(Id, message.Id) is { } json ? new TestMessage(json, _host.Api) : null;
+    }
+
+    /// <summary>Every state <paramref name="message"/> has had, oldest first.</summary>
+    /// <exception cref="ArgumentException"><paramref name="message"/> is from another chat.</exception>
+    public IReadOnlyList<TestMessage> RevisionsOf(TestMessage message)
+    {
+        ThrowIfFromAnotherChat(message);
+
+        return [.. _host.Api.RevisionsIn(Id, message.Id).Select(json => new TestMessage(json, _host.Api))];
+    }
 
     /// <summary>
     /// Waits for a message <paramref name="match"/> accepts, such as one a background job sends after the update
@@ -110,8 +136,26 @@ public sealed class TestChat
     }
 
     /// <summary><paramref name="firstName"/> as a member of this group.</summary>
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
     /// <exception cref="InvalidOperationException">This is a private chat.</exception>
-    public TestUser Member(string firstName)
+    public TestUser Member(string firstName) => Member(firstName, lastName: null);
+
+    /// <summary><paramref name="firstName"/> as a member of this group.</summary>
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
+    /// <param name="lastName">The last name, if any.</param>
+    /// <param name="username">The username without @, e.g. <c>nick_d</c>, if any.</param>
+    /// <param name="languageCode">The app's language, e.g. <c>en</c> or <c>pt-br</c>, if any.</param>
+    /// <exception cref="ArgumentException">A detail isn't one Telegram gives.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// This is a private chat, a detail differs from the one the user was first opened with, or another user has the
+    /// username.
+    /// </exception>
+    public TestUser Member(
+        string firstName,
+        string? lastName = null,
+        string? username = null,
+        string? languageCode = null
+    )
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
 
@@ -122,9 +166,22 @@ public sealed class TestChat
             );
         }
 
-        return new TestUser(_host, _host.Api.Person(firstName), this);
+        return new TestUser(_host, _host.Api.Person(firstName, lastName, username, languageCode), this);
     }
 
     /// <summary>The group's title, or the name of the user in a private chat.</summary>
     public override string ToString() => _name;
+
+    private void ThrowIfFromAnotherChat(TestMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        if (message.Message.Chat.Id != Id)
+        {
+            throw new ArgumentException(
+                $"The message \"{message.Content}\" is from another chat, not {Description}.",
+                nameof(message)
+            );
+        }
+    }
 }

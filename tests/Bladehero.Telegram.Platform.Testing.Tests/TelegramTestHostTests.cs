@@ -13,12 +13,13 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
-public sealed class TelegramTestHostTests
+public sealed partial class TelegramTestHostTests
 {
     [Fact]
     public async Task SendAsync_ShouldRunTheUpdateThroughTheRealPollingLoop()
@@ -616,6 +617,58 @@ public sealed class TelegramTestHostTests
     }
 
     [Fact]
+    public async Task ForLongPollingAsync_WhileAnotherHostPollsTheSameFake_ShouldFailTheOlderOnesNextActionWithAConflict()
+    {
+        // Arrange: the newer host's first poll ends the older one's waiting poll.
+        var api = new FakeBotApi();
+        await using var older = await TestBot.StartAsync(api);
+        await UntilAsync(() => api.PollWaiting);
+        await using var newer = await TestBot.StartAsync(api);
+        await UntilAsync(() => api.ConflictedPolling);
+
+        // The older host records its 409 before it polls again.
+        await api.PolledAsync(api.Polls).WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Act
+        var failure = await Record.ExceptionAsync(() => older.SendAsync(Text("hello")));
+
+        // Assert
+        var conflict = failure.Should().BeOfType<ApiRequestException>().Subject;
+        using (new AssertionScope())
+        {
+            conflict.ErrorCode.Should().Be(409);
+            conflict
+                .Message.Should()
+                .Be(
+                    "Conflict: terminated by other getUpdates request; make sure that only one bot instance is running"
+                );
+        }
+    }
+
+    [Fact]
+    public async Task ForLongPollingAsync_AfterTheEarlierHostIsDisposed_ShouldNotConflict()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        await using (var earlier = await TestBot.StartAsync(api))
+        {
+            await earlier.SendAsync(Text("hello"));
+        }
+
+        await using var later = await TestBot.StartAsync(api);
+
+        // Act
+        await later.SendAsync(Text("hello again"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            RepliesIn(api).Should().Equal("hello", "hello again");
+            api.ConflictedPolling.Should().BeFalse();
+        }
+    }
+
+    [Fact]
     public async Task SendAsync_WhenACommandHangs_ShouldSayTheBotTookTheUpdateButDidNotFinish()
     {
         // Arrange
@@ -731,6 +784,35 @@ public sealed class TelegramTestHostTests
 
         // Assert
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task CreateClient_OnAGenericHost_ShouldThrow()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+
+        // Act
+        var act = () => bot.CreateClient();
+
+        // Assert
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage(
+                "A bot on a generic host has no web server; CreateClient needs a host started with "
+                    + "ForLongPollingAsync<TEntryPoint> or ForWebhookAsync<TEntryPoint>."
+            );
+    }
+
+    // No timing: yields until the condition holds.
+    private static async Task UntilAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!condition())
+        {
+            timeout.Token.ThrowIfCancellationRequested();
+            await Task.Yield();
+        }
     }
 
     private static IEnumerable<string> RepliesIn(FakeBotApi api) =>

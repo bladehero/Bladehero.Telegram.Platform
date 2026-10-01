@@ -54,6 +54,25 @@ public sealed class LouderButtonTests
     [Theory]
     [InlineData(BotMode.Webhook)]
     [InlineData(BotMode.LongPolling)]
+    public async Task Echo_ShouldWriteTheLouderDataAsBefore(BotMode mode)
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartAsync(mode);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("hello");
+
+        // Assert
+        nick.LastMessage.Message.ReplyMarkup!.InlineKeyboard.SelectMany(row => row)
+            .Select(button => button.CallbackData)
+            .Should()
+            .Equal("again", "louder:1");
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
     public async Task Again_AfterLouder_ShouldSendTheLoudText(BotMode mode)
     {
         // Arrange

@@ -7,7 +7,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
-public sealed class TestUserTests
+public sealed partial class TestUserTests
 {
     [Fact]
     public async Task SendsAsync_ShouldReachTheBotFromTheUser()
@@ -426,6 +426,20 @@ public sealed class TestUserTests
     }
 
     [Fact]
+    public async Task SendsAsync_4096Emoji_ShouldBeAccepted()
+    {
+        // Arrange: 8192 UTF-16 units, but 4096 characters.
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var sent = await nick.SendsAsync(string.Concat(Enumerable.Repeat("😀", 4096)));
+
+        // Assert
+        sent.Text.Should().HaveLength(8192);
+    }
+
+    [Fact]
     public async Task SendsPhotoAsync_WithACaptionOverTelegramsLimit_ShouldRefuseIt()
     {
         // Arrange
@@ -636,6 +650,7 @@ public sealed class TestUserTests
         // Arrange
         await using var bot = await TestBot.StartAsync();
         var family = bot.GroupChat("Family");
+        await family.MakesBotAdminAsync();
 
         // Act
         await family.Member("Anna").SendsDocumentAsync("a,b"u8.ToArray(), "budget.csv");
@@ -681,7 +696,7 @@ public sealed class TestUserTests
     }
 
     [Fact]
-    public async Task SendsPhotoAsync_ShouldCarryAThumbnailFirstAndThePhotoLast()
+    public async Task SendsPhotoAsync_ShouldGiveTheBotFourSizes()
     {
         // Arrange
         await using var bot = await TestBot.StartAsync();
@@ -691,7 +706,10 @@ public sealed class TestUserTests
         await nick.SendsPhotoAsync("lunch"u8.ToArray());
 
         // Assert
-        nick.Messages[0].Message.Photo!.Select(x => x.Width).Should().BeInAscendingOrder().And.HaveCount(2);
+        nick.Messages[0]
+            .Message.Photo!.Select(x => $"{x.Width}x{x.Height}")
+            .Should()
+            .Equal("90x68", "320x240", "800x600", "1280x960");
     }
 
     [Fact]
@@ -1013,9 +1031,100 @@ public sealed class TestUserTests
             .WithMessage("Nick sees no \"A\" button on \"(photo)\"*");
     }
 
+    [Fact]
+    public async Task TapsAsync_ByButtonType_ShouldTapTheButtonWhoseDataMatches()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/cups");
+
+        // Act
+        var answer = await nick.TapsAsync<TestBot.Cups>(x => x.Count == 2);
+
+        // Assert
+        answer.ToString().Should().Be("Notification: Cups 2");
+    }
+
+    [Fact]
+    public async Task TapsAsync_ByButtonTypeMatchingTwoButtons_ShouldSayItIsAmbiguousListingThem()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/cups");
+
+        // Act
+        var act = () => nick.TapsAsync<TestBot.Cups>();
+
+        // Assert
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .Which.Message.Should()
+            .Be(
+                "\"How many cups?\" shows more than one Cups button, so which one Nick taps is ambiguous: "
+                    + "Cups { Count = 1 }, Cups { Count = 2 }. Pick one with TapsAsync<Cups>(b => …)."
+            );
+    }
+
+    [Fact]
+    public async Task TapsAsync_ByButtonTypeMatchingNothing_ShouldNameTheButtons()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/cups");
+
+        // Act
+        var act = () => nick.TapsAsync<TestBot.Cups>(x => x.Count == 3);
+
+        // Assert
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .Which.Message.Should()
+            .Be(
+                "Nick sees no Cups button matching the predicate in the chat with Nick. The buttons are \"1 cup\", "
+                    + "\"2 cups\", \"Other\"."
+            );
+    }
+
+    [Fact]
+    public async Task TapsAsync_ByButtonType_ShouldIgnoreOtherData()
+    {
+        // Arrange: the newest message shows buttons, none of them Cups.
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/cups");
+        await nick.SendsAsync("/menu");
+
+        // Act
+        var answer = await nick.TapsAsync<TestBot.Cups>(x => x.Count == 1);
+
+        // Assert
+        answer.ToString().Should().Be("Notification: Cups 1");
+    }
+
+    [Fact]
+    public async Task TapsAsync_ByANonButtonType_ShouldThrowAtOnce()
+    {
+        // Arrange: the chat has no buttons at all.
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/whoami");
+
+        // Act
+        var act = () => nick.TapsAsync<NotAButton>();
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("NotAButton isn't button data: mark it [ButtonData(\"prefix\")].");
+    }
+
     // The bot's answers to album items only; its file command answers them too.
     private static IEnumerable<string?> AlbumReplies(TestUser user) =>
         user
             .Messages.Where(x => x.Text?.StartsWith("Album item:", StringComparison.Ordinal) is true)
             .Select(x => x.Text);
+
+    // No [ButtonData], so it can't be button data.
+    private readonly record struct NotAButton(int Value);
 }

@@ -3,7 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -18,14 +18,14 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// would, its errors and limits included; the bot can write only to a chat a test user opened or an update brought. A
 /// method the fake does not support fails with an error naming it. <see cref="Fail"/> makes Telegram refuse a call,
 /// and <see cref="FailNetwork"/> makes it never arrive. One host at a time: dispose a host before starting another on
-/// the same fake, as for a restart, since the fake doesn't refuse a second poller as Telegram does.
+/// the same fake, as for a restart, since a second host polling at once gets Telegram's 409.
 /// </remarks>
 public sealed partial class FakeBotApi
 {
     internal const string Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
 
     private const long BotId = 1234567;
-    private const long FirstPersonId = 1001;
+    private const long FirstPersonId = 7_000_000_001;
     private const long FirstGroupId = -1000000000001;
     private const string DefaultScope = """{"type":"default"}""";
     private const string FilePathPrefix = $"/file/bot{Token}/";
@@ -84,25 +84,49 @@ public sealed partial class FakeBotApi
         }
     }
 
+    /// <summary>The Telegram user id of the test user named <paramref name="firstName"/>.</summary>
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
+    /// <exception cref="ArgumentException"><paramref name="firstName"/> is blank.</exception>
+    public long UserIdOf(string firstName) => UserIdOf(firstName, lastName: null);
+
     /// <summary>
     /// The Telegram user id of the test user named <paramref name="firstName"/>, which is also their private chat's
     /// id: reserved now for a new name, and the one <c>PrivateChat</c> and <c>Member</c> use later.
     /// </summary>
     /// <remarks>
     /// For seeding an app's users before the host starts. The bot can write to the user only once the test opens
-    /// their chat with <c>PrivateChat</c>, so open it before the bot writes first.
+    /// their chat with <c>PrivateChat</c>, so open it before the bot writes first. Ids are Telegram-sized, from
+    /// 7 000 000 001, so data carrying them is as long as in production. A detail given once is kept.
     /// </remarks>
-    /// <exception cref="ArgumentException"><paramref name="firstName"/> is blank.</exception>
-    public long UserIdOf(string firstName)
+    /// <param name="firstName">The user's first name, which is one user throughout the test.</param>
+    /// <param name="lastName">The last name, if any.</param>
+    /// <param name="username">The username without @, e.g. <c>nick_d</c>, if any.</param>
+    /// <param name="languageCode">The app's language, e.g. <c>en</c> or <c>pt-br</c>, if any.</param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="firstName"/> is blank, or a detail isn't one Telegram gives.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// A detail differs from the one the user was first opened with, or another user has the username.
+    /// </exception>
+    public long UserIdOf(
+        string firstName,
+        string? lastName = null,
+        string? username = null,
+        string? languageCode = null
+    )
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
 
-        return Person(firstName)["id"]!.GetValue<long>();
+        return Person(firstName, lastName, username, languageCode)["id"]!.GetValue<long>();
     }
 
     /// <summary>A real bot client whose requests this fake answers.</summary>
-    public ITelegramBotClient CreateClient() =>
-        new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));
+    public ITelegramBotClient CreateClient()
+    {
+        var client = new TelegramBotClient(new TelegramBotClientOptions(Token), new HttpClient(new Transport(this)));
+        client.OnMakingApiRequest += RecordRequestAsync;
+        return client;
+    }
 
     /// <summary>The command menu the bot set for <paramref name="scope"/>; the default scope when null.</summary>
     public IReadOnlyList<BotCommand> CommandMenu(BotCommandScope? scope = null, string? languageCode = null)
@@ -137,7 +161,7 @@ public sealed partial class FakeBotApi
     {
         ArgumentNullException.ThrowIfNull(error);
 
-        AddFailure(method, error, times, chatId);
+        AddFailure(method, FailureKind.Refused, error, times, chatId);
     }
 
     /// <summary>
@@ -153,10 +177,9 @@ public sealed partial class FakeBotApi
     /// given.
     /// </exception>
     public void FailNetwork(string method, int? times = null, long? chatId = null) =>
-        AddFailure(method, error: null, times, chatId);
+        AddFailure(method, FailureKind.Unreachable, error: null, times, chatId);
 
-    // A null error fails the network instead.
-    private void AddFailure(string method, BotApiError? error, int? times, long? chatId)
+    private void AddFailure(string method, FailureKind kind, BotApiError? error, int? times, long? chatId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
@@ -183,7 +206,7 @@ public sealed partial class FakeBotApi
 
         lock (_gate)
         {
-            _failures.Add(new Failure(method, error, times, chatId));
+            _failures.Add(new Failure(method, kind, error, times, chatId));
         }
     }
 
@@ -224,8 +247,16 @@ public sealed partial class FakeBotApi
     internal int PollsInFlight => _updates.InFlight;
 
     // The same first name is the same user in every chat.
-    internal JsonObject Person(string firstName)
+    // The user named firstName, with any details given; a detail given once is kept.
+    internal JsonObject Person(
+        string firstName,
+        string? lastName = null,
+        string? username = null,
+        string? languageCode = null
+    )
     {
+        ThrowIfNotDetails(lastName, username, languageCode);
+
         lock (_gate)
         {
             if (!_people.TryGetValue(firstName, out var person))
@@ -239,6 +270,7 @@ public sealed partial class FakeBotApi
                 _people[firstName] = person;
             }
 
+            AddDetails(person, lastName, username, languageCode);
             return person.DeepClone().AsObject();
         }
     }
@@ -250,17 +282,7 @@ public sealed partial class FakeBotApi
 
         lock (_gate)
         {
-            _chats.TryAdd(
-                id,
-                new ChatHistory(
-                    new JsonObject
-                    {
-                        ["id"] = id,
-                        ["type"] = "private",
-                        ["first_name"] = person["first_name"]!.DeepClone(),
-                    }
-                )
-            );
+            _chats.TryAdd(id, new ChatHistory(PrivateChatOf(person)));
         }
 
         return id;
@@ -318,21 +340,23 @@ public sealed partial class FakeBotApi
         return Receive(chatId, from, content);
     }
 
-    // The bot_command entity Telegram adds over a leading /command, as far as the characters a command allows go.
-    internal static JsonArray? BotCommandEntities(string text) =>
-        LeadingBotCommand().Match(text) is { Success: true } command
-            ? new JsonArray(
-                new JsonObject
+    // The bot_command entities Telegram adds, anywhere in the text; null when there are none.
+    internal static JsonArray? BotCommandEntities(string text)
+    {
+        JsonNode?[] entities =
+        [
+            .. BotCommands
+                .Find(text)
+                .Select(command => new JsonObject
                 {
                     ["type"] = "bot_command",
-                    ["offset"] = 0,
+                    ["offset"] = command.Offset,
                     ["length"] = command.Length,
-                }
-            )
-            : null;
+                }),
+        ];
 
-    [GeneratedRegex("^/[A-Za-z0-9_]{1,32}(@[A-Za-z0-9_]{3,32})?")]
-    private static partial Regex LeadingBotCommand();
+        return entities.Length == 0 ? null : new JsonArray(entities);
+    }
 
     internal JsonObject Receive(long chatId, JsonObject from, JsonObject content)
     {
@@ -354,6 +378,7 @@ public sealed partial class FakeBotApi
             message["text"] = text;
             SetOrRemove(message, "entities", BotCommandEntities(text));
             message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            chat.Revise(message);
             chat.Changed();
             return message.DeepClone().AsObject();
         }
@@ -379,17 +404,64 @@ public sealed partial class FakeBotApi
         }
     }
 
+    // The message as it now stands, or null once deleted.
+    internal JsonObject? MessageIn(long chatId, int messageId)
+    {
+        lock (_gate)
+        {
+            return _chats.TryGetValue(chatId, out var chat) ? chat.Find(messageId)?.DeepClone().AsObject() : null;
+        }
+    }
+
+    internal IReadOnlyList<JsonObject> RevisionsIn(long chatId, int messageId)
+    {
+        lock (_gate)
+        {
+            return _chats.TryGetValue(chatId, out var chat)
+                ? [.. chat.Revisions(messageId).Select(message => message.DeepClone().AsObject())]
+                : [];
+        }
+    }
+
     internal string NextCallbackQueryId() => Interlocked.Increment(ref _lastCallbackQueryId).ToString();
 
     internal string NextMediaGroupId() =>
         Interlocked.Increment(ref _lastMediaGroupId).ToString(CultureInfo.InvariantCulture);
 
-    private JsonNode Answer(
-        string method,
-        JsonObject parameters,
-        IReadOnlyDictionary<string, Attachment> attachments
-    ) =>
-        method switch
+    // The methods below, by any case, as the Bot API takes them.
+    private static readonly HashSet<string> AnsweredMethods = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "getMe",
+        "sendMessage",
+        "sendPhoto",
+        "sendDocument",
+        "sendVoice",
+        "editMessageText",
+        "editMessageCaption",
+        "editMessageReplyMarkup",
+        "deleteMessage",
+        "sendChatAction",
+        "answerCallbackQuery",
+        "setWebhook",
+        "getWebhookInfo",
+        "deleteWebhook",
+        "getMyCommands",
+        "setMyCommands",
+        "getFile",
+        "forwardMessage",
+        "copyMessage",
+        "sendMediaGroup",
+        "editMessageMedia",
+        "setMessageReaction",
+        "deleteMessages",
+    };
+
+    private JsonNode Answer(string method, JsonObject parameters, IReadOnlyDictionary<string, Attachment> attachments)
+    {
+        ThrowIfBlocked(method, parameters);
+        method = AnsweredMethods.TryGetValue(method, out var name) ? name : method;
+
+        return method switch
         {
             "getMe" => Bot(),
             "sendMessage" => Send(parameters),
@@ -408,8 +480,15 @@ public sealed partial class FakeBotApi
             "getMyCommands" => GetCommandMenu(parameters),
             "setMyCommands" => SetCommandMenu(parameters),
             "getFile" => GetFile(parameters),
+            "forwardMessage" => Forward(parameters),
+            "copyMessage" => Copy(parameters),
+            "sendMediaGroup" => SendMediaGroup(parameters, attachments),
+            "editMessageMedia" => EditMedia(parameters, attachments),
+            "setMessageReaction" => SetMessageReaction(parameters),
+            "deleteMessages" => DeleteMessages(parameters),
             _ => throw Refuse(404, $"Not Found: FakeBotApi does not answer {method} yet"),
         };
+    }
 
     private JsonNode GetCommandMenu(JsonObject parameters) =>
         _commandMenus.GetValueOrDefault(MenuKey(parameters["scope"], parameters["language_code"]))?.DeepClone()
@@ -432,7 +511,7 @@ public sealed partial class FakeBotApi
         var queryId = parameters["callback_query_id"]?.GetValue<string>();
         if (queryId is null || !_callbackAnswers.TryGetValue(queryId, out var answer) || answer is not null)
         {
-            throw Refuse(400, "Bad Request: query is too old and response timeout expired or query ID is invalid");
+            throw new Refusal(BotApiError.QueryTooOld);
         }
 
         ThrowIfLongerThan(AnswerTextLimit, parameters["text"]?.GetValue<string>(), "Bad Request: MESSAGE_TOO_LONG");
@@ -453,13 +532,13 @@ public sealed partial class FakeBotApi
     private JsonObject Send(JsonObject parameters)
     {
         var chat = ChatOf(parameters);
-        var (text, entities) = Trimmed(parameters["text"]?.GetValue<string>(), parameters["entities"]);
-        if (text is null)
-        {
-            throw Refuse(400, "Bad Request: message text is empty");
-        }
-
-        ThrowIfLongerThan(TextLimit, text, "Bad Request: message is too long");
+        var (text, entities) = Formatted(
+            parameters["text"],
+            parameters["parse_mode"],
+            parameters["entities"],
+            TextKind.Text,
+            Operation.Send
+        );
 
         var content = new JsonObject { ["text"] = text };
 
@@ -473,17 +552,23 @@ public sealed partial class FakeBotApi
             content["reply_markup"] = keyboard;
         }
 
-        return chat.Post(Bot(), content).DeepClone().AsObject();
+        if (ReplyTargetOf(chat, parameters) is { } target)
+        {
+            content["reply_to_message"] = target;
+        }
+
+        return WithReplyMarkup(chat, parameters, chat.Post(Bot(), content)).DeepClone().AsObject();
     }
 
     // Edits the text, the caption, or (field null) only the keyboard. As in Telegram, entities go with their text, and
     // a keyboard or caption the edit leaves out is removed.
     private JsonObject Edit(JsonObject parameters, string? field)
     {
+        ThrowIfNotInline(parameters);
         var chat = ChatOf(parameters);
         var message = chat.Find(MessageIdOf(parameters)) ?? throw Refuse(400, "Bad Request: message to edit not found");
 
-        if (message["from"]?["id"]?.GetValue<long>() != BotId)
+        if (message["from"]?["id"]?.GetValue<long>() != BotId || IsUneditable(chat, message))
         {
             throw Refuse(400, "Bad Request: message can't be edited");
         }
@@ -501,19 +586,13 @@ public sealed partial class FakeBotApi
         var entitiesField = field == "caption" ? "caption_entities" : "entities";
         var (newValue, newEntities) = field is null
             ? (null, null)
-            : Trimmed(parameters[field]?.GetValue<string>(), parameters[entitiesField]);
-
-        switch (field)
-        {
-            case "text" when newValue is null:
-                throw Refuse(400, "Bad Request: message text is empty");
-            case "text":
-                ThrowIfLongerThan(TextLimit, newValue, "Bad Request: MESSAGE_TOO_LONG");
-                break;
-            case "caption":
-                ThrowIfLongerThan(CaptionLimit, newValue, "Bad Request: MESSAGE_CAPTION_TOO_LONG");
-                break;
-        }
+            : Formatted(
+                parameters[field],
+                parameters["parse_mode"],
+                parameters[entitiesField],
+                field == "caption" ? TextKind.Caption : TextKind.Text,
+                Operation.Edit
+            );
 
         var newMarkup = InlineKeyboardOf(parameters);
         if (
@@ -524,10 +603,7 @@ public sealed partial class FakeBotApi
             ) && JsonNode.DeepEquals(newMarkup, message["reply_markup"])
         )
         {
-            throw Refuse(
-                400,
-                "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
-            );
+            throw Refuse(400, NotModified);
         }
 
         if (field is not null)
@@ -538,6 +614,7 @@ public sealed partial class FakeBotApi
 
         SetOrRemove(message, "reply_markup", newMarkup);
         message["edit_date"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        chat.Revise(message);
         chat.Changed();
 
         return message.DeepClone().AsObject();
@@ -557,7 +634,13 @@ public sealed partial class FakeBotApi
 
     private JsonNode Delete(JsonObject parameters)
     {
-        if (!ChatOf(parameters).Remove(MessageIdOf(parameters)))
+        var chat = ChatOf(parameters);
+        if (chat.Find(MessageIdOf(parameters)) is { } message)
+        {
+            ThrowIfCannotDelete(chat, message);
+        }
+
+        if (!chat.Remove(MessageIdOf(parameters)))
         {
             throw Refuse(400, "Bad Request: message to delete not found");
         }
@@ -627,7 +710,7 @@ public sealed partial class FakeBotApi
         var method = request.RequestUri.Segments[^1];
         var (parameters, attachments) = await ReadAsync(request.Content, token);
 
-        if (method == "getUpdates")
+        if (method.Equals("getUpdates", StringComparison.OrdinalIgnoreCase))
         {
             if (HasWebhook)
             {
@@ -644,32 +727,47 @@ public sealed partial class FakeBotApi
 
             // Before the poll counts as listening, so a delivery checks the list this poll asked for.
             UpdateAllowedUpdates(parameters);
-            var updates = await _updates.TakeAsync(parameters, token);
+            if (await _updates.TakeAsync(parameters, token) is not { } updates)
+            {
+                await Task.Delay(ConflictPause, token);
+                return Respond(new BotApiError(409, TerminatedByOtherPoll));
+            }
+
             return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = updates });
         }
 
         JsonNode result;
         lock (_gate)
         {
-            _calls.Add(new BotApiCall(method, parameters.DeepClone().AsObject()));
+            Record(new BotApiCall(method, parameters.DeepClone().AsObject()));
 
-            switch (TakeFailure(method, parameters))
+            var failure = TakeFailure(method, parameters);
+            switch (failure?.Kind)
             {
-                case { Error: { } error }:
-                    return Respond(error);
-                case not null:
+                case FailureKind.Refused:
+                    return Respond(failure.Error!);
+                case FailureKind.Unreachable:
                     throw new HttpRequestException(
                         $"The network failed for {method}, as FakeBotApi.FailNetwork asked; Telegram never saw it."
                     );
+                case FailureKind.TimedOut:
+                    throw TimedOut(method);
             }
 
+            // A lost response is lost whatever Telegram answered, a refusal included.
+            var lost = failure?.Kind is FailureKind.ResponseLost;
             try
             {
                 result = Answer(method, parameters, attachments);
             }
             catch (Refusal refusal)
             {
-                return Respond(refusal.Error);
+                return lost ? throw ResponseLost(method) : Respond(refusal.Error);
+            }
+
+            if (lost)
+            {
+                throw ResponseLost(method);
             }
         }
 
@@ -729,9 +827,11 @@ public sealed partial class FakeBotApi
         public BotApiError Error { get; } = error;
     }
 
-    // chatId: only calls to that chat, whether chat_id came as a number or as form text. No error: the network fails.
-    private sealed class Failure(string method, BotApiError? error, int? times, long? chatId)
+    // chatId: only calls to that chat, whether chat_id came as a number or as form text; error: for Refused only.
+    private sealed class Failure(string method, FailureKind kind, BotApiError? error, int? times, long? chatId)
     {
+        public FailureKind Kind { get; } = kind;
+
         public BotApiError? Error { get; } = error;
 
         public bool Exhausted => times is 0;

@@ -7,4 +7,12 @@
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
+
+  <!-- A package's public API is documented: a missing XML comment fails its build. Tests and samples are exempt. -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'false'">
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(IsPackable)' != 'false'">
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+  </PropertyGroup>
 </Project>

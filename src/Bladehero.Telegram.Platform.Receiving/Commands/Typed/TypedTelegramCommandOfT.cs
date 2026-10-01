@@ -2,11 +2,20 @@ using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 
+/// <summary>
+/// A command for a single update type whose <c>CanHandleAsync</c> and <c>HandleAsync</c> get the payload typed.
+/// </summary>
+/// <remarks>
+/// The typed request built for <see cref="CanHandleAsync(TypedCommandRequest{T}, CancellationToken)"/> is reused by
+/// <see cref="HandleAsync(TypedCommandRequest{T}, CancellationToken)"/>, since the command is scoped to the update.
+/// </remarks>
+/// <typeparam name="T">The payload, such as <c>Message</c> for a message.</typeparam>
 public abstract class TypedTelegramCommand<T> : TypedTelegramCommand
     where T : class
 {
     private TypedCommandRequest<T>? _typedCommandRequest;
 
+    /// <inheritdoc/>
     public override Task<bool> CanHandleAsync(CommandRequest request, CancellationToken token)
     {
         if (Type != request.Update.Type)
@@ -21,6 +30,7 @@ public abstract class TypedTelegramCommand<T> : TypedTelegramCommand
         return CanHandleAsync(_typedCommandRequest, token);
     }
 
+    /// <inheritdoc/>
     public sealed override Task HandleAsync(CommandRequest request, CancellationToken token)
     {
         if (_typedCommandRequest is null)
@@ -30,10 +40,22 @@ public abstract class TypedTelegramCommand<T> : TypedTelegramCommand
             );
         }
 
-        return HandleAsync(_typedCommandRequest, token);
+        return HandleTypedAsync(_typedCommandRequest, token);
     }
 
+    // Button commands answer a rejected tap here instead.
+    private protected virtual Task HandleTypedAsync(TypedCommandRequest<T> request, CancellationToken token) =>
+        HandleAsync(request, token);
+
+    /// <summary>
+    /// Whether this command handles the payload, asked only for updates of its <see cref="TypedTelegramCommand.Type"/>;
+    /// every command that returns <c>true</c> runs.
+    /// </summary>
     protected abstract Task<bool> CanHandleAsync(TypedCommandRequest<T> request, CancellationToken token);
 
+    /// <summary>
+    /// Handles the payload once <see cref="CanHandleAsync(TypedCommandRequest{T}, CancellationToken)"/> has returned
+    /// <c>true</c>, with the same request.
+    /// </summary>
     protected abstract Task HandleAsync(TypedCommandRequest<T> request, CancellationToken token);
 }

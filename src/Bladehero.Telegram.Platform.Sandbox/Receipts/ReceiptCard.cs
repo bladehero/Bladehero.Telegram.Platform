@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -30,18 +31,9 @@ internal sealed class ReceiptCard(PendingReceipts pending)
             chat,
             messageId,
             $"Receipt: {receipt.Amount} → {receipt.Points} points.",
-            replyMarkup: new InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton.WithCallbackData(
-                        $"Add {receipt.Points} points",
-                        ReceiptButton.Data(ownerId, id, ReceiptButton.Add)
-                    ),
-                    InlineKeyboardButton.WithCallbackData(
-                        "Discard",
-                        ReceiptButton.Data(ownerId, id, ReceiptButton.Discard)
-                    ),
-                ],
-            ]),
+            replyMarkup: new InlineKeyboardMarkup()
+                .AddButton($"Add {receipt.Points} points", new ReceiptChoice(ownerId, id, ReceiptAction.Add))
+                .AddButton("Discard", new ReceiptChoice(ownerId, id, ReceiptAction.Discard)),
             cancellationToken: token
         );
     }

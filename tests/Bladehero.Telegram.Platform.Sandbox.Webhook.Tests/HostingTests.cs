@@ -1,9 +1,13 @@
 using System.Globalization;
 using Bladehero.Telegram.Platform.Receiving.Errors;
+using Bladehero.Telegram.Platform.Sandbox.Webhook.Notes;
+using Bladehero.Telegram.Platform.Sandbox.Webhook.Tests.Translator;
+using Bladehero.Telegram.Platform.Sandbox.Webhook.Translator;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
@@ -150,6 +154,103 @@ public sealed class HostingTests
         rounds.Should().AllBeEquivalentTo("no error | 403");
     }
 
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task CreateClient_ShouldReachTheAppsOtherEndpoints(BotMode mode)
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartAsync(mode);
+        using var client = bot.CreateClient();
+
+        // Act
+        var page = await client.GetStringAsync("/");
+
+        // Assert
+        page.Should().Be("Hello World!");
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task ForLongPollingAsync_WithTheAppsOwnFactory_ShouldApplyItsConfiguration(BotMode mode)
+    {
+        // Arrange
+        var translator = new ScriptedTranslator { Translation = Translation.Of("hola") };
+        Func<WebApplicationFactory<Program>> factory = () => new TranslatingFactory(mode, translator);
+        await using var bot =
+            mode == BotMode.Webhook
+                ? await TelegramTestHost.ForWebhookAsync(factory)
+                : await TelegramTestHost.ForLongPollingAsync(factory);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("/translate hello");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            translator.Texts.Should().Equal("hello");
+            nick.LastMessage.ToString().Should().Be("Bot: hola");
+        }
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task ForLongPollingAsync_WithANullFactory_ShouldStartTheAppAsBefore(BotMode mode)
+    {
+        // Arrange
+        Action<IWebHostBuilder> configure = web => SandboxBot.Configure(web, mode);
+        await using var bot =
+            mode == BotMode.Webhook
+                ? await TelegramTestHost.ForWebhookAsync<Program>(factory: null, configureWebHost: configure)
+                : await TelegramTestHost.ForLongPollingAsync<Program>(factory: null, configureWebHost: configure);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("hello");
+
+        // Assert
+        nick.LastMessage.ToString().Should().Be("Bot: Reply: hello [Again] [Louder]");
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook, "setWebhook")]
+    [InlineData(BotMode.LongPolling, "getWebhookInfo")]
+    public async Task BeforeStart_ShouldSeeTheAppBuiltAndRunBeforeTheWebhookIsSet(BotMode mode, string startupCall)
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        string[]? callsBefore = null;
+        Notebook? notebook = null;
+
+        // Act
+        await using var bot = await SandboxBot.StartAsync(
+            mode,
+            api,
+            web =>
+                web.ConfigureTestServices(services =>
+                    services.BeforeStart(
+                        (provider, _) =>
+                        {
+                            callsBefore = [.. api.Calls.Select(x => x.Method)];
+                            notebook = provider.GetRequiredService<Notebook>();
+                            return Task.CompletedTask;
+                        }
+                    )
+                )
+        );
+
+        // Assert
+        using (new AssertionScope())
+        {
+            callsBefore.Should().BeEmpty();
+            notebook.Should().BeSameAs(bot.Services.GetRequiredService<Notebook>());
+            api.Calls.Select(x => x.Method).Should().Contain(startupCall);
+        }
+    }
+
     private static async Task<string> OutcomeOf(Task action)
     {
         try
@@ -160,6 +261,17 @@ public sealed class HostingTests
         catch (ApiRequestException exception)
         {
             return exception.ErrorCode.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    // An app's own factory: its configuration sets the mode and stands in for the translation service.
+    private sealed class TranslatingFactory(BotMode mode, ScriptedTranslator translator)
+        : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            SandboxBot.Configure(builder, mode);
+            builder.ConfigureTestServices(services => services.AddSingleton<ITranslator>(translator));
         }
     }
 

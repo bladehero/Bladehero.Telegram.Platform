@@ -2,6 +2,7 @@ using System.Text.Json;
 
 namespace Bladehero.Telegram.Platform.Receiving.Conversations;
 
+/// <summary>Starts, moves and reads an <see cref="IConversation"/>, with its data kept as JSON.</summary>
 public static class ConversationExtensions
 {
     /// <summary>
@@ -41,6 +42,35 @@ public static class ConversationExtensions
     {
         var active = await ActiveAsync(conversation, token);
         await conversation.SetAsync(active with { Step = step, Data = JsonSerializer.Serialize(data) }, token);
+    }
+
+    /// <summary>
+    /// The binding for the active conversation's buttons; the first call gives the run an id, later ones reuse it.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// There is no active conversation, or the update has no user in a chat.
+    /// </exception>
+    public static async ValueTask<ConversationBinding> BindAsync(
+        this IConversation conversation,
+        CancellationToken token
+    )
+    {
+        var state =
+            await conversation.GetAsync(token)
+            ?? throw new InvalidOperationException(
+                "There is no active conversation to bind buttons to; start one first."
+            );
+        var key =
+            conversation.Key
+            ?? throw new InvalidOperationException("This update has no user in a chat to bind buttons to.");
+
+        if (state.Id is null)
+        {
+            state = state with { Id = ConversationState.NewId() };
+            await conversation.SetAsync(state, token);
+        }
+
+        return new ConversationBinding(key.UserId, state.Id!);
     }
 
     /// <summary>The conversation's data, or <c>default</c> when there is none.</summary>

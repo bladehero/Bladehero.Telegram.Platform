@@ -104,6 +104,24 @@ public sealed class AlbumTests
         }
     }
 
+    [Fact]
+    public async Task AlbumPrompt_ShouldWriteItsButtonDataAsBefore()
+    {
+        // Arrange
+        await using var bot = await StartAsync(new ScriptedReceiptReader());
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var pages = await nick.SendsAlbumAsync([Page(1), Page(2)]);
+
+        // Assert
+        PromptIn(nick)
+            .Message.ReplyMarkup!.InlineKeyboard.SelectMany(row => row)
+            .Select(button => button.CallbackData)
+            .Should()
+            .Equal($"album:{nick.Id}:{pages[0].Message.MediaGroupId}");
+    }
+
     private static byte[] Page(int number) => Encoding.UTF8.GetBytes($"page {number}");
 
     private static string Text(ReceiptPage page) => Encoding.UTF8.GetString(page.Content);

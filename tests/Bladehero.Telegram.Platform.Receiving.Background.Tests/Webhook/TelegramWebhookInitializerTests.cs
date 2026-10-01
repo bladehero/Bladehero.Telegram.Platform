@@ -78,6 +78,56 @@ public sealed class TelegramWebhookInitializerTests
         Assert.Contains("SecretToken must be 1-256 characters of A-Z, a-z, 0-9, _ and -", failure.Message);
     }
 
+    [Fact]
+    public void ARelativeBaseUrlFailsValidation()
+    {
+        var options = OptionsWith(baseUrl: "bot.example.com");
+
+        var failure = Assert.Throws<OptionsValidationException>(() => options.Value);
+
+        Assert.Equal(
+            "BaseUrl must be an absolute http or https URL, such as https://bot.example.com.",
+            failure.Message
+        );
+    }
+
+    [Fact]
+    public void AnFtpBaseUrlFailsValidation()
+    {
+        var options = OptionsWith(baseUrl: "ftp://bot.example.com");
+
+        var failure = Assert.Throws<OptionsValidationException>(() => options.Value);
+
+        Assert.Equal(
+            "BaseUrl must be an absolute http or https URL, such as https://bot.example.com.",
+            failure.Message
+        );
+    }
+
+    [Fact]
+    public void AnHttpsBaseUrlWithAPathPassesValidation()
+    {
+        var options = OptionsWith(baseUrl: "https://example.com/bot/");
+
+        Assert.Equal(new Uri("https://example.com/bot/telegram/updates"), options.Value.WebhookUri);
+    }
+
+    private static IOptions<TelegramWebhookConfiguration> OptionsWith(string baseUrl)
+    {
+        var services = new ServiceCollection();
+        services.AddTelegramWebhookReceiving(
+            webhook =>
+            {
+                webhook.Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
+                webhook.BaseUrl = baseUrl;
+                webhook.UpdateEndpoint = "telegram/updates";
+            },
+            typeof(ProbeCommand).Assembly
+        );
+
+        return services.BuildServiceProvider().GetRequiredService<IOptions<TelegramWebhookConfiguration>>();
+    }
+
     private static TelegramWebhookInitializer InitializerFor(ITelegramBotClient client, string? secretToken = null) =>
         new(
             client,
@@ -90,6 +140,7 @@ public sealed class TelegramWebhookInitializerTests
                     SecretToken = secretToken,
                 }
             ),
-            NullLogger<TelegramWebhookInitializer>.Instance
+            NullLogger<TelegramWebhookInitializer>.Instance,
+            new ClientIdentity(client)
         );
 }

@@ -117,6 +117,7 @@ public sealed class ReceiptButtonTests
         // Arrange
         await using var bot = await StartAsync(("Nick", 40), ("Anna", 30));
         var office = bot.GroupChat("Office");
+        await office.MakesBotAdminAsync(); // so it gets the receipt photo
         var nick = office.Member("Nick");
         var anna = office.Member("Anna");
         await nick.SendsPhotoAsync(Receipt);
@@ -131,6 +132,26 @@ public sealed class ReceiptButtonTests
             office.LastMessage.ToString().Should().Be(Card);
             PointsOf(bot, anna).Should().Be(30);
         }
+    }
+
+    [Fact]
+    public async Task ReceiptCard_ShouldWriteItsButtonDataAsBefore()
+    {
+        // Arrange
+        await using var bot = await StartAsync(("Nick", 40));
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsPhotoAsync(Receipt);
+
+        // Assert
+        nick.LastMessage.Message.ReplyMarkup!.InlineKeyboard.SelectMany(row => row)
+            .Select(button => button.CallbackData)
+            .Should()
+            .SatisfyRespectively(
+                add => add.Should().MatchRegex($"^receipt:{nick.Id}:[0-9a-f]{{12}}:add$"),
+                discard => discard.Should().MatchRegex($"^receipt:{nick.Id}:[0-9a-f]{{12}}:discard$")
+            );
     }
 
     private static Task<TelegramTestHost> StartAsync(params (string FirstName, int Points)[] members) =>

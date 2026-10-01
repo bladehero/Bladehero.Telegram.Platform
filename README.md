@@ -28,13 +28,15 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Commands](#commands): [typed](#typed-commands) · [raw](#raw-commands) · [slash commands](#slash-commands) ·
   [command menu](#command-menu) · [known users](#known-users) · [buttons with typed data](#buttons-with-typed-data)
 - [Execution](#execution): [priorities](#priorities) · [parallelism](#parallelism) · [scopes](#scopes)
-- [Conversations](#conversations)
+- [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation)
 - [Sending on your own](#sending-on-your-own)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
-  [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) · [waits](#wait-for-later-messages) ·
-  [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
+  [logs](#logs) · [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) ·
+  [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) · [fake Telegram](#check-and-fail-telegram) ·
+  [production apps](#test-a-production-app)
 - [Samples](#samples)
+- [Upgrading](#upgrading)
 
 ## Packages
 
@@ -185,8 +187,11 @@ message.IsCommand("/last");      // true for /last, /last@MyBot and /last 10
 message.ArgumentsOf("/last");    // "10", or null
 ```
 
-`IsCommand` doesn't check the bot's own username: `/last@AnyBot` counts too, which matters in a group with several
-bots.
+Inside an update, a command addressed to another bot isn't the command: `/last@OtherBot` is `false`, which matters in a
+group with several bots. The bot learns its username with one `getMe` at startup; if that fails, it logs a Warning and
+accepts any `@name` until it can. Outside an update, or with an explicit username, you decide:
+`message.IsCommand("/last", botUsername: "MyBot")`, and `null` accepts any. The command ends where Telegram ends it, so
+`/last.` and `/last-10` are `/last` too. `ITelegramBotIdentity` gives the bot's own user, from that one `getMe`.
 
 ### Command menu
 
@@ -219,7 +224,7 @@ public sealed class HelpCommand(IBotCommandMenu menu) : MessageCommand
 
 ### Known users
 
-`KnownUserCommand<TUser>` runs only for users your `ITelegramUserResolver<TUser>` recognises; strangers are ignored.
+`KnownUserMessageCommand<TUser>` runs only for users your `ITelegramUserResolver<TUser>` recognises; strangers are ignored.
 
 ```csharp
 services.AddScoped<ITelegramUserResolver<User>, UserResolver>();
@@ -230,7 +235,7 @@ internal sealed class UserResolver(IUsers users) : ITelegramUserResolver<User>
         users.FindByTelegramIdAsync(userId, token);
 }
 
-internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserCommand<User>
+internal sealed class LastExpensesCommand(IExpenseQueries expenses) : KnownUserMessageCommand<User>
 {
     protected override bool Matches(Message message) => message.IsCommand("/last");
 
@@ -247,30 +252,89 @@ The resolver gets the chat an update came from and the user who sent it, the sam
 a sender, or one sent on behalf of a chat (a channel's post in a group, or an anonymous admin), whose sender is only a
 placeholder, is declined unresolved.
 
+Startup fails when a known-user command's `ITelegramUserResolver<TUser>` isn't registered, naming the commands.
+
 ### Buttons with typed data
 
-`CallbackQueryCommand<TData>` parses callback data once; `Parse` returns `null` for another command's buttons.
-`KnownUserCallbackQueryCommand<TUser, TData>` adds the resolved user.
+Declare a button's data as a record struct, build keyboards from it, and handle it with
+`CallbackQueryCommand<TData>`, or `KnownUserCallbackQueryCommand<TUser, TData>` to have the tapper resolved too:
 
 ```csharp
-internal sealed class ExpenseButton(IExpenses expenses) : KnownUserCallbackQueryCommand<User, (string Action, Guid Id)>
+[ButtonData("redeem")]
+internal readonly record struct Redeem(long OwnerId, int Points);
+
+var card = new InlineKeyboardMarkup()
+    .AddButton("Redeem 10", new Redeem(member.UserId, 10))   // redeem:7000000001:10
+    .AddButton("Redeem 50", new Redeem(member.UserId, 50));
+
+internal sealed class RedeemButton(MemberDirectory members) : KnownUserCallbackQueryCommand<Member, Redeem>
 {
-    protected override (string Action, Guid Id)? Parse(string data) =>
-        data.Split(':') is [var action and ("edit" or "delete"), var id] && Guid.TryParse(id, out var expenseId)
-            ? (action, expenseId)
-            : null;
+    protected override Task<ButtonCheck> CheckAsync(
+        TypedCommandRequest<CallbackQuery> request,
+        CancellationToken token
+    ) =>
+        Task.FromResult(
+            Parsed.OwnerId == User.UserId ? ButtonCheck.Accept : ButtonCheck.Reject("Not your card.", showAlert: true)
+        );
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {
-        await request.Client.AnswerCallbackQuery(request.Payload.Id, cancellationToken: token);
-
-        if (Parsed.Action == "delete")
-        {
-            await expenses.DeleteAsync(User.Id, Parsed.Id, token);
-        }
+        var (ownerId, points) = Parsed;
+        members.Spend(ownerId, points);
+        await request.Client.AnswerCallbackQuery(request.Payload.Id, $"Redeemed {points}", cancellationToken: token);
     }
 }
 ```
+
+The data is the prefix, then `:` and each field of the constructor, in the invariant culture:
+
+| Field | Written as |
+| --- | --- |
+| integers | `-1001234567890` |
+| `bool` | `1` (or `0`) |
+| `Guid` | `0199c3…`, 32 lower-case hex digits |
+| enum | `large`, its name in lower case |
+| `DateOnly` | `2026-09-29` |
+| `string` | `a%3Ab` for `a:b`: `%`, `:` and `@` escaped |
+| nullable, `null` | an empty segment: `redeem::10` |
+
+Only this canonical form decodes.
+
+- **Building data:** `keyboard.AddButton(text, button)`, `ButtonData.Button(text, button)` for an
+  `InlineKeyboardButton`, and `ButtonData.Encode` and `TryDecode` for the data alone.
+- **Size:** Telegram takes 64 bytes; building a bigger button throws `ArgumentException`. Test users have
+  Telegram-sized ids, so tests hit the limit where production would.
+- **Checked when the receiving services are added**, listing every problem: prefixes (1–32 of `a-z0-9_-`, unique);
+  field types, and that every settable value is a constructor parameter; one regular command per button type (or one
+  per step); and that a command for a type without `[ButtonData]` overrides `Parse`, as hand-written data still can:
+
+```csharp
+// In a CallbackQueryCommand<(string Field, int Step)>
+protected override (string Field, int Step)? Parse(string data) =>
+    data.Split(':') is ["move", var field, var step] && int.TryParse(step, out var by) ? (field, by) : null;
+```
+
+**Checks on a tap.** After `Parse` (and, for known users, the resolver), `CheckAsync` returns `Accept`, `Decline`
+(another command's tap) or `Reject(answer, showAlert)`, which is answered instead of running `HandleAsync`; override
+`RejectedAsync` to edit or delete the card too. Keep it free of side effects: it runs alongside other commands'
+checks. `KnownUserMessageCommand<TUser>` has `AcceptsAsync` for the same.
+
+**Several actions on one card:** an enum field and one command that switches on it, as the Sandbox's `ReceiptChoice`.
+Take from a take-once store in `HandleAsync`, not in `CheckAsync`.
+
+**Taps no command takes**, on a registered prefix, are answered: "That button is no longer active." when the data no
+longer decodes, and silently otherwise, e.g. for a stranger. Register an `IButtonRefusalHandler`, in any order, to
+answer differently. Hand-written data is left alone, and a custom `ITelegramCommandExecutor` does none of this.
+
+**Changing a button.** Buttons already in chats keep their data. A new trailing field with a default keeps them
+decoding; any other change makes them "no longer active", unless `Parse` accepts the old form for a while:
+
+```csharp
+protected override ExpenseButton? Parse(string data) => base.Parse(data) ?? Legacy(data);
+```
+
+Hand-written and typed data live side by side: a prefix matches the whole first segment, so `exp` never claims
+`export:1`.
 
 ## Execution
 
@@ -337,7 +401,8 @@ public sealed class SignupNameStep(IConversation conversation, IUserRepository u
 ```
 
 - **Steps go first** while a conversation is active; regular commands run only if every step declines.
-- `[ConversationStep("signup")]` without a step runs at any step of the flow.
+- `[ConversationStep("signup")]` without a step runs at any step of the flow. A blank flow or step in
+  `[ConversationStep]` fails at startup.
 - **Data:** `StartAsync(flow, step, data)`, `MoveToAsync(step, data)` (or `MoveToAsync(step)` to keep it),
   `GetDataAsync<T>()`, all as JSON.
 - **Per user per chat:** each group member has their own conversation.
@@ -348,6 +413,35 @@ public sealed class SignupNameStep(IConversation conversation, IUserRepository u
 ```csharp
 await store.SaveAsync(new ConversationKey(chatId, userId), new ConversationState("import", "describe"), token);
 ```
+
+### Buttons bound to a conversation
+
+Bind the buttons a step shows to the conversation's run, and the library checks every tap on them before any step
+runs:
+
+```csharp
+await conversation.StartAsync("coffee", "size", order, token);
+var binding = await conversation.BindAsync(token);
+var card = await client.SendMessage(chat, "What size?",
+    replyMarkup: new InlineKeyboardMarkup().AddButton("Large", new PickSize(CoffeeSize.Large), binding),
+    cancellationToken: token);
+await conversation.MoveToAsync("size", order with { CardId = card.Id }, token);
+```
+
+- The button carries its user and run (`@7000000001.k3j9x2ab`), about 20 of the 64 bytes.
+- A tap by someone else is answered "That button isn't yours."; one from an ended or replaced run, or that no step of
+  the run takes, "That button is no longer active." Nothing is edited; an `IButtonRefusalHandler` answers differently.
+- A typed button handled by a step must be bound: an unbound one never reaches the step, and a warning says so.
+- Bind the buttons of one run of a flow; pagers, lasting notices and buttons for someone else's chat stay unbound.
+- An app with its own conversation store binds nothing: it checks its card id in `CheckAsync` and refuses a stale one
+  with `ButtonCheck.Reject(…)`.
+- **Persistence:** a store must keep `ConversationState.Id`, or bound buttons stop working after a reload. The
+  in-memory store loses it on restart, so old buttons become "no longer active".
+- **Background jobs:** save `new ConversationState(flow, step, data) { Id = ConversationState.NewId() }` and bind with
+  `new ConversationBinding(userId, id)`.
+- **Concurrency:** within one process, bound taps on one conversation run one after another, e.g. concurrent webhook
+  requests; several app instances still race.
+- A custom `ITelegramCommandExecutor` makes none of these checks.
 
 ## Sending on your own
 
@@ -454,6 +548,39 @@ All return once startup (webhook, command menu) is done; an app started with the
 the right one. For the web apps the test project references the app; if the factory can't find the app's content root,
 also reference `Microsoft.AspNetCore.Mvc.Testing`.
 
+An app with its own `WebApplicationFactory<Program>` passes a function that creates it. Its configuration still
+applies, and the host disposes it. It's a function, not an instance: an instance started elsewhere would run with the
+real Telegram client.
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync(() => new BudgetApiFactory());
+```
+
+`bot.CreateClient()` reaches the app's other endpoints, in either mode:
+
+```csharp
+using var client = bot.CreateClient();
+var health = await client.GetStringAsync("/health");
+```
+
+`services.BeforeStart(...)` runs once the app is built, before any hosted service starts, so before the first poll or
+`setWebhook`. In an ASP.NET Core app, the app's own code before `Run()`, such as its migrations, has already run, which
+makes it the place to seed:
+
+```csharp
+await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
+    web.ConfigureTestServices(services =>
+        services.BeforeStart(async (provider, token) =>
+        {
+            await using var scope = provider.CreateAsyncScope();
+            var budgets = scope.ServiceProvider.GetRequiredService<BudgetContext>();
+            budgets.Limits.Add(new Limit("Groceries", 300));
+            await budgets.SaveChangesAsync(token);
+        })));
+```
+
+Actions run in the order added, and one that throws fails the start.
+
 The bot's `ITelegramBotClient` talks to the fake, and so does an `ITelegramBotClient` or `TelegramBotClient` the app
 registers itself. A client registered in DI is swapped, by instance or by factory. One built by hand isn't:
 one in `Program`, or one inside another service's constructor or factory (e.g.
@@ -494,10 +621,8 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
         services.Replace(ServiceDescriptor.Singleton<IReceiptReader>(new ScriptedReader("Milk 2.50")))));
 ```
 
-**Logs** reach a provider added with `builder.Logging.AddProvider(...)` in the builder overload, or with
-`web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
-
-**Seed users** the app must know before it starts with the ids Telegram will give them:
+**Seed users** the app must know before it starts with the ids Telegram will give them. The ids are Telegram-sized,
+from 7 000 000 001, so use `UserIdOf`, never hard-coded ids:
 
 ```csharp
 var api = new FakeBotApi();
@@ -509,6 +634,26 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(
 
 var chat = bot.PrivateChat("Nick");   // open it before the bot writes to Nick
 ```
+
+### Logs
+
+`bot.Logs` holds what the bot logged from Debug up, startup included, whatever levels or providers the app sets. Each
+entry has the update it was logged for, from the `TelegramUpdateId` log scope the library opens per update, or `null`
+outside any update:
+
+```csharp
+await nick.SendsAsync("/limit groceries 300");
+
+bot.Logs.Should().Contain(x => x.Level == LogLevel.Warning && x.Message == "Limit raised by Nick");
+```
+
+`bot.FailOnErrorLogs = true` fails an action when the bot logs an Error or Critical entry for its update or outside any
+update. The message names the entry, and the entry's exception is the inner one. It's off by default, and an error the
+action rethrows anyway isn't reported twice. It counts from when it's turned on, so check startup errors in
+`bot.Logs`. An error logged by work an update started but didn't wait for fails the next action.
+
+To send logs elsewhere too, such as to the test output, add a provider with `builder.Logging.AddProvider(...)` in the
+builder overload, or with `web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
 
 ### Chat with it
 
@@ -532,8 +677,16 @@ user everywhere.
 | `SendsAsync`, `SendsPhotoAsync`, `SendsVoiceAsync`, `SendsDocumentAsync` | Send; return the message as posted. |
 | `SendsAlbumAsync`, `SendsDocumentAlbumAsync` | Send 2 to 10 photos or files as one album. |
 | `EditsAsync(message, text)` | Edit the user's own text message. |
-| `TapsAsync(text or predicate, on?)` | Tap an inline button; return the bot's answer. |
+| `TapsAsync(text or predicate, on?)`, `TapsAsync<TButton>(which?, on?)` | Tap an inline button; return the bot's answer. |
+| `TapsAsync(…, on, asShown)` | Tap a button as a stale view showed it. |
+| `RepliesAsync(message, text)` | Reply to a message. |
+| `ReactsAsync(message, emoji)` | React with one of Telegram's reaction emoji, or take it back with `null`. |
+| `PressesAsync(label)` | Press a reply keyboard button; `ReplyKeyboard` shows the keyboard. |
+| `BlocksBotAsync()`, `UnblocksBotAsync(restart?)` | Block the bot in a private chat, or unblock it. |
 | `WaitForMessageAsync(match, after?, timeout?)` | Wait for a message the bot sends later; also on `TestChat`. |
+| `LastReply` | The newest message the bot sent; an edit doesn't move it. |
+| `Current(message)` | A message as it now stands, or `null` once deleted. |
+| `RevisionsOf(message)` | Every state a message has had, oldest first. |
 
 A sent message is a snapshot that stays valid even if the bot deletes it. A user can edit their own text message: the
 chat shows the edit, and the bot gets an `edited_message`.
@@ -542,6 +695,24 @@ chat shows the edit, and the bot gets an `edited_message`.
 var order = await nick.SendsAsync("2 coffees");
 await nick.EditsAsync(order, "3 coffees");
 ```
+
+`RevisionsOf` shows what a message went through, such as a notice that became the result:
+
+```csharp
+await nick.SendsPhotoAsync(receipt);
+nick.RevisionsOf(nick.LastReply).Select(x => x.Text)
+    .Should().Equal("Reading…", "Milk 2.50, bread 1.20");
+```
+
+A reply reads as `Nick (↩ Bot: What size?): Large`. While the bot's `ForceReply` asks a user to reply, their next
+`SendsAsync` is sent as that reply, as the app opens the field so.
+
+A user can have a last name, a username and a language, kept once given:
+`bot.PrivateChat("Nick", username: "nick_d", languageCode: "uk")`, and the same on `Member`.
+
+A user who blocks the bot sends it a `my_chat_member` update; the bot's sends to that chat then fail with 403, while its
+edits, deletions and answers to taps still go through (unverified against Telegram). Reactions reach the bot only when
+it asks for `message_reaction`, and in a group only as an admin; in a private chat without admin rights (unverified).
 
 An action waits up to `bot.UpdateTimeout` (30 s, no limit under a debugger), then says whether the bot never fetched
 the update or is stuck in a command. A bot that long-polls, on a generic host or in an ASP.NET Core app, fails the
@@ -576,6 +747,13 @@ by text fails and points there:
 await nick.TapsAsync(b => b.CallbackData == "date:next");
 ```
 
+[Typed buttons](#buttons-with-typed-data) are tapped and read by their data:
+
+```csharp
+await nick.TapsAsync<Redeem>(x => x.Points == 50);
+nick.LastMessage.ButtonsOf<Redeem>().Should().Equal(new Redeem(nick.Id, 10), new Redeem(nick.Id, 50));
+```
+
 Tapping a button nobody sees fails the test and lists the buttons that are there.
 
 A tap uses the message as it now stands, so a button the bot has since removed can't be tapped again. A double tap is
@@ -585,26 +763,16 @@ two taps at once:
 var answers = await Task.WhenAll(nick.TapsAsync("Add", on: card), nick.TapsAsync("Add", on: card));
 ```
 
-To act as a client that hasn't seen an edit yet, send the tap as a raw `callback_query` built from a snapshot of the
-message. Its answer isn't returned; read it from `bot.Api.Calls`:
+To act as a view that hasn't seen an edit yet, tap a snapshot `asShown`:
 
 ```csharp
 var card = nick.LastMessage;   // a snapshot, buttons and all
 // … the bot edits the card …
-
-await bot.SendAsync(new Update
-{
-    CallbackQuery = new CallbackQuery
-    {
-        Id = "stale-tap",
-        From = new User { Id = nick.Id, FirstName = "Nick" },
-        Message = card.Message,
-        ChatInstance = "1",
-        Data = "size:large",
-    },
-});
-var answer = bot.Api.Calls.Last(x => x.Method == "answerCallbackQuery").Parameters["text"];
+var answer = await nick.TapsAsync("Large", on: card, asShown: true);
 ```
+
+The button and its data come from the snapshot. The bot gets the message as it now stands, or only its chat and id with
+date 0 once it's deleted, as from Telegram.
 
 ### Send and read files
 
@@ -618,6 +786,8 @@ report.FileName.Should().Be("report.csv");
 report.ReadAsString().Should().Be("a,b");
 ```
 
+A photo comes in four sizes, smallest first, as from Telegram; only the largest downloads as the photo's bytes.
+
 An album is 2 to 10 photos or files in one media group, each its own message and update, sent once the bot has handled
 the one before; its caption goes under the first photo, or under the last file as the apps put it:
 
@@ -628,6 +798,33 @@ await nick.SendsDocumentAlbumAsync([new(march, "march.csv"), new(scan, "scan", "
 
 Each `TestDocument` has its bytes, its name and, when the extension doesn't tell, its MIME type. A webhook bot gets an
 album's items one by one in tests too, where real Telegram may post them at once.
+
+For a hand-built update, store the user's file first; the bot downloads it as a sent one:
+
+```csharp
+var photo = bot.Api.StoreUserPhoto(bytes);                    // sizes, smallest first
+var report = bot.Api.StoreUserDocument(bytes, "report.csv");  // also StoreUserVoice(bytes, duration?)
+await bot.SendAsync(new Update { Message = new Message { /* … */ Photo = photo } });
+```
+
+### Groups and privacy
+
+In a group, the fake applies BotFather's group privacy, on by default as for a new bot: a bot that isn't an admin gets
+only commands for it (`/coffee`, `/coffee@test_bot`), replies to its own messages and mentions of `@test_bot`. Taps
+always reach it. A message it wouldn't get is still posted to the chat, and the action returns at once without waiting
+for the bot. An edit reaches the bot only if the message did.
+
+A bot that must read plain text in a group is made an admin, has privacy turned off in @BotFather, or asks for the text
+with a `ForceReply`, whose answer is a reply to it:
+
+```csharp
+var office = bot.GroupChat("Office");
+await office.MakesBotAdminAsync();   // or bot.Api.PrivacyMode = false
+await office.Member("Anna").SendsAsync("Anna");
+```
+
+`DemotesBotAsync` takes the rights back, and both send the bot a `my_chat_member` update when it asks for one. In a
+group, the bot may delete others' messages only as an admin allowed to; in a private chat it may delete the user's.
 
 ### Wait for later messages
 
@@ -671,10 +868,17 @@ failed poll runs on the same clock, so with a `FakeTimeProvider` it too lasts un
 | `bot.Api` | |
 | --- | --- |
 | `Calls` | Every Bot API call with its parameters. |
+| `Mark()`, `CallsSince(mark)` | A point in `Calls`, and the calls after it. |
+| `Sent<TRequest>()` | The requests as Telegram.Bot objects, e.g. `SendMessageRequest`; one per attempt. |
+| `WaitForCallAsync(method, match?, after?, timeout?)` | Wait for a call the bot makes later, e.g. from a job. |
 | `CommandMenu(scope?)` | The published command menu; the default scope when none is given. |
 | `WebhookUrl` | The webhook the bot set. |
 | `Fail(method, error, times?, chatId?)` | Makes Telegram refuse a method, for every chat or only one. |
 | `FailNetwork(method, times?, chatId?)` | Makes a method's calls fail on the network (`RequestException`). |
+| `TimeOut(method, times?, chatId?)` | Makes a method's calls time out (`RequestException`); nothing changes. |
+| `LoseResponse(method, times?, chatId?)` | Makes Telegram do a call but lose its response (`RequestException`). |
+| `FailDownload(fileId, error?, times?)` | Makes a file's downloads fail: refused with `error`, or broken off without. |
+| `FailDownloads(error?, times?)` | The same for any file, after a file's own; `Fail("getFile", …)` fails before the download. |
 | `UserIdOf(firstName)` | The Telegram id a test user gets, reserved before the host starts. |
 
 ```csharp
@@ -682,10 +886,20 @@ bot.Api.Fail("sendMessage", BotApiError.BotBlocked);                            
 bot.Api.Fail("sendPhoto", BotApiError.TooManyRequests(1), times: 1);                 // only the next one
 bot.Api.Fail("sendMessage", BotApiError.BotBlocked, chatId: anna.Chat.Id);           // Anna blocked the bot
 bot.Api.FailNetwork("sendMessage", times: 1);                                        // the next one never arrives
+bot.Api.TimeOut("sendMessage", times: 1);                                            // the next one times out
 
 bot.Api.CommandMenu(new BotCommandScopeAllPrivateChats()).Should().NotBeEmpty();     // a menu for private chats
 
 await bot.SendAsync(new Update { /* … */ });   // any raw update
+```
+
+A call the bot makes after the update was handled is waited for from a mark; typed requests are read without JSON:
+
+```csharp
+var mark = bot.Api.Mark();
+await nick.SendsAsync("/import");                                // a job edits its notice later
+await bot.Api.WaitForCallAsync("editMessageText", after: mark);
+bot.Api.Sent<EditMessageTextRequest>().Last().Text.Should().Be("Imported 3 expenses");
 ```
 
 The bot can write only to a chat Telegram knows: open it first with `PrivateChat` or `GroupChat` (a raw update's chat
@@ -704,14 +918,26 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync(
 );
 ```
 
-A method's first matching failure, from `Fail` or `FailNetwork`, applies until its `times` run out, then the next one
-does. A `chatId` for a method without a chat, such as `answerCallbackQuery`, is refused.
+A method's first matching failure, from `Fail`, `FailNetwork`, `TimeOut` or `LoseResponse`, applies until its `times`
+run out, then the next one does. A `chatId` for a method without a chat, such as `answerCallbackQuery`, is refused.
+
+A lost response shows what a retry does: Telegram did the first call, so a bot that retries sends twice.
+
+```csharp
+bot.Api.LoseResponse("sendMessage", times: 1);   // Telegram posts it, the bot never hears back
+
+await nick.SendsAsync("/pay 12");                 // the bot retries
+
+nick.Messages.Count(x => x.Text == "Paid 12 EUR").Should().Be(2);
+```
 
 The fake answers like Telegram, with Telegram's own error texts, and supports:
 
 - `getMe`, `getUpdates` and file downloads;
-- `sendMessage`, `sendPhoto`, `sendDocument`, `sendVoice`, `sendChatAction`;
-- `editMessageText`, `editMessageCaption`, `editMessageReplyMarkup`, `deleteMessage`;
+- `sendMessage`, `sendPhoto`, `sendDocument`, `sendVoice`, `sendMediaGroup`, `sendChatAction`;
+- `forwardMessage`, `copyMessage`;
+- `editMessageText`, `editMessageCaption`, `editMessageReplyMarkup`, `editMessageMedia`;
+- `deleteMessage`, `deleteMessages`, `setMessageReaction`;
 - `answerCallbackQuery`, `getFile`;
 - `setWebhook`, `getWebhookInfo`, `deleteWebhook`;
 - `getMyCommands`, `setMyCommands`.
@@ -721,18 +947,34 @@ Any other method fails the test, naming it. It enforces:
 - `allowed_updates`, one list per bot: the types it asked for last, with `getUpdates` or `setWebhook`; an action of
   another type fails before anything changes;
 - limits: text up to 4096 characters, captions up to 1024, answers up to 200, callback data of 1-64 bytes, and inline
-  buttons that each do something; text is measured raw, so formatted text near a limit may be refused where Telegram,
-  counting it without its markup, would take it;
-- trimming of the text and captions the bot sends, entities included;
+  buttons that each do something; text is measured after parsing, in characters;
+- cleaning and trimming of the text and captions the bot sends, entities included, as Telegram does;
 - only chats Telegram knows;
 - one answer per tap;
 - "message is not modified";
 - edits only of the bot's own messages, text edits only of text and caption edits only of files, and edits and
   deletions only of messages still there;
+- replies only to messages still there, unless the bot allows sending without one;
+- [group privacy](#groups-and-privacy), and admin rights to delete others' messages in a group;
+- a chat whose user blocked the bot refuses its sends with 403;
+- one reply keyboard or `ForceReply` per chat, kept off the message, and inline keyboards only in edits;
 - downloads up to 20 MB.
 
-It keeps text as the bot sent it, without parsing or checking HTML or Markdown, so `parse_mode` changes nothing: assert
-on the raw text, and try the markup against real Telegram.
+Method names ignore case, as in the Bot API; `Calls` keeps each as the bot sent it.
+
+It renders `parse_mode` (HTML, MarkdownV2 and legacy Markdown) as Telegram does, into plain text and entities, and
+refuses bad markup with Telegram's error and its byte offset. Control characters become spaces, and only spaces and new
+lines are trimmed, at the end and before the first entity. `TestMessage.Html` shows the formatting:
+
+```csharp
+await nick.SendsAsync("/total");
+nick.LastMessage.Html.Should().Be("Total: <b>5</b>");
+nick.LastMessage.Text.Should().Be("Total: 5");
+```
+
+The fake stores links as given, without Telegram's checks, doesn't repair overlapping entities, and leaves out
+auto-detected links, mentions and hashtags, custom emoji and premium rules, `tg-time`, `text_mention` and checks of
+explicit entities.
 
 ### Test a production app
 
@@ -768,13 +1010,33 @@ finally
 ```
 
 **In-memory SQLite:** each `:memory:` connection opens its own empty database, so contexts in different scopes would
-not see each other's data. Share one open connection across the bot's scopes:
+not see each other's data. Share one open connection across the bot's scopes, and replace the app's registration:
 
 ```csharp
 var connection = new SqliteConnection("Data Source=:memory:");
 connection.Open();   // the database lives as long as this connection
-services.AddDbContext<BudgetContext>(options => options.UseSqlite(connection));   // after the app's own AddDbContext
+
+await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
+    web.ConfigureTestServices(services =>
+    {
+        services.RemoveAll<DbContextOptions<BudgetContext>>();
+        services.RemoveAll(typeof(IDbContextOptionsConfiguration<BudgetContext>));   // EF Core 9 and later
+        services.AddDbContext<BudgetContext>(options => options.UseSqlite(connection));
+    }));
 ```
+
+This works on EF Core 8, 9 and 10, whatever provider the app uses. A plain `AddDbContext` with the connection
+depends on the version, and the registration that loses is ignored without any error:
+
+- on EF Core 9 and 10, the last one wins: register it after the app's own, inside `ConfigureTestServices` for a web
+  app; registered before, the app's database is used. `ConfigureDbContext` after the app's own works too;
+- on EF Core 8, the first one wins, so after the app's own it's ignored;
+- when the app uses another provider, such as InMemory, `AddDbContext` or `ConfigureDbContext` after the app's own fails
+  on EF Core 9 and 10 with "Services for database providers … have been registered in the service provider".
+
+The shared open connection keeps the database across a restart on the same fake. Without replacing EF Core's
+registrations, point the app's connection string elsewhere instead:
+`web.UseSetting("ConnectionStrings:Database", "Data Source=…")`, as for a file above.
 
 **Seed data or run an app service** through the bot's own container, in a scope as the app would:
 
@@ -801,9 +1063,13 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync(services => ser
 var nick = bot.PrivateChat("Nick");   // the same chat, as the bot left it
 ```
 
+Dispose the first host before starting the second: a second host polling the same fake at once gets Telegram's 409, and
+the older host's next action fails with it.
+
 **One command per button:** Telegram takes one answer per tap, and a second fails with its own "query is too old and
-response timeout expired or query ID is invalid". When two commands claim the same button both run, and the second
-answer fails the action, so give each button's data to exactly one command.
+response timeout expired or query ID is invalid" (`BotApiError.QueryTooOld`). When two commands claim the same button
+both run, and the second answer fails the action, so give each button's data to exactly one command.
+[Typed buttons](#buttons-with-typed-data) are checked for this at startup.
 
 ## Samples
 
@@ -812,29 +1078,38 @@ answer fails the action, so give each button's data to exactly one command.
   - `/start` answered by three commands in turn, by [priority](#priorities);
   - the [`[BotCommand]` menu](#command-menu), and a `/help` listing it from `IBotCommandMenu`;
   - a loyalty club of [known users](#known-users), resolved by user id and seeded from `CoffeeShop:Members`: `/join`,
-    `/leave`, `/redeem 10` with arguments, and a `/points` card that is edited in place or sent again, with
-    [typed](#buttons-with-typed-data) known-user Redeem buttons;
+    `/leave`, `/redeem 10` with arguments, and a `/points` card sent fresh to the bottom, updated in place by a tap and
+    removed by Close, with [typed](#buttons-with-typed-data) buttons whose `CheckAsync` refuses anyone but the card's
+    owner;
   - receipts for points: photos, PDFs, and photo and PDF albums read by a stand-in for an AI reader, too-big and
-    unsupported files turned down, and `/history` sending a CSV file;
-  - a `/coffee` [conversation](#conversations) bound to its card and its customer, which a voice message can start too,
-    through a stand-in for a transcriber, and whose cup name the customer can fix by editing their message;
+    unsupported files turned down, and `/history` sending a CSV file; the receipt and album buttons are typed, with the
+    same owner check;
+  - a `/coffee` [conversation](#conversations), which a voice message can start too, through a stand-in for a
+    transcriber, and whose cup name the customer can fix by editing their message; its buttons are
+    [bound](#buttons-bound-to-a-conversation) to the order, so only its customer can use them, and only while it is in
+    progress;
   - stale, foreign and double-tapped buttons: an earlier order's, another member's card, a receipt taken already, and
     a tap from a view that missed an edit;
   - a barista telling each customer when their coffee is ready, [sent on its own](#sending-on-your-own) through
     `ITelegramSender`, on the clock of an injected `TimeProvider`;
   - an [error handler](#errors-and-the-httpclient) that apologises in the chat, even to someone who blocked the bot;
   - a greeting when the bot is added to a group, next to a logger of `MyChatMember` updates;
+  - a coffee order in a group, where the bot is made an admin to hear the typed cup names, and a test of what a bot
+    without admin rights misses under [group privacy](#groups-and-privacy);
   - component tests of restarts on the same fake with and without a shared conversation store, members seeded with
     `UserIdOf` before the host starts, Telegram refusing calls to one chat or asking the bot to slow down, and a
     `FakeTimeProvider` moving the barista's clock on. The stand-ins are registered after `AddCoffeeShop`, in place of
     its disabled defaults.
 - [`Sandbox.Webhook`](src/Bladehero.Telegram.Platform.Sandbox.Webhook): an ASP.NET Core app that receives by webhook
   when `Telegram:BaseUrl` is set and by long polling otherwise, with every scenario tested in both modes. It shows:
-  - an echo of plain text with an Again button and a [typed](#buttons-with-typed-data) Louder one;
+  - an echo of plain text with a [typed](#buttons-with-typed-data) Louder button next to an Again button with
+    hand-written data;
   - `/translate` through an `ITranslator` that the tests [replace](#configure-the-app-under-test) with
     `ConfigureTestServices`;
   - a photo sent back by its file id, without uploading it again;
-  - a `/remember` [conversation](#conversations), with `/recall`;
+  - a `/remember` [conversation](#conversations), with `/recall`, whose prompt has a Cancel
+    [bound](#buttons-bound-to-a-conversation) to it, so a second tap at once, or one after the note is saved, is told
+    the button is no longer active;
   - the [command menu](#command-menu), and a webhook guarded by its secret token.
 
 Their component tests live in `tests/`. To run a sample against Telegram:
@@ -845,8 +1120,68 @@ dotnet user-secrets set "TelegramReceiverConfiguration:Token" "123456:ABC-DEF...
 dotnet run
 ```
 
+Set `CoffeeShop:Demo` to `true` (e.g. in user secrets) to try receipts and voice orders in Telegram without an AI
+service.
+
 `Sandbox.Webhook` reads `Telegram:Token`, and for a webhook also `Telegram:BaseUrl`, `Telegram:UpdateEndpoint` and,
 optionally, `Telegram:SecretToken`.
+
+## Upgrading
+
+### From 10.0.x
+
+- `ITelegramUserResolver<TUser>.ResolveAsync(chatId, token)` is now `ResolveAsync(chatId, userId, token)`. Resolve by
+  `chatId` to keep the old behaviour.
+- Known-user commands get their resolver from the container:
+  `class X(ITelegramUserResolver<User> users) : KnownUserCommand<User>(users)` becomes
+  `class X : KnownUserMessageCommand<User>`. Test them through `TelegramTestHost` rather than building them by hand.
+- A hand-written base that parses callback data and resolves the user, such as a
+  `ParsedCallbackQueryCommand<TUser, TParsed>`, becomes `KnownUserCallbackQueryCommand<TUser, TData>` overriding
+  `Parse`, or a `[ButtonData]` type with no `Parse` at all. Checks that need the user go in `CheckAsync`. Cards already
+  sent keep their old data. Its prefix isn't registered, so a tap on one gets no answer at all. Keep accepting it while
+  those cards can be tapped: `protected override TData? Parse(string data) => base.Parse(data) ?? Legacy(data);`.
+- Behaviour since 10.0.x:
+  - `IsCommand` ends a command at any whitespace.
+  - An unset `AllowedUpdates` asks for Telegram's default explicitly.
+  - The default error handler logs every error.
+  - The webhook answers 200 once handling has started.
+  - An `ITelegramBotClient` the app registers is used.
+  - Long polling deletes an active webhook at startup.
+
+### To 10.2
+
+- `KnownUserCommand<TUser>` is renamed `KnownUserMessageCommand<TUser>`, next to
+  `KnownUserCallbackQueryCommand<TUser, TData>`.
+- `CallbackQueryCommand<TData>.Parse` is no longer abstract. Overrides keep working; a command for a type without
+  `[ButtonData]` that forgets it now fails at startup, not at compile time.
+- New hooks: `CheckAsync`, `RejectedAsync` and `AcceptsAsync`. An existing method with the same signature gets warning
+  CS0114; rename it or make it an override.
+- Startup fails when a known-user command's resolver isn't registered. Before, every update failed.
+- Taps on typed buttons that no command takes are answered. Hand-written data is untouched.
+- Test users have Telegram-sized ids.
+- `ConversationState` has a new `Id`, and `IConversation` a default `Key` member. A custom store must persist `Id` to
+  use bound buttons.
+- Taps on bound buttons are checked before steps run: someone else's gets "That button isn't yours.", and a finished
+  run's gets "That button is no longer active." A step no longer sees a typed button that isn't bound.
+- A custom `ITelegramCommandExecutor` makes none of these checks.
+- A `ParallelCount` below 1, or a webhook `BaseUrl` that isn't an absolute http or https URL, now fails startup.
+- Two hosts polling one `FakeBotApi` at once get Telegram's 409.
+- Updates are handled inside a log scope carrying `TelegramUpdateId`.
+- `TapsAsync(button, on, asShown: true)` replaces hand-built stale taps. Such a tap should carry the message as it now
+  stands, not the snapshot.
+- `BotApiError.QueryTooOld` names Telegram's refusal of a second answer to a tap.
+- Inside an update, `IsCommand` and `ArgumentsOf` no longer take `/cmd@other_bot`. A bot makes one `getMe` at startup,
+  visible in `Api.Calls`.
+- In the fake, groups have privacy mode on. Make the bot an admin, reply to it, or set `PrivacyMode = false`; plain text
+  from group members no longer reaches a non-admin bot.
+- `bot_command` entities follow Telegram's rules anywhere in the text.
+- `UserIdOf`, `PrivateChat` and `Member` take optional details.
+- Deleting another user's message in a group needs the bot to be an admin.
+- `IsCommand` ends a command where Telegram does: `/last.` and `/last-10` are `/last`, and `/last@ab` isn't a command.
+- The fake renders `parse_mode`: a test that asserted raw markup now asserts the rendered text, or `TestMessage.Html`.
+- Refusals now match Telegram for text of only spaces, new lines or invisible characters (`text must be non-empty`),
+  caption edits (`MEDIA_CAPTION_TOO_LONG`) and text-only inline buttons (`not allowed`).
+- Photos have four sizes.
 
 ## License
 

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -17,6 +18,7 @@ using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 
+/// <summary>Hosts the bot on a webhook: Telegram posts the updates to an endpoint of the app.</summary>
 public static class WebhookDependencyInjection
 {
     private const string SecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token";
@@ -81,6 +83,7 @@ public static class WebhookDependencyInjection
     // The error handler logs the error, as with polling; one that fails itself is logged here and goes no further.
     private static async Task ReportAsync(IServiceProvider services, TelegramError error, ILogger logger)
     {
+        using var scope = UpdateLogScope.Begin(logger, error.Update);
         try
         {
             await services.GetRequiredService<ITelegramErrorHandler>().HandleAsync(error);
@@ -116,6 +119,27 @@ public static class WebhookDependencyInjection
             secretToken
         );
 
+    /// <summary>
+    /// Receives updates on a webhook for the commands in <paramref name="assemblies"/>, with
+    /// <see cref="TelegramWebhookConfiguration"/> bound from <paramref name="configuration"/>.
+    /// </summary>
+    /// <remarks>
+    /// Registers the bot as <c>AddTelegramBot</c> does and the commands as <c>AddTelegramReceiving</c> does; map the
+    /// endpoint with <see cref="UseTelegramWebhook"/>. Startup sets the webhook only when it changed, or on every start
+    /// with a secret token; an invalid <c>SecretToken</c> or <c>BaseUrl</c> fails startup.
+    /// </remarks>
+    /// <param name="services">The app's services.</param>
+    /// <param name="configuration">The configuration that holds the webhook's section.</param>
+    /// <param name="sectionName">
+    /// The section to bind; when <c>null</c>, the one named after the type: <c>TelegramWebhookConfiguration</c>.
+    /// </param>
+    /// <param name="httpClientFactory">
+    /// Builds the <see cref="HttpClient"/> of the client the library builds, e.g. for a proxy; it doesn't apply to a
+    /// client the app registers itself.
+    /// </param>
+    /// <param name="assemblies">The assemblies to scan for commands.</param>
+    /// <returns><paramref name="services"/>, for chaining.</returns>
+    /// <exception cref="ArgumentException"><paramref name="assemblies"/> is empty.</exception>
     public static IServiceCollection AddTelegramWebhookReceiving(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -129,6 +153,20 @@ public static class WebhookDependencyInjection
         return services;
     }
 
+    /// <summary>
+    /// Receives updates on a webhook for the commands in <paramref name="assemblies"/>, with
+    /// <see cref="TelegramWebhookConfiguration"/> set by <paramref name="configure"/>.
+    /// </summary>
+    /// <remarks>
+    /// Registers the bot as <c>AddTelegramBot</c> does and the commands as <c>AddTelegramReceiving</c> does; map the
+    /// endpoint with <see cref="UseTelegramWebhook"/>. Startup sets the webhook only when it changed, or on every start
+    /// with a secret token; an invalid <c>SecretToken</c> or <c>BaseUrl</c> fails startup.
+    /// </remarks>
+    /// <param name="services">The app's services.</param>
+    /// <param name="configure">Sets the configuration, e.g. its token and addresses.</param>
+    /// <param name="assemblies">The assemblies to scan for commands.</param>
+    /// <returns><paramref name="services"/>, for chaining.</returns>
+    /// <exception cref="ArgumentException"><paramref name="assemblies"/> is empty.</exception>
     public static IServiceCollection AddTelegramWebhookReceiving(
         this IServiceCollection services,
         Action<TelegramWebhookConfiguration> configure,
@@ -140,6 +178,11 @@ public static class WebhookDependencyInjection
         return services;
     }
 
+    /// <summary>
+    /// Receives updates on a webhook like <see cref="AddTelegramWebhookReceiving(IServiceCollection,
+    /// Action{TelegramWebhookConfiguration}, Assembly[])"/>, with <typeparamref name="TDep1"/> resolved from the
+    /// container for <paramref name="configure"/>.
+    /// </summary>
     public static IServiceCollection AddTelegramWebhookReceiving<TDep1>(
         this IServiceCollection services,
         Action<TelegramWebhookConfiguration, TDep1> configure,
@@ -152,6 +195,11 @@ public static class WebhookDependencyInjection
         return services;
     }
 
+    /// <summary>
+    /// Receives updates on a webhook like <see cref="AddTelegramWebhookReceiving(IServiceCollection,
+    /// Action{TelegramWebhookConfiguration}, Assembly[])"/>, with <typeparamref name="TDep1"/> and
+    /// <typeparamref name="TDep2"/> resolved from the container for <paramref name="configure"/>.
+    /// </summary>
     public static IServiceCollection AddTelegramWebhookReceiving<TDep1, TDep2>(
         this IServiceCollection services,
         Action<TelegramWebhookConfiguration, TDep1, TDep2> configure,
@@ -165,6 +213,11 @@ public static class WebhookDependencyInjection
         return services;
     }
 
+    /// <summary>
+    /// Receives updates on a webhook like <see cref="AddTelegramWebhookReceiving(IServiceCollection,
+    /// Action{TelegramWebhookConfiguration}, Assembly[])"/>, with <typeparamref name="TDep1"/> to
+    /// <typeparamref name="TDep3"/> resolved from the container for <paramref name="configure"/>.
+    /// </summary>
     public static IServiceCollection AddTelegramWebhookReceiving<TDep1, TDep2, TDep3>(
         this IServiceCollection services,
         Action<TelegramWebhookConfiguration, TDep1, TDep2, TDep3> configure,
@@ -179,6 +232,11 @@ public static class WebhookDependencyInjection
         return services;
     }
 
+    /// <summary>
+    /// Receives updates on a webhook like <see cref="AddTelegramWebhookReceiving(IServiceCollection,
+    /// Action{TelegramWebhookConfiguration}, Assembly[])"/>, with <typeparamref name="TDep1"/> to
+    /// <typeparamref name="TDep4"/> resolved from the container for <paramref name="configure"/>.
+    /// </summary>
     public static IServiceCollection AddTelegramWebhookReceiving<TDep1, TDep2, TDep3, TDep4>(
         this IServiceCollection services,
         Action<TelegramWebhookConfiguration, TDep1, TDep2, TDep3, TDep4> configure,
@@ -194,6 +252,11 @@ public static class WebhookDependencyInjection
         return services;
     }
 
+    /// <summary>
+    /// Receives updates on a webhook like <see cref="AddTelegramWebhookReceiving(IServiceCollection,
+    /// Action{TelegramWebhookConfiguration}, Assembly[])"/>, with <typeparamref name="TDep1"/> to
+    /// <typeparamref name="TDep5"/> resolved from the container for <paramref name="configure"/>.
+    /// </summary>
     public static IServiceCollection AddTelegramWebhookReceiving<TDep1, TDep2, TDep3, TDep4, TDep5>(
         this IServiceCollection services,
         Action<TelegramWebhookConfiguration, TDep1, TDep2, TDep3, TDep4, TDep5> configure,
@@ -224,11 +287,19 @@ public static class WebhookDependencyInjection
         services
             .AddOptions<TelegramWebhookConfiguration>()
             .Validate(configuration => configuration.SecretTokenIsValid, TelegramWebhookConfiguration.SecretTokenRule)
+            .Validate(configuration => configuration.BaseUrlIsValid, TelegramWebhookConfiguration.BaseUrlRule)
             .ValidateOnStart();
+        services.AddHostedService<TelegramBotIdentityInitializer>();
         services.AddHostedService<TelegramWebhookInitializer>();
         services.AddHostedService<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>();
     }
 
+    /// <summary>
+    /// Turns an <c>UpdateEndpoint</c> such as <c>telegram/updates</c> into the route path <c>/telegram/updates</c>;
+    /// used by <see cref="UseTelegramWebhook"/>, not meant for application code.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="path"/> is <c>null</c>, empty or whitespace.</exception>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static string NormalizeEndpointPath(this string? path)
     {
         if (string.IsNullOrWhiteSpace(path))

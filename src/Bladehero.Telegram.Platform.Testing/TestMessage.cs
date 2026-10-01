@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Telegram.Bot;
+using Telegram.Bot.Extensions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 
@@ -19,7 +21,11 @@ public sealed class TestMessage
         _json = json;
         _api = api;
         Message = json.Deserialize<Message>(JsonBotAPI.Options)!;
+        Reactions = Message.Chat is { } chat ? api.ReactionsOn(chat.Id, Message.Id) : [];
     }
+
+    /// <summary>The reactions under the message, one per reactor, as they were when this snapshot was taken.</summary>
+    public IReadOnlyList<string> Reactions { get; }
 
     /// <summary>The message id, unique within its chat.</summary>
     public int Id => Message.Id;
@@ -29,6 +35,12 @@ public sealed class TestMessage
 
     /// <summary>The text under a photo or file.</summary>
     public string? Caption => Message.Caption;
+
+    /// <summary>The entities of the text, or of a file's caption.</summary>
+    public IReadOnlyList<MessageEntity> Entities => Message.Entities ?? Message.CaptionEntities ?? [];
+
+    /// <summary>The text or caption as Telegram HTML, for asserting on formatting.</summary>
+    public string? Html => Text is null && Caption is null ? null : HtmlText.ToHtml(Message);
 
     /// <summary>The photo (largest size), or <c>null</c>.</summary>
     public TestFile? Photo => Message.Photo is [.., var largest] ? _api.TestFileOf(largest.FileId) : null;
@@ -48,6 +60,27 @@ public sealed class TestMessage
     /// <summary>The inline keyboard's button texts, row by row.</summary>
     public IReadOnlyList<string> Buttons => [.. Keyboard.Select(button => button.Text)];
 
+    /// <summary>The buttons whose data decodes as <typeparamref name="TButton"/>, row by row.</summary>
+    /// <typeparam name="TButton">A <c>[ButtonData]</c> struct.</typeparam>
+    /// <exception cref="InvalidOperationException"><typeparamref name="TButton"/> can't be button data.</exception>
+    public IReadOnlyList<TButton> ButtonsOf<TButton>()
+        where TButton : struct
+    {
+        // Fails at once for a type that can't be button data.
+        ButtonData.TryDecode<TButton>(null, out _);
+
+        var buttons = new List<TButton>();
+        foreach (var button in Keyboard)
+        {
+            if (button.CallbackData is { } data && ButtonData.TryDecode(data, out TButton decoded))
+            {
+                buttons.Add(decoded);
+            }
+        }
+
+        return buttons;
+    }
+
     /// <summary>The raw Telegram.Bot message.</summary>
     public Message Message { get; }
 
@@ -61,12 +94,22 @@ public sealed class TestMessage
 
     /// <summary>
     /// The sender, the content and the buttons, e.g. <c>Nick: (photo) Lunch</c> or
-    /// <c>Bot: What size? [Small] [Large]</c>.
+    /// <c>Bot: What size? [Small] [Large]</c>; a reply adds what it replies to, as in
+    /// <c>Nick (↩ Bot: What size?): Large</c>.
     /// </summary>
     public override string ToString() =>
-        $"{(IsFromBot ? "Bot" : Message.From?.FirstName)}:"
-        + (Content.Length == 0 ? "" : $" {Content}")
+        $"{Sender}{(ReplyTo is { } target ? $" (↩ {target.Sender}:{target.Spoken})" : "")}:"
+        + Spoken
         + string.Concat(Buttons.Select(button => $" [{button}]"));
+
+    /// <summary>The message this one replies to, or <c>null</c>.</summary>
+    public TestMessage? ReplyTo =>
+        _json["reply_to_message"] is JsonObject target ? new TestMessage(target.DeepClone().AsObject(), _api) : null;
+
+    private string? Sender => IsFromBot ? "Bot" : Message.From?.FirstName;
+
+    // The content after the sender, with its leading space.
+    private string Spoken => Content.Length == 0 ? "" : $" {Content}";
 
     private string? Attachment =>
         Message switch

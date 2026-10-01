@@ -13,6 +13,10 @@ public sealed record BotApiError(int ErrorCode, string Description)
     /// <summary>400: Telegram doesn't know the chat, or the bot isn't in it.</summary>
     public static BotApiError ChatNotFound { get; } = new(400, "Bad Request: chat not found");
 
+    /// <summary>400: the tap was answered already, or too late.</summary>
+    public static BotApiError QueryTooOld { get; } =
+        new(400, "Bad Request: query is too old and response timeout expired or query ID is invalid");
+
     /// <summary>For a 429: seconds to wait before retrying.</summary>
     public int? RetryAfter { get; init; }
 

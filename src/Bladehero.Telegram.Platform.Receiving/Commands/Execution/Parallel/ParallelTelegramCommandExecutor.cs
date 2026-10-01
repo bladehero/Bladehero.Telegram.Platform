@@ -10,21 +10,28 @@ internal sealed class ParallelTelegramCommandExecutor(
     public Task ExecuteAsync(CommandRequest request, CancellationToken token = default) =>
         ExecuteAsync(commandAccessor, request, token);
 
-    internal async Task<bool> ExecuteAsync(
+    // The regular commands that took the update.
+    internal Task<IReadOnlyList<ITelegramCommand>> ExecuteRegularAsync(
+        CommandRequest request,
+        CancellationToken token
+    ) => ExecuteAsync(commandAccessor, request, token);
+
+    // The commands that took the update.
+    internal async Task<IReadOnlyList<ITelegramCommand>> ExecuteAsync(
         CommandPriorityAccessor commands,
         CommandRequest request,
         CancellationToken token
     )
     {
-        var handled = false;
+        var ran = new List<ITelegramCommand>();
         foreach (var chunk in ChunkCommands(commands, options.CurrentValue.ParallelCount))
         {
             var executables = await GetExecutableCommands(chunk, request, token);
-            handled |= executables.Length > 0;
+            ran.AddRange(executables);
             await Task.WhenAll(executables.Select(x => x.HandleAsync(request, token)));
         }
 
-        return handled;
+        return ran;
     }
 
     private static IEnumerable<IEnumerable<ITelegramCommand>> ChunkCommands(

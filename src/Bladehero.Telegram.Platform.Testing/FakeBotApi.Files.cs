@@ -18,6 +18,7 @@ public sealed partial class FakeBotApi
         "reply_parameters",
         "suggested_post_parameters",
         "allowed_updates",
+        "media",
     ];
 
     private static readonly Encoding StrictUtf8 = new UTF8Encoding(
@@ -90,7 +91,8 @@ public sealed partial class FakeBotApi
 
         return file is null
             ? Respond(new BotApiError(404, "Not Found"))
-            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(file.Content) };
+            : FailedDownload(file.Id)
+                ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(file.Content) };
     }
 
     private JsonObject SendFile(
@@ -100,9 +102,15 @@ public sealed partial class FakeBotApi
     )
     {
         var chat = ChatOf(parameters);
-        var (caption, entities) = Trimmed(parameters["caption"]?.GetValue<string>(), parameters["caption_entities"]);
-        ThrowIfLongerThan(CaptionLimit, caption, "Bad Request: message caption is too long");
+        var (caption, entities) = Formatted(
+            parameters["caption"],
+            parameters["parse_mode"],
+            parameters["caption_entities"],
+            TextKind.Caption,
+            Operation.Send
+        );
         var keyboard = InlineKeyboardOf(parameters);
+        var target = ReplyTargetOf(chat, parameters);
 
         // Stored only once the request passed every other check, so a refused one changes nothing.
         var content = FileFor(kind, parameters, attachments).ToMessageContent();
@@ -122,7 +130,12 @@ public sealed partial class FakeBotApi
             content["reply_markup"] = keyboard;
         }
 
-        return chat.Post(Bot(), content).DeepClone().AsObject();
+        if (target is not null)
+        {
+            content["reply_to_message"] = target;
+        }
+
+        return WithReplyMarkup(chat, parameters, chat.Post(Bot(), content)).DeepClone().AsObject();
     }
 
     // An upload (attach://<part>), a URL, or the id of a known file of the same kind.

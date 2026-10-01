@@ -12,4 +12,7 @@ internal sealed class CoffeeShopOptions
 
     // How long a coffee takes to brew, e.g. CoffeeShop:BrewTime = 00:01:00.
     public TimeSpan BrewTime { get; set; } = TimeSpan.FromMinutes(1);
+
+    // Demo stand-ins for the receipt reader and transcriber, to try the bot in Telegram, e.g. CoffeeShop:Demo = true.
+    public bool Demo { get; set; }
 }

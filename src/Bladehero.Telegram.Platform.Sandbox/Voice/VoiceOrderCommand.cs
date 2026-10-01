@@ -29,6 +29,6 @@ internal sealed class VoiceOrderCommand(ITranscriber transcriber, CoffeeOrdering
         }
 
         await client.EditMessageText(message.Chat, notice.Id, $"«{text}»", cancellationToken: token);
-        await ordering.StartAsync(client, message.Chat, message.From!.Id, CoffeeFlow.SizeIn(text), token);
+        await ordering.StartAsync(client, message.Chat, CoffeeFlow.SizeIn(text), token);
     }
 }

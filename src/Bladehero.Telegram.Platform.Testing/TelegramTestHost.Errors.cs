@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
@@ -15,10 +16,19 @@ public sealed partial class TelegramTestHost
         // Updates whose action is over: it returned, or the test stopped waiting for it.
         private readonly HashSet<long> _over = [];
 
+        // Updates whose action has also checked its own logged errors, so later entries are for other actions.
+        private readonly HashSet<long> _settled = [];
+
+        // Every error ever recorded, so its log isn't reported as a logged error too.
+        private readonly HashSet<Exception> _recorded = new(ReferenceEqualityComparer.Instance);
+
+        public TestLogProvider Logs { get; } = new();
+
         public void Add(long? updateId, Exception exception)
         {
             lock (_errors)
             {
+                _recorded.Add(exception);
                 if (updateId is not { } id || !_over.Contains(id))
                 {
                     _errors.Add(new Recorded(updateId, exception));
@@ -48,6 +58,12 @@ public sealed partial class TelegramTestHost
                 first ??= Forget(x => x.UpdateId is null);
             }
 
+            // The action fails with the error itself, so what its update logged isn't reported later.
+            if (first?.UpdateId is { } failed)
+            {
+                Logs.Claim(x => x.UpdateId == failed && x.Level is LogLevel.Error or LogLevel.Critical);
+            }
+
             if (first is { HandlerFailure: { } failure })
             {
                 var whose = first.UpdateId is { } id ? $"update {id}'s error" : "an error with no update";
@@ -64,11 +80,70 @@ public sealed partial class TelegramTestHost
             }
         }
 
+        // Throws for the unclaimed Error and Critical entries of the update, of none, or of a settled one, other than
+        // recorded errors.
+        public void ThrowForLoggedErrors(long? updateId)
+        {
+            var logged = Logs.Claim(x =>
+                x.Level is LogLevel.Error or LogLevel.Critical
+                && (x.UpdateId is null || x.UpdateId == updateId || IsSettled(x.UpdateId.Value))
+                && !WasRecorded(x.Exception)
+            );
+
+            if (logged is not [var first, ..])
+            {
+                return;
+            }
+
+            var where = first.UpdateId switch
+            {
+                null => "outside any update",
+                { } id when id == updateId => $"while handling update {id}",
+                { } id => $"by work update {id} started, after its action returned",
+            };
+            var more = logged.Count > 1 ? $" (and {logged.Count - 1} more)" : "";
+            throw new InvalidOperationException($"The bot logged an error {where}: {first}{more}", first.Exception);
+        }
+
         public void Abandon(long updateId)
         {
             lock (_errors)
             {
                 Forget(updateId);
+            }
+        }
+
+        // After the action has thrown or checked for its update's errors.
+        public void Settle(long? updateId)
+        {
+            lock (_errors)
+            {
+                if (updateId is { } id)
+                {
+                    _settled.Add(id);
+                }
+            }
+        }
+
+        private bool IsSettled(long updateId)
+        {
+            lock (_errors)
+            {
+                return _settled.Contains(updateId);
+            }
+        }
+
+        // Also an aggregate of one, as the library logs when an error handler fails.
+        private bool WasRecorded(Exception? exception)
+        {
+            lock (_errors)
+            {
+                return exception is not null
+                    && (
+                        _recorded.Contains(exception)
+                        || exception is AggregateException aggregate
+                            && aggregate.InnerExceptions.Any(_recorded.Contains)
+                    );
             }
         }
 

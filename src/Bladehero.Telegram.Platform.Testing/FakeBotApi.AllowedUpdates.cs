@@ -82,6 +82,17 @@ public sealed partial class FakeBotApi
         }
     }
 
+    // Whether Telegram would send an update of this type to the bot now.
+    internal bool IsAllowed(string updateType)
+    {
+        lock (_gate)
+        {
+            return _allowedUpdates is { } askedFor
+                ? askedFor.Contains(updateType)
+                : !SentOnlyWhenAskedFor.Contains(updateType);
+        }
+    }
+
     // Called by getUpdates (unless refused) and setWebhook with a URL.
     private void UpdateAllowedUpdates(JsonObject parameters)
     {

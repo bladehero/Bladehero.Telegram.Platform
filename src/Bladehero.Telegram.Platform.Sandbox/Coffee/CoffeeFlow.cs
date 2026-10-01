@@ -1,10 +1,11 @@
-using System.Globalization;
 using System.Text.Json.Serialization;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 
+// An order's buttons are bound to its conversation, so the library answers taps from others or from earlier orders.
 internal static class CoffeeFlow
 {
     public const string Name = "coffee";
@@ -13,42 +14,24 @@ internal static class CoffeeFlow
     public const string NameStep = "name";
     public const string ConfirmStep = "confirm";
 
-    public const string SizeAction = "size";
-    public const string ConfirmAction = "confirm";
-    public const string CancelAction = "cancel";
+    public static InlineKeyboardMarkup SizeKeyboard(ConversationBinding binding)
+    {
+        var keyboard = new InlineKeyboardMarkup();
+        foreach (var size in Enum.GetValues<CoffeeSize>())
+        {
+            keyboard.AddButton(size.ToString(), new PickSize(size), binding);
+        }
 
-    // Unique enough within one person's orders, and short enough to keep the callback data under 64 bytes.
-    public static string NewOrderId() => Guid.NewGuid().ToString("N")[..12];
+        return keyboard.AddNewRow().AddButton("Cancel", new CancelOrder(), binding);
+    }
 
-    public static InlineKeyboardMarkup SizeKeyboard(long ownerId, string orderId) =>
-        new([
-            [
-                .. Enum.GetValues<CoffeeSize>()
-                    .Select(size =>
-                        InlineKeyboardButton.WithCallbackData(
-                            size.ToString(),
-                            new CoffeeButton(SizeAction, ownerId, orderId, size).ToString()
-                        )
-                    ),
-            ],
-            [CancelButton(ownerId, orderId)],
-        ]);
+    public static InlineKeyboardMarkup NameKeyboard(ConversationBinding binding) =>
+        new InlineKeyboardMarkup().AddButton("Cancel", new CancelOrder(), binding);
 
-    public static InlineKeyboardMarkup NameKeyboard(long ownerId, string orderId) =>
-        new([
-            [CancelButton(ownerId, orderId)],
-        ]);
-
-    public static InlineKeyboardMarkup ConfirmKeyboard(long ownerId, string orderId) =>
-        new([
-            [
-                InlineKeyboardButton.WithCallbackData(
-                    "Confirm",
-                    new CoffeeButton(ConfirmAction, ownerId, orderId).ToString()
-                ),
-                CancelButton(ownerId, orderId),
-            ],
-        ]);
+    public static InlineKeyboardMarkup ConfirmKeyboard(ConversationBinding binding) =>
+        new InlineKeyboardMarkup()
+            .AddButton("Confirm", new ConfirmOrder(), binding)
+            .AddButton("Cancel", new CancelOrder(), binding);
 
     public static string ConfirmText(CoffeeOrder order) =>
         $"A {order.Size} coffee for {order.CupName}. Place the order?";
@@ -61,39 +44,17 @@ internal static class CoffeeFlow
         text.Split([' ', ',', '.', '!', '?', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(ParseSize)
             .FirstOrDefault(size => size is not null);
-
-    // Whether the button is on the tapper's own card of the order in progress; a stale or someone else's is not.
-    public static async Task<bool> IsCurrentAsync(
-        IConversation conversation,
-        CoffeeButton button,
-        long tapperId,
-        CancellationToken token
-    ) => button.OwnerId == tapperId && (await conversation.GetDataAsync<CoffeeOrder>(token))?.OrderId == button.OrderId;
-
-    private static InlineKeyboardButton CancelButton(long ownerId, string orderId) =>
-        InlineKeyboardButton.WithCallbackData("Cancel", new CoffeeButton(CancelAction, ownerId, orderId).ToString());
 }
 
-// A coffee button's data, "coffee:{action}:{owner}:{order}[:{size}]": whose order it is, and which one.
-internal readonly record struct CoffeeButton(string Action, long OwnerId, string OrderId, CoffeeSize? Size = null)
-{
-    public static CoffeeButton? Parse(string? data) =>
-        data?.Split(':') switch
-        {
-            [CoffeeFlow.Name, var action, var owner, var order] when long.TryParse(owner, out var ownerId) =>
-                new CoffeeButton(action, ownerId, order),
-            [CoffeeFlow.Name, var action, var owner, var order, var size]
-                when long.TryParse(owner, out var ownerId) && CoffeeFlow.ParseSize(size) is { } parsed =>
-                new CoffeeButton(action, ownerId, order, parsed),
-            _ => null,
-        };
+// "coffee-size:large@7000000001.k3j9x2ab"
+[ButtonData("coffee-size")]
+internal readonly record struct PickSize(CoffeeSize Size);
 
-    public override string ToString()
-    {
-        var data = string.Create(CultureInfo.InvariantCulture, $"{CoffeeFlow.Name}:{Action}:{OwnerId}:{OrderId}");
-        return Size is { } size ? $"{data}:{size.ToString().ToLowerInvariant()}" : data;
-    }
-}
+[ButtonData("coffee-confirm")]
+internal readonly record struct ConfirmOrder();
+
+[ButtonData("coffee-cancel")]
+internal readonly record struct CancelOrder();
 
 [JsonConverter(typeof(JsonStringEnumConverter<CoffeeSize>))]
 internal enum CoffeeSize
@@ -103,9 +64,8 @@ internal enum CoffeeSize
     Large,
 }
 
-// The conversation's data: the order, the card showing its buttons now, and the message the cup name came in.
+// The conversation's data: the card showing its buttons now, and the message the cup name came in.
 internal sealed record CoffeeOrder(
-    string OrderId,
     int CardId,
     CoffeeSize? Size = null,
     string? CupName = null,

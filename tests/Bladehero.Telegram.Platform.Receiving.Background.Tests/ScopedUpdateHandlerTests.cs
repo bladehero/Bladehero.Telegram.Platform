@@ -170,6 +170,19 @@ public sealed class ScopedUpdateHandlerTests
     }
 
     [Fact]
+    public async Task AFailedUpdateIsReportedInsideItsLogScope()
+    {
+        var log = new ScopeLog { CommandFailure = new InvalidOperationException("original") };
+        var logs = new LogRecorder();
+        await using var provider = BuildProvider(log, throwing: true, logs: logs);
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+
+        await handler.HandleUpdateAsync(Client, new Update { Id = 7 }, CancellationToken.None);
+
+        Assert.Equal(7, Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Error).UpdateId);
+    }
+
+    [Fact]
     public async Task ShutdownIsNotReportedAsAnError()
     {
         using var shutdown = new CancellationTokenSource();

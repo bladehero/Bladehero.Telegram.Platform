@@ -1,13 +1,18 @@
 using System.Text;
 using Bladehero.Telegram.Platform.Receiving.Background;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
+using Bladehero.Telegram.Platform.Receiving.Commands;
+using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.ChatMembers;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.EditedMessages;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.MyChatMembers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -35,10 +40,189 @@ internal static class TestBot
                     },
                     typeof(TestBot).Assembly
                 );
+                collection.AddSingleton<SeenTaps>();
+                collection.AddSingleton<Seen<ChatMemberUpdated>>();
+                collection.AddSingleton<Seen<MessageReactionUpdated>>();
                 services?.Invoke(collection);
             },
             api
         );
+
+    // How many cups: the data of the buttons /cups shows.
+    [ButtonData("t-cups")]
+    internal readonly record struct Cups(int Count);
+
+    // A cup size in ml, the data of the buttons /size shows; Version counts the card's redraws.
+    [ButtonData("t-size")]
+    internal readonly record struct Size(int Ml, int Version);
+
+    // The size taps the bot got, as it saw them.
+    internal sealed class SeenTaps
+    {
+        private readonly List<CallbackQuery> _taps = [];
+
+        public CallbackQuery Last
+        {
+            get
+            {
+                lock (_taps)
+                {
+                    return _taps[^1];
+                }
+            }
+        }
+
+        public void Add(CallbackQuery tap)
+        {
+            lock (_taps)
+            {
+                _taps.Add(tap);
+            }
+        }
+    }
+
+    // "Pick a size" with Small, Large and a Remove that deletes the card.
+    private sealed class SizeCardCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/size"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "Pick a size",
+                replyMarkup: SizeKeyboard(version: 1),
+                cancellationToken: token
+            );
+    }
+
+    // Answers "Size 400" and redraws the card one version on; a tap on a deleted card is only answered.
+    private sealed class SizeCommand(SeenTaps? seen = null) : CallbackQueryCommand<Size>
+    {
+        protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            var (_, query, client) = request;
+            seen?.Add(query);
+
+            if (query.Message is not { Date.Year: > 1970 } card)
+            {
+                await client.AnswerCallbackQuery(query.Id, "That card is gone", cancellationToken: token);
+                return;
+            }
+
+            await client.AnswerCallbackQuery(query.Id, $"Size {Parsed.Ml}", cancellationToken: token);
+            await client.EditMessageText(
+                card.Chat,
+                card.Id,
+                $"Size {Parsed.Ml}",
+                replyMarkup: SizeKeyboard(Parsed.Version + 1),
+                cancellationToken: token
+            );
+        }
+    }
+
+    private static InlineKeyboardMarkup SizeKeyboard(int version) =>
+        new InlineKeyboardMarkup()
+            .AddButton("Small", new Size(250, version))
+            .AddButton("Large", new Size(400, version))
+            .AddButton("Remove", "dismiss");
+
+    // "Step 1" with Next, which edits the text and then the buttons, one call each.
+    private sealed class StepsCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/steps"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "Step 1",
+                replyMarkup: InlineKeyboardButton.WithCallbackData("Next", "steps-next"),
+                cancellationToken: token
+            );
+    }
+
+    private sealed class NextStepCommand : CallbackQueryCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.Data == "steps-next");
+
+        protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            var (_, query, client) = request;
+            var card = query.Message!;
+
+            await client.AnswerCallbackQuery(query.Id, cancellationToken: token);
+            await client.EditMessageText(
+                card.Chat,
+                card.Id,
+                "Step 2",
+                replyMarkup: InlineKeyboardButton.WithCallbackData("Next", "steps-next"),
+                cancellationToken: token
+            );
+            await client.EditMessageReplyMarkup(
+                card.Chat,
+                card.Id,
+                InlineKeyboardButton.WithCallbackData("Done", "steps-done"),
+                cancellationToken: token
+            );
+        }
+    }
+
+    // What the probes below saw, e.g. the bot's own membership changes.
+    internal sealed class Seen<T>
+    {
+        private readonly List<T> _items = [];
+
+        public IReadOnlyList<T> All
+        {
+            get
+            {
+                lock (_items)
+                {
+                    return [.. _items];
+                }
+            }
+        }
+
+        public void Add(T item)
+        {
+            lock (_items)
+            {
+                _items.Add(item);
+            }
+        }
+    }
+
+    // Records my_chat_member updates; optional, so hosts that don't register the probe still validate.
+    private sealed class MembershipCommand(Seen<ChatMemberUpdated>? seen = null) : MyChatMemberCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<ChatMemberUpdated> request,
+            CancellationToken token
+        ) => Task.FromResult(true);
+
+        protected override Task HandleAsync(TypedCommandRequest<ChatMemberUpdated> request, CancellationToken token)
+        {
+            seen?.Add(request.Payload);
+            return Task.CompletedTask;
+        }
+    }
+
+    // Records message_reaction updates, for which there's no typed base.
+    private sealed class ReactionCommand(Seen<MessageReactionUpdated>? seen = null) : ITelegramCommand
+    {
+        public Task<bool> CanHandleAsync(CommandRequest request, CancellationToken token) =>
+            Task.FromResult(request.Update.MessageReaction is not null);
+
+        public Task HandleAsync(CommandRequest request, CancellationToken token)
+        {
+            seen?.Add(request.Update.MessageReaction!);
+            return Task.CompletedTask;
+        }
+    }
 
     // Greets whoever joins a group.
     private sealed class WelcomeCommand : ChatMemberCommand
@@ -126,6 +310,165 @@ internal static class TestBot
 
         protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
             throw new TaskCanceledException("Claude timed out");
+    }
+
+    // "/probe Error Critical" logs one entry per level, with an exception from Error up; "/probe" logs at Debug.
+    private sealed class ProbeCommand(ILogger<ProbeCommand> logger) : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.Text?.Split(' ') is ["/probe", ..]);
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var levels = request.Payload.Text!.Split(' ')[1..] is { Length: > 0 } names ? names : ["Debug"];
+            foreach (var level in levels.Select(Enum.Parse<LogLevel>))
+            {
+                var failure = level >= LogLevel.Error ? new InvalidOperationException("The ledger is off") : null;
+                logger.Log(level, failure, "Probed by {Name}", request.Payload.From!.FirstName);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // Lets "/latefail" log its error once Go is set; Done is set once it has.
+    internal sealed class LateWork
+    {
+        public TaskCompletionSource Go { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    // "/latefail" starts work it doesn't wait for, which logs an error; optional, so hosts without LateWork still start.
+    private sealed class LateFailureCommand(ILogger<LateFailureCommand> logger, LateWork? late = null) : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(late is not null && request.Payload.IsCommand("/latefail"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var name = request.Payload.From!.FirstName;
+            _ = Task.Run(
+                async () =>
+                {
+                    await late!.Go.Task;
+                    logger.LogError("Late failure for {Name}", name);
+                    late.Done.TrySetResult();
+                },
+                CancellationToken.None
+            );
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // Sends a reply keyboard, a removal or a ForceReply, one per trigger.
+    private sealed class ReplyMarkupCommand : MessageCommand
+    {
+        private static readonly Dictionary<string, (string Text, ReplyMarkup Markup)> Markups = new()
+        {
+            ["/keyboard"] = (
+                "Pick a drink",
+                new ReplyKeyboardMarkup([
+                    ["Tea", "Coffee"],
+                    ["/whoami"],
+                ])
+            ),
+            ["/onetime"] = (
+                "Sure?",
+                new ReplyKeyboardMarkup([
+                    ["Yes", "No"],
+                ])
+                {
+                    OneTimeKeyboard = true,
+                }
+            ),
+            ["/contact"] = (
+                "Your phone?",
+                new ReplyKeyboardMarkup([
+                    [KeyboardButton.WithRequestContact("Share")],
+                ])
+            ),
+            ["/nokeyboard"] = ("Keyboard gone", new ReplyKeyboardRemove()),
+            ["/ask"] = ("What's your name?", new ForceReplyMarkup { InputFieldPlaceholder = "Your name" }),
+            ["/selective"] = (
+                "@anna_k, pick one",
+                new ReplyKeyboardMarkup([
+                    ["A"],
+                ])
+                {
+                    Selective = true,
+                }
+            ),
+        };
+
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(Markups.Keys.Any(request.Payload.IsCommand));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (text, markup) = Markups[Markups.Keys.First(request.Payload.IsCommand)];
+            return request.Client.SendMessage(
+                request.Payload.Chat,
+                text,
+                replyMarkup: markup,
+                cancellationToken: token
+            );
+        }
+    }
+
+    // Says what the message replies to, as the bot sees it.
+    private sealed class RepliedCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/replied"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                $"You replied to: {request.Payload.ReplyToMessage?.Text ?? "nothing"}",
+                cancellationToken: token
+            );
+    }
+
+    // A selective keyboard, as a reply to the sender, so only they see it.
+    private sealed class PickMeCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/pickme"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "Pick one",
+                replyParameters: request.Payload.Id,
+                replyMarkup: new ReplyKeyboardMarkup([
+                    ["A"],
+                ])
+                {
+                    Selective = true,
+                },
+                cancellationToken: token
+            );
+    }
+
+    // Replies with the sender's details as the bot sees them, and the chat's username.
+    private sealed class DetailsCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/details"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (_, message, client) = request;
+            var from = message.From!;
+
+            return client.SendMessage(
+                message.Chat,
+                $"{from.FirstName} {from.LastName} @{from.Username} {from.LanguageCode}; chat @{message.Chat.Username}",
+                cancellationToken: token
+            );
+        }
     }
 
     [BotCommand("whoami", "Say who you are")]
@@ -416,6 +759,33 @@ internal static class TestBot
                 cancellationToken: token
             );
         }
+    }
+
+    // Two typed Cups buttons, and a hand-written one beside them.
+    private sealed class CupsMenuCommand : MessageCommand
+    {
+        private static readonly InlineKeyboardMarkup Menu = new InlineKeyboardMarkup()
+            .AddButton("1 cup", new Cups(1))
+            .AddButton("2 cups", new Cups(2))
+            .AddButton("Other", "cups-other");
+
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/cups"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "How many cups?",
+                replyMarkup: Menu,
+                cancellationToken: token
+            );
+    }
+
+    // Answers "Cups 2" and the like.
+    private sealed class CupsCommand : CallbackQueryCommand<Cups>
+    {
+        protected override Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token) =>
+            request.Client.AnswerCallbackQuery(request.Payload.Id, $"Cups {Parsed.Count}", cancellationToken: token);
     }
 
     private sealed class DismissCommand : CallbackQueryCommand
