@@ -7,10 +7,43 @@ internal sealed class FileStore
 {
     private const int LongestExtension = 20;
 
+    // The sizes Telegram adds below a photo, smallest first; they download as this placeholder.
+    private static readonly (int Width, int Height)[] SmallerPhotoSizes = [(90, 68), (320, 240), (800, 600)];
+    private static readonly byte[] SmallerPhotoContent = "thumbnail"u8.ToArray();
+
     private readonly List<StoredFile> _files = [];
 
-    // Details: a photo's dimensions, a document's name and MIME type, a voice's duration.
+    // Details: a photo's dimensions, a document's name and MIME type, a voice's duration. A photo comes with Telegram's
+    // smaller sizes, each its own file; the one returned is the largest.
     public StoredFile Add(FileKind kind, byte[] content, JsonObject details, string? url = null)
+    {
+        if (kind != FileKind.Photo)
+        {
+            return AddOne(kind, content, details, url);
+        }
+
+        List<StoredFile> ladder =
+        [
+            .. SmallerPhotoSizes.Select(size =>
+                AddOne(
+                    kind,
+                    url is null ? SmallerPhotoContent : [],
+                    new JsonObject { ["width"] = size.Width, ["height"] = size.Height },
+                    url
+                )
+            ),
+            AddOne(kind, content, details, url),
+        ];
+
+        foreach (var size in ladder)
+        {
+            size.Ladder = ladder;
+        }
+
+        return ladder[^1];
+    }
+
+    private StoredFile AddOne(FileKind kind, byte[] content, JsonObject details, string? url)
     {
         var number = _files.Count + 1;
         var extension = kind switch
@@ -82,6 +115,9 @@ internal sealed class StoredFile(
 
     public bool PathGiven { get; set; }
 
+    // A photo's sizes, smallest first, which every one of them shares; a single file otherwise.
+    public IReadOnlyList<StoredFile> Ladder { get; set; } = [];
+
     public JsonObject Describe()
     {
         var described = new JsonObject { ["file_id"] = Id, ["file_unique_id"] = uniqueId };
@@ -102,7 +138,12 @@ internal sealed class StoredFile(
     public JsonObject ToMessageContent() =>
         Kind switch
         {
-            FileKind.Photo => new JsonObject { ["photo"] = new JsonArray(Describe()) },
+            FileKind.Photo => new JsonObject
+            {
+                ["photo"] = new JsonArray([
+                    .. (Ladder.Count == 0 ? [this] : Ladder).Select(size => (JsonNode)size.Describe()),
+                ]),
+            },
             FileKind.Voice => new JsonObject { ["voice"] = Describe() },
             _ => new JsonObject { ["document"] = Describe() },
         };

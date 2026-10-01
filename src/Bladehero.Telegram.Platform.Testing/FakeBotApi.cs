@@ -532,13 +532,13 @@ public sealed partial class FakeBotApi
     private JsonObject Send(JsonObject parameters)
     {
         var chat = ChatOf(parameters);
-        var (text, entities) = Trimmed(parameters["text"]?.GetValue<string>(), parameters["entities"]);
-        if (text is null)
-        {
-            throw Refuse(400, "Bad Request: message text is empty");
-        }
-
-        ThrowIfLongerThan(TextLimit, text, "Bad Request: message is too long");
+        var (text, entities) = Formatted(
+            parameters["text"],
+            parameters["parse_mode"],
+            parameters["entities"],
+            TextKind.Text,
+            Operation.Send
+        );
 
         var content = new JsonObject { ["text"] = text };
 
@@ -586,19 +586,13 @@ public sealed partial class FakeBotApi
         var entitiesField = field == "caption" ? "caption_entities" : "entities";
         var (newValue, newEntities) = field is null
             ? (null, null)
-            : Trimmed(parameters[field]?.GetValue<string>(), parameters[entitiesField]);
-
-        switch (field)
-        {
-            case "text" when newValue is null:
-                throw Refuse(400, "Bad Request: message text is empty");
-            case "text":
-                ThrowIfLongerThan(TextLimit, newValue, "Bad Request: MESSAGE_TOO_LONG");
-                break;
-            case "caption":
-                ThrowIfLongerThan(CaptionLimit, newValue, "Bad Request: MESSAGE_CAPTION_TOO_LONG");
-                break;
-        }
+            : Formatted(
+                parameters[field],
+                parameters["parse_mode"],
+                parameters[entitiesField],
+                field == "caption" ? TextKind.Caption : TextKind.Text,
+                Operation.Edit
+            );
 
         var newMarkup = InlineKeyboardOf(parameters);
         if (

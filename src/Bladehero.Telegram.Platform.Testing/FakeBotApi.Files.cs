@@ -102,8 +102,13 @@ public sealed partial class FakeBotApi
     )
     {
         var chat = ChatOf(parameters);
-        var (caption, entities) = Trimmed(parameters["caption"]?.GetValue<string>(), parameters["caption_entities"]);
-        ThrowIfLongerThan(CaptionLimit, caption, "Bad Request: message caption is too long");
+        var (caption, entities) = Formatted(
+            parameters["caption"],
+            parameters["parse_mode"],
+            parameters["caption_entities"],
+            TextKind.Caption,
+            Operation.Send
+        );
         var keyboard = InlineKeyboardOf(parameters);
         var target = ReplyTargetOf(chat, parameters);
 

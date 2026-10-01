@@ -15,18 +15,23 @@ public sealed partial class FakeBotApiTests
     private const string Accepted = "accepted";
 
     [Theory]
-    [InlineData(" ")]
-    [InlineData("\n \t\n")]
-    public async Task SendMessage_WithBlankText_ShouldFailLikeTelegram(string text)
+    [InlineData(" ", null)]
+    [InlineData("\n \t\n", null)]
+    [InlineData("<b></b>", ParseMode.Html)]
+    [InlineData("<b> </b>", ParseMode.Html)]
+    public async Task SendMessage_WithWhitespaceOnlyOrEmptyMarkup_ShouldBeRefusedAsNonEmpty(
+        string text,
+        ParseMode? parseMode
+    )
     {
         // Arrange
         var client = ApiWithChats().CreateClient();
 
         // Act
-        var outcome = await OutcomeOf(() => client.SendMessage(Chat, text));
+        var outcome = await OutcomeOf(() => client.SendMessage(Chat, text, parseMode ?? default));
 
         // Assert
-        outcome.Should().Be("Bad Request: message text is empty");
+        outcome.Should().Be("Bad Request: text must be non-empty");
     }
 
     [Theory]
@@ -93,7 +98,7 @@ public sealed partial class FakeBotApiTests
 
     [Theory]
     [InlineData(1024, Accepted)]
-    [InlineData(1025, "Bad Request: MESSAGE_CAPTION_TOO_LONG")]
+    [InlineData(1025, "Bad Request: MEDIA_CAPTION_TOO_LONG")]
     public async Task EditMessageCaption_ByCaptionLength_ShouldBeLimitedLikeTelegram(int length, string expected)
     {
         // Arrange
@@ -111,7 +116,7 @@ public sealed partial class FakeBotApiTests
     [Theory]
     [InlineData("sendMessage", 32, Accepted)]
     [InlineData("sendMessage", 33, "Bad Request: BUTTON_DATA_INVALID")]
-    [InlineData("sendMessage", 0, "Bad Request: BUTTON_DATA_INVALID")]
+    [InlineData("sendMessage", 0, "Bad Request: text buttons are not allowed in the inline keyboard")]
     [InlineData("sendPhoto", 33, "Bad Request: BUTTON_DATA_INVALID")]
     [InlineData("sendDocument", 33, "Bad Request: BUTTON_DATA_INVALID")]
     [InlineData("sendVoice", 33, "Bad Request: BUTTON_DATA_INVALID")]
@@ -155,7 +160,36 @@ public sealed partial class FakeBotApiTests
         var outcome = await OutcomeOf(() => WithKeyboardAsync(client, method, keyboard));
 
         // Assert
-        outcome.Should().Be("Bad Request: text buttons are unallowed in the inline keyboard");
+        outcome.Should().Be("Bad Request: text buttons are not allowed in the inline keyboard");
+    }
+
+    [Theory]
+    [InlineData("style", "primary")]
+    [InlineData("icon_custom_emoji_id", "5368324170671202286")]
+    public async Task InlineKeyboard_WithTextAndOnlyAStyleOrIcon_ShouldBeRefusedAsATextButton(
+        string field,
+        string value
+    )
+    {
+        // Arrange
+        var client = ApiWithChats().CreateClient();
+        var body = new JsonObject
+        {
+            ["chat_id"] = Chat,
+            ["text"] = "Pick one",
+            ["reply_markup"] = new JsonObject
+            {
+                ["inline_keyboard"] = new JsonArray(
+                    new JsonArray(new JsonObject { ["text"] = "Pick", [field] = value })
+                ),
+            },
+        };
+
+        // Act
+        var outcome = await OutcomeOf(() => client.SendRequest(new RawRequest<Message>("sendMessage", body)));
+
+        // Assert
+        outcome.Should().Be("Bad Request: text buttons are not allowed in the inline keyboard");
     }
 
     [Theory]
@@ -254,7 +288,7 @@ public sealed partial class FakeBotApiTests
     [Fact]
     public async Task SendMessage_WithLeadingWhitespace_ShouldShiftTheEntities()
     {
-        // Arrange: "hi" in bold, everything in italic, and only the leading spaces underlined.
+        // Arrange: "hi" in bold and "hi there  " in italic; no entity covers the leading spaces, so they go.
         var client = ApiWithChats().CreateClient();
         MessageEntity[] entities =
         [
@@ -267,14 +301,8 @@ public sealed partial class FakeBotApiTests
             new()
             {
                 Type = MessageEntityType.Italic,
-                Offset = 0,
-                Length = 12,
-            },
-            new()
-            {
-                Type = MessageEntityType.Underline,
-                Offset = 0,
-                Length = 2,
+                Offset = 2,
+                Length = 10,
             },
         ];
 
@@ -282,7 +310,8 @@ public sealed partial class FakeBotApiTests
         var sent = await client.SendMessage(Chat, "  hi there  ", entities: entities);
 
         // Assert
-        sent.Entities!.Select(x => $"{x.Type} {x.Offset}+{x.Length}").Should().Equal("Bold 0+2", "Italic 0+8");
+        // In Telegram's order: by offset, longer first.
+        sent.Entities!.Select(x => $"{x.Type} {x.Offset}+{x.Length}").Should().Equal("Italic 0+8", "Bold 0+2");
     }
 
     [Theory]
@@ -298,6 +327,59 @@ public sealed partial class FakeBotApiTests
 
         // Assert
         sent.Caption.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task InlineKeyboard_ButtonsWithEmptyText_ShouldBeDroppedSilently()
+    {
+        // Arrange: a row with an empty button beside a real one, and a row of empty buttons only.
+        var client = ApiWithChats().CreateClient();
+        InlineKeyboardMarkup keyboard = new([
+            [InlineKeyboardButton.WithCallbackData("", "gone"), InlineKeyboardButton.WithCallbackData("A", "a")],
+            [InlineKeyboardButton.WithCallbackData("", "gone too")],
+        ]);
+
+        // Act
+        var sent = await client.SendMessage(Chat, "Pick one", replyMarkup: keyboard);
+        var none = await client.SendMessage(
+            Chat,
+            "Pick none",
+            replyMarkup: new InlineKeyboardMarkup(InlineKeyboardButton.WithCallbackData("", "x"))
+        );
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.ReplyMarkup!.InlineKeyboard.Select(row => string.Join(",", row.Select(x => x.Text)))
+                .Should()
+                .Equal("A");
+            none.ReplyMarkup.Should().BeNull();
+        }
+    }
+
+    [Fact]
+    public async Task InlineKeyboard_RowsLongerThan12_ShouldBeCut()
+    {
+        // Arrange: 26 rows of 13 buttons, 338 in all.
+        var client = ApiWithChats().CreateClient();
+        var keyboard = new InlineKeyboardMarkup(
+            Enumerable
+                .Range(0, 26)
+                .Select(row =>
+                    Enumerable.Range(0, 13).Select(column => InlineKeyboardButton.WithCallbackData($"{row}.{column}"))
+                )
+        );
+
+        // Act
+        var sent = await client.SendMessage(Chat, "Pick one", replyMarkup: keyboard);
+
+        // Assert: 12 a row, and 300 in all.
+        var rows = sent.ReplyMarkup!.InlineKeyboard.Select(row => row.Count()).ToArray();
+        using (new AssertionScope())
+        {
+            rows.Should().HaveCount(25).And.AllSatisfy(count => count.Should().Be(12));
+            rows.Sum().Should().Be(300);
+        }
     }
 
     private static async Task<string> OutcomeOf(Func<Task> call)

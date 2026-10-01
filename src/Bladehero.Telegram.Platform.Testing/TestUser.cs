@@ -84,7 +84,7 @@ public sealed partial class TestUser
     }
 
     /// <summary>
-    /// Sends a photo in two sizes, smallest first, as Telegram does; the largest downloads as <paramref name="photo"/>.
+    /// Sends a photo in four sizes, smallest first, as Telegram does; the largest downloads as <paramref name="photo"/>.
     /// Any bytes will do; the reported dimensions are nominal.
     /// </summary>
     /// <returns>The message as posted: a snapshot that stays valid even if the bot then deletes it.</returns>
@@ -135,7 +135,7 @@ public sealed partial class TestUser
     }
 
     /// <summary>
-    /// Sends <paramref name="photos"/> as an album: each its own photo message, in two sizes as
+    /// Sends <paramref name="photos"/> as an album: each its own photo message, in four sizes as
     /// <see cref="SendsPhotoAsync"/> sends one, all in one media group, and each delivered as its own update, in
     /// order, once the bot has handled the one before.
     /// </summary>
@@ -500,12 +500,14 @@ public sealed partial class TestUser
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text, name);
 
+        // Characters are code points, so an emoji counts once.
         text = text.Trim();
-        if (text.Length > FakeBotApi.TextLimit)
+        var characters = text.EnumerateRunes().Count();
+        if (characters > FakeBotApi.TextLimit)
         {
             throw new ArgumentException(
                 $"Telegram takes at most {FakeBotApi.TextLimit} characters in a message, and this text has "
-                    + $"{text.Length}: the Telegram app splits longer text into several messages; send them one "
+                    + $"{characters}: the Telegram app splits longer text into several messages; send them one "
                     + "by one.",
                 name
             );
@@ -518,11 +520,12 @@ public sealed partial class TestUser
     private static string? CheckedCaption(string? caption)
     {
         caption = caption?.Trim();
-        if (caption?.Length > FakeBotApi.CaptionLimit)
+        var characters = caption?.EnumerateRunes().Count() ?? 0;
+        if (characters > FakeBotApi.CaptionLimit)
         {
             throw new ArgumentException(
                 $"Telegram takes at most {FakeBotApi.CaptionLimit} characters in a caption, and this one has "
-                    + $"{caption.Length}.",
+                    + $"{characters}.",
                 nameof(caption)
             );
         }
