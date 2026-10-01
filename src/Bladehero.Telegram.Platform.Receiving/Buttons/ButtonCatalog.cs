@@ -10,8 +10,13 @@ namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 internal sealed class ButtonCatalog
 {
     private readonly Dictionary<string, ButtonCodec> _codecs;
+    private readonly HashSet<Type> _types;
 
-    private ButtonCatalog(Dictionary<string, ButtonCodec> codecs) => _codecs = codecs;
+    private ButtonCatalog(Dictionary<string, ButtonCodec> codecs)
+    {
+        _codecs = codecs;
+        _types = [.. codecs.Values.Select(x => x.Type)];
+    }
 
     // The [ButtonData] structs among the types, and those the commands handle.
     internal static ButtonCatalog Scan(IEnumerable<Type> types, IReadOnlyCollection<CatalogedCommand> commands) =>
@@ -111,12 +116,15 @@ internal sealed class ButtonCatalog
         return new ButtonCatalog(codecs.ToDictionary(x => x.Prefix, StringComparer.Ordinal));
     }
 
-    // The codec whose prefix is the data's whole first segment.
+    // The codec whose prefix is the data's whole first segment, which ':' or '@' ends.
     public bool TryFind(string data, [NotNullWhen(true)] out ButtonCodec? codec)
     {
-        var end = data.IndexOf(':');
+        var end = data.IndexOfAny([':', '@']);
         return _codecs.TryGetValue(end < 0 ? data : data[..end], out codec);
     }
+
+    // The [ButtonData] TData a command handles, or null.
+    internal Type? ButtonOf(Type commandType) => DataOf(commandType) is { } data && _types.Contains(data) ? data : null;
 
     // The TData of a CallbackQueryCommand<TData>, or null for any other command.
     private static Type? DataOf(Type command)

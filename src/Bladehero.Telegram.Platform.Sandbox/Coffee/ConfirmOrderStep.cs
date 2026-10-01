@@ -10,16 +10,9 @@ namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
 
 [ConversationStep(CoffeeFlow.Name, CoffeeFlow.ConfirmStep)]
 internal sealed class ConfirmOrderStep(IConversation conversation, MemberDirectory members, OrderQueue orders)
-    : CallbackQueryCommand
+    : CallbackQueryCommand<ConfirmOrder>
 {
     private const int PointsPerCoffee = 10;
-
-    protected override async Task<bool> CanHandleAsync(
-        TypedCommandRequest<CallbackQuery> request,
-        CancellationToken token
-    ) =>
-        CoffeeButton.Parse(request.Payload.Data) is { Action: CoffeeFlow.ConfirmAction } button
-        && await CoffeeFlow.IsCurrentAsync(conversation, button, request.Payload.From.Id, token);
 
     protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
     {

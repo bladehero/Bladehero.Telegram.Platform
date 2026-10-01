@@ -41,7 +41,7 @@ internal sealed class WriteNameStep(IConversation conversation) : MessageCommand
         var card = await client.SendMessage(
             message.Chat,
             CoffeeFlow.ConfirmText(order),
-            replyMarkup: CoffeeFlow.ConfirmKeyboard(message.From!.Id, order.OrderId),
+            replyMarkup: CoffeeFlow.ConfirmKeyboard(await conversation.BindAsync(token)),
             cancellationToken: token
         );
 

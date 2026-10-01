@@ -1,4 +1,5 @@
 using FluentAssertions;
+using FluentAssertions.Execution;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Webhook.Tests.Notes;
 
@@ -23,12 +24,88 @@ public sealed class RememberTests
             .Should()
             .Equal(
                 "Nick: /remember",
-                "Bot: What should I remember?",
+                "Bot: What should I remember? [Cancel]",
                 "Nick: buy milk",
                 "Bot: Got it.",
                 "Nick: /recall",
                 "Bot: You asked me to remember: buy milk"
             );
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Cancel_ShouldForgetTheNote(BotMode mode)
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartAsync(mode);
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/remember");
+        var prompt = nick.LastMessage;
+
+        // Act
+        var answer = await nick.TapsAsync("Cancel");
+        await nick.SendsAsync("buy milk");
+        await nick.SendsAsync("/recall");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            answer.ToString().Should().Be("Notification: Cancelled.");
+            nick.Messages.Single(x => x.Id == prompt.Id).ToString().Should().Be("Bot: Nothing remembered.");
+            nick.LastMessage.Text.Should().Be("Nothing yet — try /remember");
+        }
+    }
+
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Cancel_AfterTheNoteWasSaved_ShouldSayItIsNoLongerActive(BotMode mode)
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartAsync(mode);
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/remember");
+        var prompt = nick.LastMessage;
+        await nick.SendsAsync("buy milk");
+
+        // Act
+        var answer = await nick.TapsAsync("Cancel", on: prompt);
+        await nick.SendsAsync("/recall");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            answer.ToString().Should().Be("Notification: That button is no longer active.");
+            nick.Messages.Single(x => x.Id == prompt.Id).ToString().Should().Be(prompt.ToString());
+            nick.LastMessage.Text.Should().Be("You asked me to remember: buy milk");
+        }
+    }
+
+    // In webhook mode the two taps are two requests at once, which the conversation's lock takes one at a time.
+    [Theory]
+    [InlineData(BotMode.Webhook)]
+    [InlineData(BotMode.LongPolling)]
+    public async Task Cancel_TappedTwiceAtOnce_ShouldCancelOnce(BotMode mode)
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartAsync(mode);
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/remember");
+        var prompt = nick.LastMessage;
+
+        // Act
+        var answers = await Task.WhenAll(nick.TapsAsync("Cancel", on: prompt), nick.TapsAsync("Cancel", on: prompt));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            answers
+                .Select(x => x.ToString())
+                .Should()
+                .BeEquivalentTo("Notification: Cancelled.", "Notification: That button is no longer active.");
+            nick.Messages.Single(x => x.Id == prompt.Id).Text.Should().Be("Nothing remembered.");
+        }
     }
 
     [Theory]

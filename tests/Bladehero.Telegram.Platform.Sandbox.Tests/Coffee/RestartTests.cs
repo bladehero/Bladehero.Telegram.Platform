@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Tests.Coffee;
@@ -72,6 +73,35 @@ public sealed class RestartTests
     }
 
     [Fact]
+    public async Task ConfirmButton_AfterARestartWithAStoreThatDropsTheId_ShouldSayItIsNoLongerActive()
+    {
+        // Arrange: the order reaches its confirmation by text alone, as the store loses every run id.
+        var api = new FakeBotApi();
+        var store = new SharedConversationStore(keepsTheId: false);
+        await using (var before = await StartAsync(api, store))
+        {
+            var customer = before.PrivateChat("Nick");
+            await customer.SendsAsync("/coffee medium");
+            await customer.SendsAsync("Nicky");
+        }
+
+        await using var bot = await StartAsync(api, store);
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        var answer = await nick.TapsAsync("Confirm");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            answer.ToString().Should().Be("Notification: That button is no longer active.");
+            nick.LastMessage.ToString()
+                .Should()
+                .Be("Bot: A Medium coffee for Nicky. Place the order? [Confirm] [Cancel]");
+        }
+    }
+
+    [Fact]
     public async Task Members_AfterARestart_ShouldBeSeededAgain()
     {
         // Arrange
@@ -101,8 +131,8 @@ public sealed class RestartTests
         await customer.TapsAsync("Medium");
     }
 
-    // Outlives the bot, as a database would.
-    private sealed class SharedConversationStore : IConversationStore
+    // Outlives the bot, as a database would; one that keeps only the flow, the step and the data loses the run id.
+    private sealed class SharedConversationStore(bool keepsTheId = true) : IConversationStore
     {
         private readonly ConcurrentDictionary<ConversationKey, ConversationState> _conversations = new();
 
@@ -111,7 +141,7 @@ public sealed class RestartTests
 
         public Task SaveAsync(ConversationKey key, ConversationState state, CancellationToken token)
         {
-            _conversations[key] = state;
+            _conversations[key] = keepsTheId ? state : new ConversationState(state.Flow, state.Step, state.Data);
             return Task.CompletedTask;
         }
 

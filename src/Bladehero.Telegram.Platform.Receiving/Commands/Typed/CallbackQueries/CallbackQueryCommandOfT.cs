@@ -44,7 +44,7 @@ public abstract class CallbackQueryCommand<TData> : CallbackQueryCommand
 
     /// <summary>
     /// The value behind <paramref name="data"/>, or <c>null</c> for another command's button; by default it decodes a
-    /// <see cref="ButtonDataAttribute"/> <typeparamref name="TData"/>.
+    /// <see cref="ButtonDataAttribute"/> <typeparamref name="TData"/>, bound or not.
     /// </summary>
     /// <remarks>
     /// Override it for other data, or to also accept an older format: <c>base.Parse(data) ?? Legacy(data)</c>.

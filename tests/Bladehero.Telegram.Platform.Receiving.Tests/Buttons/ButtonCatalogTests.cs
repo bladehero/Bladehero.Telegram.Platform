@@ -159,6 +159,7 @@ public sealed class ButtonCatalogTests
     [Theory]
     [InlineData("x:1", true)]
     [InlineData("x", true)]
+    [InlineData("x@7000000001.abc12345", true)]
     [InlineData("xy:1", false)]
     [InlineData("again", false)]
     public void TryFind_ShouldMatchOnlyAWholeRegisteredFirstSegment(string data, bool expected)

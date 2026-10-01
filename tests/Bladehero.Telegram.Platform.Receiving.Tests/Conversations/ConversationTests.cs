@@ -153,6 +153,137 @@ public sealed class ConversationTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
+    [Fact]
+    public void Key_ShouldBeTheUserInTheChatOfTheUpdate()
+    {
+        // Act
+        var key = Bound(new InMemoryConversationStore()).Key;
+
+        // Assert
+        key.Should().Be(Sender);
+    }
+
+    [Fact]
+    public async Task BindAsync_WithoutAConversation_ShouldThrow()
+    {
+        // Arrange
+        var sut = Bound(new InMemoryConversationStore());
+
+        // Act
+        var act = () => sut.BindAsync(CancellationToken.None).AsTask();
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("There is no active conversation to bind buttons to; start one first.");
+    }
+
+    [Fact]
+    public async Task BindAsync_WithoutAKey_ShouldThrow()
+    {
+        // Arrange: an IConversation of the app's own, which leaves Key to its default.
+        var sut = new Mock<IConversation>();
+        sut.Setup(x => x.GetAsync(It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.FromResult<ConversationState?>(new ConversationState("order", "size")));
+
+        // Act
+        var act = () => sut.Object.BindAsync(CancellationToken.None).AsTask();
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("This update has no user in a chat to bind buttons to.");
+    }
+
+    [Fact]
+    public async Task BindAsync_ShouldGiveTheConversationAnIdAndSaveItOnce()
+    {
+        // Arrange
+        var store = new Mock<IConversationStore>();
+        store
+            .Setup(x => x.GetAsync(Sender, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConversationState("order", "size"));
+        var sut = Bound(store.Object);
+
+        // Act
+        var binding = await sut.BindAsync(CancellationToken.None);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            binding.UserId.Should().Be(Sender.UserId);
+            binding.ConversationId.Should().MatchRegex("^[a-z0-9]{8}$");
+            store.Verify(
+                x =>
+                    x.SaveAsync(
+                        Sender,
+                        new ConversationState("order", "size") { Id = binding.ConversationId },
+                        It.IsAny<CancellationToken>()
+                    ),
+                Times.Once
+            );
+        }
+    }
+
+    [Fact]
+    public async Task BindAsync_Twice_ShouldGiveTheSameBinding()
+    {
+        // Arrange
+        var store = new Mock<IConversationStore>();
+        store
+            .Setup(x => x.GetAsync(Sender, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConversationState("order", "size"));
+        var sut = Bound(store.Object);
+
+        // Act
+        var first = await sut.BindAsync(CancellationToken.None);
+        var second = await sut.BindAsync(CancellationToken.None);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            second.Should().Be(first);
+            store.Verify(
+                x => x.SaveAsync(Sender, It.IsAny<ConversationState>(), It.IsAny<CancellationToken>()),
+                Times.Once
+            );
+        }
+    }
+
+    [Fact]
+    public async Task MoveToAsync_ShouldKeepTheId()
+    {
+        // Arrange
+        var store = new InMemoryConversationStore();
+        await Bound(store).StartAsync("order", "size", new Order("large"), CancellationToken.None);
+        var binding = await Bound(store).BindAsync(CancellationToken.None);
+
+        // Act
+        await Bound(store).MoveToAsync("name", new Order("small"), CancellationToken.None);
+
+        // Assert
+        (await store.GetAsync(Sender, CancellationToken.None))!
+            .Id.Should()
+            .Be(binding.ConversationId);
+    }
+
+    [Fact]
+    public async Task StartAsync_ShouldStartANewRunWithoutAnId()
+    {
+        // Arrange
+        var store = new InMemoryConversationStore();
+        await Bound(store).StartAsync("order", "size", CancellationToken.None);
+        await Bound(store).BindAsync(CancellationToken.None);
+
+        // Act
+        await Bound(store).StartAsync("order", "size", CancellationToken.None);
+
+        // Assert
+        (await store.GetAsync(Sender, CancellationToken.None))!
+            .Id.Should()
+            .BeNull();
+    }
+
     private static Conversation Bound(IConversationStore store)
     {
         var conversation = new Conversation(store);

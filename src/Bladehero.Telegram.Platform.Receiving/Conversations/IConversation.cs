@@ -16,4 +16,9 @@ public interface IConversation
 
     /// <summary>Ends the conversation, if any.</summary>
     Task EndAsync(CancellationToken token);
+
+    /// <summary>
+    /// The user in a chat this conversation belongs to; <c>null</c> when the update has none, e.g. an inline query.
+    /// </summary>
+    ConversationKey? Key => null;
 }

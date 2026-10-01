@@ -8,6 +8,8 @@ internal sealed class Conversation(IConversationStore store) : IConversation
     private ConversationState? _state;
     private bool _loaded;
 
+    public ConversationKey? Key => _key;
+
     internal void Bind(Update update)
     {
         _key = ConversationKey.For(update);

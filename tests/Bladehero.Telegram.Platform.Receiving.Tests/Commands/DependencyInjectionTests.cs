@@ -184,6 +184,25 @@ public sealed class DependencyInjectionTests
     }
 
     [Fact]
+    public void AddTelegramReceiving_ShouldRegisterOneConversationLockForTheApp()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramReceiving(typeof(DependencyInjectionTests).Assembly);
+        var provider = services.BuildServiceProvider();
+
+        // Act
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        // Assert
+        first
+            .ServiceProvider.GetRequiredService<ConversationLocks>()
+            .Should()
+            .BeSameAs(second.ServiceProvider.GetRequiredService<ConversationLocks>());
+    }
+
+    [Fact]
     public void AddTelegramCommands_ShouldRegisterTheButtonsOfTheScannedAssembly()
     {
         // Arrange

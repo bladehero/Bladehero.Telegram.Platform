@@ -33,7 +33,7 @@ internal sealed class EditCupNameStep(IConversation conversation) : EditedMessag
             edited.Chat,
             order.CardId,
             CoffeeFlow.ConfirmText(order),
-            replyMarkup: CoffeeFlow.ConfirmKeyboard(edited.From!.Id, order.OrderId),
+            replyMarkup: CoffeeFlow.ConfirmKeyboard(await conversation.BindAsync(token)),
             cancellationToken: token
         );
         await conversation.MoveToAsync(CoffeeFlow.ConfirmStep, order, token);

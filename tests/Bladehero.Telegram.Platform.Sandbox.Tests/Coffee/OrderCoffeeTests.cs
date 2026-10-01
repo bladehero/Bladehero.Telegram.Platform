@@ -412,5 +412,51 @@ public sealed class OrderCoffeeTests
             );
     }
 
+    [Fact]
+    public async Task SizeButton_ShouldCarryItsConversation()
+    {
+        // Arrange
+        await using var bot = await StartBotAsync();
+        var nick = bot.PrivateChat("Nick");
+
+        // Act
+        await nick.SendsAsync("/coffee");
+
+        // Assert
+        nick.LastMessage.Message.ReplyMarkup!.InlineKeyboard.First()
+            .Select(button => button.CallbackData)
+            .Should()
+            .HaveCount(3)
+            .And.AllSatisfy(data =>
+                data.Should().MatchRegex($@"^coffee-size:(small|medium|large)@{nick.Id}\.[a-z0-9]{{8}}$")
+            );
+    }
+
+    [Fact]
+    public async Task CancelButton_FromAnotherMembersOrder_ShouldSayItIsNotTheirs()
+    {
+        // Arrange
+        await using var bot = await StartBotAsync();
+        var office = bot.GroupChat("Office");
+        var nick = office.Member("Nick");
+        var anna = office.Member("Anna");
+        await nick.SendsAsync("/coffee large");
+        var prompt = office.LastMessage;
+
+        // Act
+        var answer = await anna.TapsAsync("Cancel", on: prompt);
+        await nick.SendsAsync("Nicky");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            answer.ToString().Should().Be("Notification: This order isn't yours.");
+            office
+                .LastMessage.ToString()
+                .Should()
+                .Be("Bot: A Large coffee for Nicky. Place the order? [Confirm] [Cancel]");
+        }
+    }
+
     private static Task<TelegramTestHost> StartBotAsync() => SandboxBot.StartAsync();
 }

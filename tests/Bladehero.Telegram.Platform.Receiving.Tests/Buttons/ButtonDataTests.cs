@@ -1,5 +1,6 @@
 using System.Reflection;
 using Bladehero.Telegram.Platform.Receiving.Buttons;
+using Bladehero.Telegram.Platform.Receiving.Conversations;
 using FluentAssertions;
 using FluentAssertions.Execution;
 
@@ -313,20 +314,141 @@ public sealed class ButtonDataTests
         }
     }
 
+    [Fact]
+    public void Encode_WithABinding_ShouldAppendTheUserAndTheRun()
+    {
+        // Act
+        var data = ButtonData.Encode(new X(1), new ConversationBinding(7000000001, "abc12345"));
+
+        // Assert
+        data.Should().Be("x:1@7000000001.abc12345");
+    }
+
+    [Fact]
+    public void Encode_WithABinding_ShouldCountTheSuffixIn64Bytes()
+    {
+        // Arrange: 54 bytes alone; the 20 of the binding take it to 74.
+        var button = new TextButton(new string('a', 44));
+
+        // Act
+        var act = () => ButtonData.Encode(button, new ConversationBinding(7000000001, "abc12345"));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            ButtonData.Encode(button).Should().HaveLength(54);
+            act.Should()
+                .Throw<ArgumentException>()
+                .WithMessage(
+                    $"The TextButton button's data \"data-text:{button.Value}@7000000001.abc12345\" is 74 bytes; "
+                        + "Telegram takes at most 64.*"
+                );
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("ABC")]
+    [InlineData("a.b")]
+    [InlineData("abcdefghijklmnopq")]
+    public void Encode_WithAnInvalidConversationId_ShouldThrow(string id)
+    {
+        // Act
+        var act = () => ButtonData.Encode(new X(1), new ConversationBinding(7000000001, id));
+
+        // Assert
+        act.Should()
+            .Throw<ArgumentException>()
+            .WithParameterName("binding")
+            .WithMessage($"A conversation id is 1-16 characters of a-z and 0-9, not \"{id}\".*");
+    }
+
+    [Fact]
+    public void TryDecode_WithABinding_ShouldReturnTheButtonAndTheBinding()
+    {
+        // Act
+        var decoded = ButtonData.TryDecode("x:1@7000000001.abc12345", out X button, out var binding);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            decoded.Should().BeTrue();
+            button.Should().Be(new X(1));
+            binding.Should().Be(new ConversationBinding(7000000001, "abc12345"));
+        }
+    }
+
+    [Fact]
+    public void TryDecode_ShouldIgnoreAWellFormedBinding()
+    {
+        // Act
+        var bound = ButtonData.TryDecode("x:1@7000000001.abc12345", out X button);
+        var unbound = ButtonData.TryDecode("x:1", out X _, out var binding);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bound.Should().BeTrue();
+            button.Should().Be(new X(1));
+            unbound.Should().BeTrue();
+            binding.Should().BeNull();
+        }
+    }
+
+    [Theory]
+    [InlineData("@x.abc")]
+    [InlineData("@1.")]
+    [InlineData("@1.ABC")]
+    [InlineData("@01.abc")]
+    [InlineData("@1abc")]
+    [InlineData("@1.abc@2.def")]
+    public void TryDecode_WithAMalformedBinding_ShouldReturnFalse(string suffix)
+    {
+        // Act
+        var decoded = ButtonData.TryDecode($"x:1{suffix}", out X _, out _);
+
+        // Assert
+        decoded.Should().BeFalse();
+    }
+
+    [Fact]
+    public void TryDecode_AStringContainingAnEscapedAt_ShouldKeepIt()
+    {
+        // Arrange
+        var binding = new ConversationBinding(7000000001, "abc12345");
+        var data = ButtonData.Encode(new TextButton("nick@home"), binding);
+
+        // Act
+        var decoded = ButtonData.TryDecode(data, out TextButton button, out var decodedBinding);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            data.Should().Be("data-text:nick%40home@7000000001.abc12345");
+            decoded.Should().BeTrue();
+            button.Value.Should().Be("nick@home");
+            decodedBinding.Should().Be(binding);
+        }
+    }
+
     // ButtonData is generic over the button type, so theory rows of mixed types go through reflection.
     private static string Encode(object button) =>
-        (string)Generic(nameof(ButtonData.Encode), button.GetType()).Invoke(null, [button])!;
+        (string)Generic(nameof(ButtonData.Encode), parameters: 1, button.GetType()).Invoke(null, [button])!;
 
     private static bool TryDecode(Type type, string data, out object? button)
     {
         var arguments = new object?[] { data, null };
-        var decoded = (bool)Generic(nameof(ButtonData.TryDecode), type).Invoke(null, arguments)!;
+        var decoded = (bool)Generic(nameof(ButtonData.TryDecode), parameters: 2, type).Invoke(null, arguments)!;
         button = arguments[1];
         return decoded;
     }
 
-    private static MethodInfo Generic(string name, Type type) =>
-        typeof(ButtonData).GetMethod(name, BindingFlags.Public | BindingFlags.Static)!.MakeGenericMethod(type);
+    // The unbound overload, by its parameter count.
+    private static MethodInfo Generic(string name, int parameters, Type type) =>
+        typeof(ButtonData)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(method => method.Name == name && method.GetParameters().Length == parameters)
+            .MakeGenericMethod(type);
 
     private enum Size
     {
@@ -336,6 +458,9 @@ public sealed class ButtonDataTests
 
     [ButtonData("data-order")]
     private readonly record struct Order(long OwnerId, int Cups, string Name);
+
+    [ButtonData("x")]
+    private readonly record struct X(int Value);
 
     [ButtonData("data-close")]
     private readonly record struct Close;

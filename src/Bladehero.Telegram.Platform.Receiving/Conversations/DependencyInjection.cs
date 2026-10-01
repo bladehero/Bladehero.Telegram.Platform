@@ -8,6 +8,7 @@ internal static class DependencyInjection
     internal static void AddTelegramConversations(this IServiceCollection services)
     {
         services.TryAddSingleton<IConversationStore, InMemoryConversationStore>();
+        services.TryAddSingleton<ConversationLocks>();
         services.AddScoped<Conversation>();
         services.AddScoped<IConversation>(provider => provider.GetRequiredService<Conversation>());
     }

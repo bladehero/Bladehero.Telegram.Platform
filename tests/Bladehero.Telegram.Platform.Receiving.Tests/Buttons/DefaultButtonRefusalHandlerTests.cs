@@ -55,6 +55,40 @@ public sealed class DefaultButtonRefusalHandlerTests
     }
 
     [Fact]
+    public async Task HandleAsync_WhenNotYours_ShouldSaySoInANotification()
+    {
+        // Act
+        await _sut.HandleAsync(Refusal(ButtonRefusalReason.NotYours), CancellationToken.None);
+
+        // Assert
+        _client.Verify(
+            x =>
+                x.SendRequest(
+                    It.Is<AnswerCallbackQueryRequest>(request =>
+                        request.CallbackQueryId == "query"
+                        && request.Text == "That button isn't yours."
+                        && !request.ShowAlert
+                    ),
+                    It.IsAny<CancellationToken>()
+                ),
+            Times.Once
+        );
+    }
+
+    [Fact]
+    public async Task AnswerAsync_WhenTheQueryIsTooOld_ShouldReturnFalse()
+    {
+        // Arrange
+        Refuse(400, "Bad Request: query is too old and response timeout expired or query ID is invalid");
+
+        // Act
+        var answered = await Refusal(ButtonRefusalReason.Unclaimed).AnswerAsync("Sorry");
+
+        // Assert
+        answered.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task HandleAsync_WhenTheQueryIsTooOld_ShouldSwallowIt()
     {
         // Arrange
