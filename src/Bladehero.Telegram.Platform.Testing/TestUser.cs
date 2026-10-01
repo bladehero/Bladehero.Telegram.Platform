@@ -13,26 +13,38 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// An action Telegram would not send to the bot, as the bot left its type out of <c>allowed_updates</c>, fails with an
 /// <see cref="InvalidOperationException"/> before anything changes.
 /// </remarks>
-public sealed class TestUser
+public sealed partial class TestUser
 {
     private readonly TelegramTestHost _host;
-    private readonly JsonObject _person;
+    private readonly JsonObject _opened;
 
     internal TestUser(TelegramTestHost host, JsonObject person, TestChat chat)
     {
         _host = host;
-        _person = person;
+        _opened = person;
         Chat = chat;
     }
 
     /// <summary>The Telegram user id, the same in every chat.</summary>
-    public long Id => _person["id"]!.GetValue<long>();
+    public long Id => _opened["id"]!.GetValue<long>();
 
     /// <summary>The name the user was opened with, which is one user in every chat.</summary>
-    public string FirstName => _person["first_name"]!.GetValue<string>();
+    public string FirstName => _opened["first_name"]!.GetValue<string>();
+
+    /// <summary>The last name, if the user was given one.</summary>
+    public string? LastName => Person["last_name"]?.GetValue<string>();
+
+    /// <summary>The username without @, if the user was given one.</summary>
+    public string? Username => Person["username"]?.GetValue<string>();
+
+    /// <summary>The app's language, if the user was given one.</summary>
+    public string? LanguageCode => Person["language_code"]?.GetValue<string>();
 
     /// <summary>The chat the user acts in: their private chat, or the group they are a member of.</summary>
     public TestChat Chat { get; }
+
+    // The user as Telegram now shows them, with details given since this TestUser was opened.
+    private JsonObject Person => _host.Api.Person(FirstName);
 
     /// <inheritdoc cref="TestChat.Messages"/>
     public IReadOnlyList<TestMessage> Messages => Chat.Messages;
@@ -62,11 +74,13 @@ public sealed class TestUser
     /// <exception cref="ArgumentException">
     /// <paramref name="text"/> is blank, or longer than the 4096 characters of a Telegram message.
     /// </exception>
+    /// <remarks>While a ForceReply asks the user to reply, it's sent as that reply, as the app opens the field so.</remarks>
     public Task<TestMessage> SendsAsync(string text, CancellationToken token = default)
     {
         text = CheckedText(text);
+        ThrowIfBlocked();
 
-        return DeliverAsync(() => _host.Api.Receive(Chat.Id, _person, text), token);
+        return SendsTextAsync(text, _host.Api.TakeForceReply(Chat.Id, Id), token);
     }
 
     /// <summary>
@@ -202,6 +216,7 @@ public sealed class TestUser
     {
         ArgumentNullException.ThrowIfNull(message);
         text = CheckedText(text);
+        ThrowIfBlocked();
 
         var current = StillShown(message, Messages);
         if (current.Message.From?.Id != Id)
@@ -219,6 +234,13 @@ public sealed class TestUser
         if (current.Text == text)
         {
             throw new ArgumentException("Telegram sends no edit for an unchanged message.", nameof(text));
+        }
+
+        // An edit reaches the bot only when the message did.
+        if (!_host.Api.WasHeard(Chat.Id, current.Id))
+        {
+            _host.Api.ThrowIfNotAllowed("edited_message");
+            return new TestMessage(_host.Api.EditByUser(Chat.Id, current.Id, text), _host.Api);
         }
 
         TestMessage? edited = null;
@@ -455,11 +477,12 @@ public sealed class TestUser
 
     private async Task<TestCallbackAnswer> TapAsync(JsonObject message, string data, CancellationToken token)
     {
+        ThrowIfBlocked();
         var queryId = _host.Api.NextCallbackQueryId();
         var query = new JsonObject
         {
             ["id"] = queryId,
-            ["from"] = _person.DeepClone(),
+            ["from"] = Person,
             ["message"] = message,
             ["chat_instance"] = Chat.Id.ToString(),
             ["data"] = data,
@@ -515,6 +538,7 @@ public sealed class TestUser
     // As Telegram: a caption, already checked, carries a leading /command marked.
     private Task<TestMessage> SendsFileAsync(Func<JsonObject> file, string? caption, CancellationToken token) =>
         DeliverAsync(
+            new JsonObject { ["caption"] = caption },
             () =>
             {
                 var content = file();
@@ -528,7 +552,7 @@ public sealed class TestUser
                     }
                 }
 
-                return _host.Api.Receive(Chat.Id, _person, content);
+                return _host.Api.Receive(Chat.Id, Person, content);
             },
             token
         );
@@ -578,8 +602,20 @@ public sealed class TestUser
     }
 
     // The message is posted only once the bot can take it; returns it as posted.
-    private async Task<TestMessage> DeliverAsync(Func<JsonObject> message, CancellationToken token)
+    // preview holds what decides whether Telegram sends the message to the bot: its text or caption, and what it
+    // replies to.
+    private async Task<TestMessage> DeliverAsync(JsonObject preview, Func<JsonObject> message, CancellationToken token)
     {
+        ThrowIfBlocked();
+        if (!_host.Api.WouldDeliver(Chat.Id, preview))
+        {
+            // Group privacy keeps it from the bot: it is only posted, and nothing waits for the bot.
+            _host.Api.ThrowIfNotAllowed("message");
+            var json = message();
+            _host.Api.MarkUnheard(Chat.Id, json["message_id"]!.GetValue<int>());
+            return new TestMessage(json.DeepClone().AsObject(), _host.Api);
+        }
+
         TestMessage? posted = null;
         await _host.DeliverAsync(
             "message",

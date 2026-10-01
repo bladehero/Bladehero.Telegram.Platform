@@ -140,6 +140,7 @@ public sealed class TelegramWebhookInitializerTests
                     SecretToken = secretToken,
                 }
             ),
-            NullLogger<TelegramWebhookInitializer>.Instance
+            NullLogger<TelegramWebhookInitializer>.Instance,
+            new ClientIdentity(client)
         );
 }

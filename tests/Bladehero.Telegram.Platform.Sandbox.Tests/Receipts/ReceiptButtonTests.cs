@@ -117,6 +117,7 @@ public sealed class ReceiptButtonTests
         // Arrange
         await using var bot = await StartAsync(("Nick", 40), ("Anna", 30));
         var office = bot.GroupChat("Office");
+        await office.MakesBotAdminAsync(); // so it gets the receipt photo
         var nick = office.Member("Nick");
         var anna = office.Member("Anna");
         await nick.SendsPhotoAsync(Receipt);

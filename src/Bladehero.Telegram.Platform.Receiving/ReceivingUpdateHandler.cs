@@ -12,6 +12,7 @@ internal sealed class ReceivingUpdateHandler(
     ITelegramCommandExecutor telegramCommandExecutor,
     ITelegramErrorHandler telegramErrorHandler,
     Conversation conversation,
+    ITelegramBotIdentity identity,
     ILogger<ReceivingUpdateHandler> logger
 ) : IUpdateHandler
 {
@@ -22,6 +23,16 @@ internal sealed class ReceivingUpdateHandler(
     )
     {
         using var scope = UpdateLogScope.Begin(logger, update);
+
+        // IsCommand then refuses commands addressed to another bot. While the username is unknown it accepts them, and
+        // a getMe starts in the background; it never throws and runs at most once a minute after a failure.
+        var me = identity.Current;
+        if (me is null && identity is TelegramBotIdentity own)
+        {
+            _ = own.TryGetAsync(CancellationToken.None).AsTask();
+        }
+
+        BotUsername.Current.Value = me?.Username;
 
         conversation.Bind(update);
         var request = new CommandRequest(update, botClient);

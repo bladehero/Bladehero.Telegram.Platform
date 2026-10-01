@@ -1,4 +1,5 @@
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 
@@ -6,40 +7,69 @@ namespace Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 public static class MessageExtensions
 {
     /// <summary>
-    /// Whether the message is the bot command: <c>/last</c>, <c>/last@BotName</c> or <c>/last 10</c>. The command ends
-    /// at the first whitespace, a newline or tab included.
+    /// Whether the message is the bot command, e.g. <c>/last 10</c>; inside an update, not when addressed to another
+    /// bot.
     /// </summary>
+    /// <remarks>
+    /// The command ends where Telegram ends it, so <c>/last.</c> and <c>/last 10</c> are both <c>/last</c>. Outside
+    /// an update, or before the bot has learned its username, any <c>@name</c> is accepted.
+    /// </remarks>
     public static bool IsCommand(this Message message, string command) =>
-        message.Text is { } text && CommandOf(text).Equals(command, StringComparison.OrdinalIgnoreCase);
+        message.IsCommand(command, BotUsername.Current.Value);
 
-    /// <summary>The text after the bot command and its whitespace, trimmed, or <c>null</c> when there is none.</summary>
-    public static string? ArgumentsOf(this Message message, string command)
+    /// <summary>
+    /// As <see cref="IsCommand(Message, string)"/>, for the bot named <paramref name="botUsername"/>; <c>null</c>
+    /// accepts any.
+    /// </summary>
+    public static bool IsCommand(this Message message, string command, string? botUsername) =>
+        TokenOf(message) is { } token && IsFor(token, command, botUsername);
+
+    /// <summary>The text after the bot command, trimmed, or <c>null</c> when there is none.</summary>
+    /// <remarks><c>null</c> too when the message isn't the command, as <see cref="IsCommand(Message, string)"/> decides.</remarks>
+    public static string? ArgumentsOf(this Message message, string command) =>
+        message.ArgumentsOf(command, BotUsername.Current.Value);
+
+    /// <summary>
+    /// As <see cref="ArgumentsOf(Message, string)"/>, for the bot named <paramref name="botUsername"/>; <c>null</c>
+    /// accepts any.
+    /// </summary>
+    public static string? ArgumentsOf(this Message message, string command, string? botUsername)
     {
-        if (!message.IsCommand(command))
+        if (TokenOf(message) is not { } token || !IsFor(token, command, botUsername))
         {
             return null;
         }
 
-        var text = message.Text!;
-        return text[EndOfCommand(text)..].Trim() is { Length: > 0 } arguments ? arguments : null;
+        return message.Text![token.Length..].Trim() is { Length: > 0 } arguments ? arguments : null;
     }
 
-    // The text up to the first whitespace, without an @username.
-    private static string CommandOf(string text)
+    // The leading command: its bot_command entity, or Telegram's rule when the message has none.
+    private static string? TokenOf(Message message)
     {
-        var token = text[..EndOfCommand(text)];
-        var at = token.IndexOf('@');
-        return at < 0 ? token : token[..at];
-    }
-
-    private static int EndOfCommand(string text)
-    {
-        var end = 0;
-        while (end < text.Length && !char.IsWhiteSpace(text[end]))
+        if (message.Text is not { } text)
         {
-            end++;
+            return null;
         }
 
-        return end;
+        var entity = message.Entities?.FirstOrDefault(x => x is { Type: MessageEntityType.BotCommand, Offset: 0 });
+        if (entity is not null && entity.Length <= text.Length)
+        {
+            return text[..entity.Length];
+        }
+
+        return BotCommands.LengthAtStart(text) is { } length ? text[..length] : null;
+    }
+
+    private static bool IsFor(string token, string command, string? botUsername)
+    {
+        var at = token.IndexOf('@');
+        var name = at < 0 ? token : token[..at];
+
+        return name.Equals(command, StringComparison.OrdinalIgnoreCase)
+            && (
+                at < 0
+                || botUsername is null
+                || token[(at + 1)..].Equals(botUsername, StringComparison.OrdinalIgnoreCase)
+            );
     }
 }

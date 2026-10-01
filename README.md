@@ -33,7 +33,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
   [logs](#logs) · [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) ·
-  [waits](#wait-for-later-messages) · [fake Telegram](#check-and-fail-telegram) ·
+  [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) · [fake Telegram](#check-and-fail-telegram) ·
   [production apps](#test-a-production-app)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
@@ -187,8 +187,11 @@ message.IsCommand("/last");      // true for /last, /last@MyBot and /last 10
 message.ArgumentsOf("/last");    // "10", or null
 ```
 
-`IsCommand` doesn't check the bot's own username: `/last@AnyBot` counts too, which matters in a group with several
-bots.
+Inside an update, a command addressed to another bot isn't the command: `/last@OtherBot` is `false`, which matters in a
+group with several bots. The bot learns its username with one `getMe` at startup; if that fails, it logs a Warning and
+accepts any `@name` until it can. Outside an update, or with an explicit username, you decide:
+`message.IsCommand("/last", botUsername: "MyBot")`, and `null` accepts any. The command ends where Telegram ends it, so
+`/last.` and `/last-10` are `/last` too. `ITelegramBotIdentity` gives the bot's own user, from that one `getMe`.
 
 ### Command menu
 
@@ -676,6 +679,10 @@ user everywhere.
 | `EditsAsync(message, text)` | Edit the user's own text message. |
 | `TapsAsync(text or predicate, on?)`, `TapsAsync<TButton>(which?, on?)` | Tap an inline button; return the bot's answer. |
 | `TapsAsync(…, on, asShown)` | Tap a button as a stale view showed it. |
+| `RepliesAsync(message, text)` | Reply to a message. |
+| `ReactsAsync(message, emoji)` | React with one of Telegram's reaction emoji, or take it back with `null`. |
+| `PressesAsync(label)` | Press a reply keyboard button; `ReplyKeyboard` shows the keyboard. |
+| `BlocksBotAsync()`, `UnblocksBotAsync(restart?)` | Block the bot in a private chat, or unblock it. |
 | `WaitForMessageAsync(match, after?, timeout?)` | Wait for a message the bot sends later; also on `TestChat`. |
 | `LastReply` | The newest message the bot sent; an edit doesn't move it. |
 | `Current(message)` | A message as it now stands, or `null` once deleted. |
@@ -696,6 +703,16 @@ await nick.SendsPhotoAsync(receipt);
 nick.RevisionsOf(nick.LastReply).Select(x => x.Text)
     .Should().Equal("Reading…", "Milk 2.50, bread 1.20");
 ```
+
+A reply reads as `Nick (↩ Bot: What size?): Large`. While the bot's `ForceReply` asks a user to reply, their next
+`SendsAsync` is sent as that reply, as the app opens the field so.
+
+A user can have a last name, a username and a language, kept once given:
+`bot.PrivateChat("Nick", username: "nick_d", languageCode: "uk")`, and the same on `Member`.
+
+A user who blocks the bot sends it a `my_chat_member` update; the bot's sends to that chat then fail with 403, while its
+edits, deletions and answers to taps still go through (unverified against Telegram). Reactions reach the bot only when
+it asks for `message_reaction`, and in a group only as an admin; in a private chat without admin rights (unverified).
 
 An action waits up to `bot.UpdateTimeout` (30 s, no limit under a debugger), then says whether the bot never fetched
 the update or is stuck in a command. A bot that long-polls, on a generic host or in an ASP.NET Core app, fails the
@@ -787,6 +804,25 @@ var photo = bot.Api.StoreUserPhoto(bytes);                    // sizes, smallest
 var report = bot.Api.StoreUserDocument(bytes, "report.csv");  // also StoreUserVoice(bytes, duration?)
 await bot.SendAsync(new Update { Message = new Message { /* … */ Photo = photo } });
 ```
+
+### Groups and privacy
+
+In a group, the fake applies BotFather's group privacy, on by default as for a new bot: a bot that isn't an admin gets
+only commands for it (`/coffee`, `/coffee@test_bot`), replies to its own messages and mentions of `@test_bot`. Taps
+always reach it. A message it wouldn't get is still posted to the chat, and the action returns at once without waiting
+for the bot. An edit reaches the bot only if the message did.
+
+A bot that must read plain text in a group is made an admin, has privacy turned off in @BotFather, or asks for the text
+with a `ForceReply`, whose answer is a reply to it:
+
+```csharp
+var office = bot.GroupChat("Office");
+await office.MakesBotAdminAsync();   // or bot.Api.PrivacyMode = false
+await office.Member("Anna").SendsAsync("Anna");
+```
+
+`DemotesBotAsync` takes the rights back, and both send the bot a `my_chat_member` update when it asks for one. In a
+group, the bot may delete others' messages only as an admin allowed to; in a private chat it may delete the user's.
 
 ### Wait for later messages
 
@@ -896,8 +932,10 @@ nick.Messages.Count(x => x.Text == "Paid 12 EUR").Should().Be(2);
 The fake answers like Telegram, with Telegram's own error texts, and supports:
 
 - `getMe`, `getUpdates` and file downloads;
-- `sendMessage`, `sendPhoto`, `sendDocument`, `sendVoice`, `sendChatAction`;
-- `editMessageText`, `editMessageCaption`, `editMessageReplyMarkup`, `deleteMessage`;
+- `sendMessage`, `sendPhoto`, `sendDocument`, `sendVoice`, `sendMediaGroup`, `sendChatAction`;
+- `forwardMessage`, `copyMessage`;
+- `editMessageText`, `editMessageCaption`, `editMessageReplyMarkup`, `editMessageMedia`;
+- `deleteMessage`, `deleteMessages`, `setMessageReaction`;
 - `answerCallbackQuery`, `getFile`;
 - `setWebhook`, `getWebhookInfo`, `deleteWebhook`;
 - `getMyCommands`, `setMyCommands`.
@@ -915,7 +953,13 @@ Any other method fails the test, naming it. It enforces:
 - "message is not modified";
 - edits only of the bot's own messages, text edits only of text and caption edits only of files, and edits and
   deletions only of messages still there;
+- replies only to messages still there, unless the bot allows sending without one;
+- [group privacy](#groups-and-privacy), and admin rights to delete others' messages in a group;
+- a chat whose user blocked the bot refuses its sends with 403;
+- one reply keyboard or `ForceReply` per chat, kept off the message, and inline keyboards only in edits;
 - downloads up to 20 MB.
+
+Method names ignore case, as in the Bot API; `Calls` keeps each as the bot sent it.
 
 It keeps text as the bot sent it, without parsing or checking HTML or Markdown, so `parse_mode` changes nothing: assert
 on the raw text, and try the markup against real Telegram.
@@ -1038,6 +1082,8 @@ both run, and the second answer fails the action, so give each button's data to 
     `ITelegramSender`, on the clock of an injected `TimeProvider`;
   - an [error handler](#errors-and-the-httpclient) that apologises in the chat, even to someone who blocked the bot;
   - a greeting when the bot is added to a group, next to a logger of `MyChatMember` updates;
+  - a coffee order in a group, where the bot is made an admin to hear the typed cup names, and a test of what a bot
+    without admin rights misses under [group privacy](#groups-and-privacy);
   - component tests of restarts on the same fake with and without a shared conversation store, members seeded with
     `UserIdOf` before the host starts, Telegram refusing calls to one chat or asking the bot to slow down, and a
     `FakeTimeProvider` moving the barista's clock on. The stand-ins are registered after `AddCoffeeShop`, in place of
@@ -1112,6 +1158,14 @@ optionally, `Telegram:SecretToken`.
 - `TapsAsync(button, on, asShown: true)` replaces hand-built stale taps. Such a tap should carry the message as it now
   stands, not the snapshot.
 - `BotApiError.QueryTooOld` names Telegram's refusal of a second answer to a tap.
+- Inside an update, `IsCommand` and `ArgumentsOf` no longer take `/cmd@other_bot`. A bot makes one `getMe` at startup,
+  visible in `Api.Calls`.
+- In the fake, groups have privacy mode on. Make the bot an admin, reply to it, or set `PrivacyMode = false`; plain text
+  from group members no longer reaches a non-admin bot.
+- `bot_command` entities follow Telegram's rules anywhere in the text.
+- `UserIdOf`, `PrivateChat` and `Member` take optional details.
+- Deleting another user's message in a group needs the bot to be an admin.
+- `IsCommand` ends a command where Telegram does: `/last.` and `/last-10` are `/last`, and `/last@ab` isn't a command.
 
 ## License
 

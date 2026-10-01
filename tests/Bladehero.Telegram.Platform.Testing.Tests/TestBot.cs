@@ -3,11 +3,14 @@ using Bladehero.Telegram.Platform.Receiving.Background;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
+using Bladehero.Telegram.Platform.Receiving.Commands;
+using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.CallbackQueries;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.ChatMembers;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.EditedMessages;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
+using Bladehero.Telegram.Platform.Receiving.Commands.Typed.MyChatMembers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
@@ -38,6 +41,8 @@ internal static class TestBot
                     typeof(TestBot).Assembly
                 );
                 collection.AddSingleton<SeenTaps>();
+                collection.AddSingleton<Seen<ChatMemberUpdated>>();
+                collection.AddSingleton<Seen<MessageReactionUpdated>>();
                 services?.Invoke(collection);
             },
             api
@@ -163,6 +168,59 @@ internal static class TestBot
                 InlineKeyboardButton.WithCallbackData("Done", "steps-done"),
                 cancellationToken: token
             );
+        }
+    }
+
+    // What the probes below saw, e.g. the bot's own membership changes.
+    internal sealed class Seen<T>
+    {
+        private readonly List<T> _items = [];
+
+        public IReadOnlyList<T> All
+        {
+            get
+            {
+                lock (_items)
+                {
+                    return [.. _items];
+                }
+            }
+        }
+
+        public void Add(T item)
+        {
+            lock (_items)
+            {
+                _items.Add(item);
+            }
+        }
+    }
+
+    // Records my_chat_member updates; optional, so hosts that don't register the probe still validate.
+    private sealed class MembershipCommand(Seen<ChatMemberUpdated>? seen = null) : MyChatMemberCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<ChatMemberUpdated> request,
+            CancellationToken token
+        ) => Task.FromResult(true);
+
+        protected override Task HandleAsync(TypedCommandRequest<ChatMemberUpdated> request, CancellationToken token)
+        {
+            seen?.Add(request.Payload);
+            return Task.CompletedTask;
+        }
+    }
+
+    // Records message_reaction updates, for which there's no typed base.
+    private sealed class ReactionCommand(Seen<MessageReactionUpdated>? seen = null) : ITelegramCommand
+    {
+        public Task<bool> CanHandleAsync(CommandRequest request, CancellationToken token) =>
+            Task.FromResult(request.Update.MessageReaction is not null);
+
+        public Task HandleAsync(CommandRequest request, CancellationToken token)
+        {
+            seen?.Add(request.Update.MessageReaction!);
+            return Task.CompletedTask;
         }
     }
 
@@ -301,6 +359,115 @@ internal static class TestBot
             );
 
             return Task.CompletedTask;
+        }
+    }
+
+    // Sends a reply keyboard, a removal or a ForceReply, one per trigger.
+    private sealed class ReplyMarkupCommand : MessageCommand
+    {
+        private static readonly Dictionary<string, (string Text, ReplyMarkup Markup)> Markups = new()
+        {
+            ["/keyboard"] = (
+                "Pick a drink",
+                new ReplyKeyboardMarkup([
+                    ["Tea", "Coffee"],
+                    ["/whoami"],
+                ])
+            ),
+            ["/onetime"] = (
+                "Sure?",
+                new ReplyKeyboardMarkup([
+                    ["Yes", "No"],
+                ])
+                {
+                    OneTimeKeyboard = true,
+                }
+            ),
+            ["/contact"] = (
+                "Your phone?",
+                new ReplyKeyboardMarkup([
+                    [KeyboardButton.WithRequestContact("Share")],
+                ])
+            ),
+            ["/nokeyboard"] = ("Keyboard gone", new ReplyKeyboardRemove()),
+            ["/ask"] = ("What's your name?", new ForceReplyMarkup { InputFieldPlaceholder = "Your name" }),
+            ["/selective"] = (
+                "@anna_k, pick one",
+                new ReplyKeyboardMarkup([
+                    ["A"],
+                ])
+                {
+                    Selective = true,
+                }
+            ),
+        };
+
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(Markups.Keys.Any(request.Payload.IsCommand));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (text, markup) = Markups[Markups.Keys.First(request.Payload.IsCommand)];
+            return request.Client.SendMessage(
+                request.Payload.Chat,
+                text,
+                replyMarkup: markup,
+                cancellationToken: token
+            );
+        }
+    }
+
+    // Says what the message replies to, as the bot sees it.
+    private sealed class RepliedCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/replied"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                $"You replied to: {request.Payload.ReplyToMessage?.Text ?? "nothing"}",
+                cancellationToken: token
+            );
+    }
+
+    // A selective keyboard, as a reply to the sender, so only they see it.
+    private sealed class PickMeCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/pickme"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "Pick one",
+                replyParameters: request.Payload.Id,
+                replyMarkup: new ReplyKeyboardMarkup([
+                    ["A"],
+                ])
+                {
+                    Selective = true,
+                },
+                cancellationToken: token
+            );
+    }
+
+    // Replies with the sender's details as the bot sees them, and the chat's username.
+    private sealed class DetailsCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/details"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var (_, message, client) = request;
+            var from = message.From!;
+
+            return client.SendMessage(
+                message.Chat,
+                $"{from.FirstName} {from.LastName} @{from.Username} {from.LanguageCode}; chat @{message.Chat.Username}",
+                cancellationToken: token
+            );
         }
     }
 
