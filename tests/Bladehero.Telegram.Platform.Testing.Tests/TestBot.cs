@@ -37,6 +37,7 @@ internal static class TestBot
                     },
                     typeof(TestBot).Assembly
                 );
+                collection.AddSingleton<SeenTaps>();
                 services?.Invoke(collection);
             },
             api
@@ -45,6 +46,125 @@ internal static class TestBot
     // How many cups: the data of the buttons /cups shows.
     [ButtonData("t-cups")]
     internal readonly record struct Cups(int Count);
+
+    // A cup size in ml, the data of the buttons /size shows; Version counts the card's redraws.
+    [ButtonData("t-size")]
+    internal readonly record struct Size(int Ml, int Version);
+
+    // The size taps the bot got, as it saw them.
+    internal sealed class SeenTaps
+    {
+        private readonly List<CallbackQuery> _taps = [];
+
+        public CallbackQuery Last
+        {
+            get
+            {
+                lock (_taps)
+                {
+                    return _taps[^1];
+                }
+            }
+        }
+
+        public void Add(CallbackQuery tap)
+        {
+            lock (_taps)
+            {
+                _taps.Add(tap);
+            }
+        }
+    }
+
+    // "Pick a size" with Small, Large and a Remove that deletes the card.
+    private sealed class SizeCardCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/size"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "Pick a size",
+                replyMarkup: SizeKeyboard(version: 1),
+                cancellationToken: token
+            );
+    }
+
+    // Answers "Size 400" and redraws the card one version on; a tap on a deleted card is only answered.
+    private sealed class SizeCommand(SeenTaps? seen = null) : CallbackQueryCommand<Size>
+    {
+        protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            var (_, query, client) = request;
+            seen?.Add(query);
+
+            if (query.Message is not { Date.Year: > 1970 } card)
+            {
+                await client.AnswerCallbackQuery(query.Id, "That card is gone", cancellationToken: token);
+                return;
+            }
+
+            await client.AnswerCallbackQuery(query.Id, $"Size {Parsed.Ml}", cancellationToken: token);
+            await client.EditMessageText(
+                card.Chat,
+                card.Id,
+                $"Size {Parsed.Ml}",
+                replyMarkup: SizeKeyboard(Parsed.Version + 1),
+                cancellationToken: token
+            );
+        }
+    }
+
+    private static InlineKeyboardMarkup SizeKeyboard(int version) =>
+        new InlineKeyboardMarkup()
+            .AddButton("Small", new Size(250, version))
+            .AddButton("Large", new Size(400, version))
+            .AddButton("Remove", "dismiss");
+
+    // "Step 1" with Next, which edits the text and then the buttons, one call each.
+    private sealed class StepsCommand : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(request.Payload.IsCommand("/steps"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            request.Client.SendMessage(
+                request.Payload.Chat,
+                "Step 1",
+                replyMarkup: InlineKeyboardButton.WithCallbackData("Next", "steps-next"),
+                cancellationToken: token
+            );
+    }
+
+    private sealed class NextStepCommand : CallbackQueryCommand
+    {
+        protected override Task<bool> CanHandleAsync(
+            TypedCommandRequest<CallbackQuery> request,
+            CancellationToken token
+        ) => Task.FromResult(request.Payload.Data == "steps-next");
+
+        protected override async Task HandleAsync(TypedCommandRequest<CallbackQuery> request, CancellationToken token)
+        {
+            var (_, query, client) = request;
+            var card = query.Message!;
+
+            await client.AnswerCallbackQuery(query.Id, cancellationToken: token);
+            await client.EditMessageText(
+                card.Chat,
+                card.Id,
+                "Step 2",
+                replyMarkup: InlineKeyboardButton.WithCallbackData("Next", "steps-next"),
+                cancellationToken: token
+            );
+            await client.EditMessageReplyMarkup(
+                card.Chat,
+                card.Id,
+                InlineKeyboardButton.WithCallbackData("Done", "steps-done"),
+                cancellationToken: token
+            );
+        }
+    }
 
     // Greets whoever joins a group.
     private sealed class WelcomeCommand : ChatMemberCommand

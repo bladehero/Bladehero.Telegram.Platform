@@ -675,7 +675,11 @@ user everywhere.
 | `SendsAlbumAsync`, `SendsDocumentAlbumAsync` | Send 2 to 10 photos or files as one album. |
 | `EditsAsync(message, text)` | Edit the user's own text message. |
 | `TapsAsync(text or predicate, on?)`, `TapsAsync<TButton>(which?, on?)` | Tap an inline button; return the bot's answer. |
+| `TapsAsync(…, on, asShown)` | Tap a button as a stale view showed it. |
 | `WaitForMessageAsync(match, after?, timeout?)` | Wait for a message the bot sends later; also on `TestChat`. |
+| `LastReply` | The newest message the bot sent; an edit doesn't move it. |
+| `Current(message)` | A message as it now stands, or `null` once deleted. |
+| `RevisionsOf(message)` | Every state a message has had, oldest first. |
 
 A sent message is a snapshot that stays valid even if the bot deletes it. A user can edit their own text message: the
 chat shows the edit, and the bot gets an `edited_message`.
@@ -683,6 +687,14 @@ chat shows the edit, and the bot gets an `edited_message`.
 ```csharp
 var order = await nick.SendsAsync("2 coffees");
 await nick.EditsAsync(order, "3 coffees");
+```
+
+`RevisionsOf` shows what a message went through, such as a notice that became the result:
+
+```csharp
+await nick.SendsPhotoAsync(receipt);
+nick.RevisionsOf(nick.LastReply).Select(x => x.Text)
+    .Should().Equal("Reading…", "Milk 2.50, bread 1.20");
 ```
 
 An action waits up to `bot.UpdateTimeout` (30 s, no limit under a debugger), then says whether the bot never fetched
@@ -734,26 +746,16 @@ two taps at once:
 var answers = await Task.WhenAll(nick.TapsAsync("Add", on: card), nick.TapsAsync("Add", on: card));
 ```
 
-To act as a client that hasn't seen an edit yet, send the tap as a raw `callback_query` built from a snapshot of the
-message. Its answer isn't returned; read it from `bot.Api.Calls`:
+To act as a view that hasn't seen an edit yet, tap a snapshot `asShown`:
 
 ```csharp
 var card = nick.LastMessage;   // a snapshot, buttons and all
 // … the bot edits the card …
-
-await bot.SendAsync(new Update
-{
-    CallbackQuery = new CallbackQuery
-    {
-        Id = "stale-tap",
-        From = new User { Id = nick.Id, FirstName = "Nick" },
-        Message = card.Message,
-        ChatInstance = "1",
-        Data = "size:large",
-    },
-});
-var answer = bot.Api.Calls.Last(x => x.Method == "answerCallbackQuery").Parameters["text"];
+var answer = await nick.TapsAsync("Large", on: card, asShown: true);
 ```
+
+The button and its data come from the snapshot. The bot gets the message as it now stands, or only its chat and id with
+date 0 once it's deleted, as from Telegram.
 
 ### Send and read files
 
@@ -777,6 +779,14 @@ await nick.SendsDocumentAlbumAsync([new(march, "march.csv"), new(scan, "scan", "
 
 Each `TestDocument` has its bytes, its name and, when the extension doesn't tell, its MIME type. A webhook bot gets an
 album's items one by one in tests too, where real Telegram may post them at once.
+
+For a hand-built update, store the user's file first; the bot downloads it as a sent one:
+
+```csharp
+var photo = bot.Api.StoreUserPhoto(bytes);                    // sizes, smallest first
+var report = bot.Api.StoreUserDocument(bytes, "report.csv");  // also StoreUserVoice(bytes, duration?)
+await bot.SendAsync(new Update { Message = new Message { /* … */ Photo = photo } });
+```
 
 ### Wait for later messages
 
@@ -820,6 +830,9 @@ failed poll runs on the same clock, so with a `FakeTimeProvider` it too lasts un
 | `bot.Api` | |
 | --- | --- |
 | `Calls` | Every Bot API call with its parameters. |
+| `Mark()`, `CallsSince(mark)` | A point in `Calls`, and the calls after it. |
+| `Sent<TRequest>()` | The requests as Telegram.Bot objects, e.g. `SendMessageRequest`; one per attempt. |
+| `WaitForCallAsync(method, match?, after?, timeout?)` | Wait for a call the bot makes later, e.g. from a job. |
 | `CommandMenu(scope?)` | The published command menu; the default scope when none is given. |
 | `WebhookUrl` | The webhook the bot set. |
 | `Fail(method, error, times?, chatId?)` | Makes Telegram refuse a method, for every chat or only one. |
@@ -840,6 +853,15 @@ bot.Api.TimeOut("sendMessage", times: 1);                                       
 bot.Api.CommandMenu(new BotCommandScopeAllPrivateChats()).Should().NotBeEmpty();     // a menu for private chats
 
 await bot.SendAsync(new Update { /* … */ });   // any raw update
+```
+
+A call the bot makes after the update was handled is waited for from a mark; typed requests are read without JSON:
+
+```csharp
+var mark = bot.Api.Mark();
+await nick.SendsAsync("/import");                                // a job edits its notice later
+await bot.Api.WaitForCallAsync("editMessageText", after: mark);
+bot.Api.Sent<EditMessageTextRequest>().Last().Text.Should().Be("Imported 3 expenses");
 ```
 
 The bot can write only to a chat Telegram knows: open it first with `PrivateChat` or `GroupChat` (a raw update's chat
@@ -989,9 +1011,9 @@ Dispose the first host before starting the second: a second host polling the sam
 the older host's next action fails with it.
 
 **One command per button:** Telegram takes one answer per tap, and a second fails with its own "query is too old and
-response timeout expired or query ID is invalid". When two commands claim the same button both run, and the second
-answer fails the action, so give each button's data to exactly one command. [Typed buttons](#buttons-with-typed-data)
-are checked for this at startup.
+response timeout expired or query ID is invalid" (`BotApiError.QueryTooOld`). When two commands claim the same button
+both run, and the second answer fails the action, so give each button's data to exactly one command.
+[Typed buttons](#buttons-with-typed-data) are checked for this at startup.
 
 ## Samples
 
@@ -1087,6 +1109,9 @@ optionally, `Telegram:SecretToken`.
 - A `ParallelCount` below 1, or a webhook `BaseUrl` that isn't an absolute http or https URL, now fails startup.
 - Two hosts polling one `FakeBotApi` at once get Telegram's 409.
 - Updates are handled inside a log scope carrying `TelegramUpdateId`.
+- `TapsAsync(button, on, asShown: true)` replaces hand-built stale taps. Such a tap should carry the message as it now
+  stands, not the snapshot.
+- `BotApiError.QueryTooOld` names Telegram's refusal of a second answer to a tap.
 
 ## License
 

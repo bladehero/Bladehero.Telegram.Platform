@@ -15,9 +15,6 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// </remarks>
 public sealed class TestUser
 {
-    // The small photo size, so a bot reading Photo[0] instead of the largest gets the wrong bytes, as with Telegram.
-    private static readonly byte[] Thumbnail = "thumbnail"u8.ToArray();
-
     private readonly TelegramTestHost _host;
     private readonly JsonObject _person;
 
@@ -42,6 +39,15 @@ public sealed class TestUser
 
     /// <inheritdoc cref="TestChat.LastMessage"/>
     public TestMessage LastMessage => Chat.LastMessage;
+
+    /// <inheritdoc cref="TestChat.LastReply"/>
+    public TestMessage LastReply => Chat.LastReply;
+
+    /// <inheritdoc cref="TestChat.Current"/>
+    public TestMessage? Current(TestMessage message) => Chat.Current(message);
+
+    /// <inheritdoc cref="TestChat.RevisionsOf"/>
+    public IReadOnlyList<TestMessage> RevisionsOf(TestMessage message) => Chat.RevisionsOf(message);
 
     /// <inheritdoc cref="TestChat.WaitForMessageAsync"/>
     public Task<TestMessage> WaitForMessageAsync(
@@ -87,20 +93,7 @@ public sealed class TestUser
         ThrowIfEmpty(voice);
         ArgumentOutOfRangeException.ThrowIfLessThan(duration ?? TimeSpan.Zero, TimeSpan.Zero, nameof(duration));
 
-        return SendsFileAsync(
-            () =>
-                _host.Api.StoreFile(
-                    FileKind.Voice,
-                    voice,
-                    new JsonObject
-                    {
-                        ["duration"] = (int)Math.Ceiling((duration ?? TimeSpan.FromSeconds(1)).TotalSeconds),
-                        ["mime_type"] = "audio/ogg",
-                    }
-                ),
-            caption: null,
-            token
-        );
+        return SendsFileAsync(() => _host.Api.UserVoice(voice, duration), caption: null, token);
     }
 
     /// <summary>
@@ -210,7 +203,7 @@ public sealed class TestUser
         ArgumentNullException.ThrowIfNull(message);
         text = CheckedText(text);
 
-        var current = Current(message, Messages);
+        var current = StillShown(message, Messages);
         if (current.Message.From?.Id != Id)
         {
             throw new InvalidOperationException($"{Quote(current)} is not {FirstName}'s: only its sender can edit it.");
@@ -255,7 +248,35 @@ public sealed class TestUser
     {
         ArgumentException.ThrowIfNullOrEmpty(button);
 
-        return TapAsync(Find(x => x.Text == button, $"\"{button}\" button", on), token);
+        return TapAsync(x => x.Text == button, $"\"{button}\" button", on, asShown: false, token);
+    }
+
+    /// <summary>
+    /// Taps <paramref name="button"/> on <paramref name="on"/> as the user's app showed it, or as it now stands.
+    /// </summary>
+    /// <param name="button">The button's exact text.</param>
+    /// <param name="on">The message to tap it on.</param>
+    /// <param name="asShown">Whether to find the button on the snapshot <paramref name="on"/>, as a stale view would.</param>
+    /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>The bot's answer: the notification or alert the user sees, if any.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// The message is from another chat, or the button isn't shown, is ambiguous, or is not a callback button.
+    /// </exception>
+    /// <remarks>
+    /// With <paramref name="asShown"/>, the bot gets the message as it now stands, or only its chat and id once
+    /// deleted.
+    /// </remarks>
+    public Task<TestCallbackAnswer> TapsAsync(
+        string button,
+        TestMessage on,
+        bool asShown,
+        CancellationToken token = default
+    )
+    {
+        ArgumentException.ThrowIfNullOrEmpty(button);
+        ArgumentNullException.ThrowIfNull(on);
+
+        return TapAsync(x => x.Text == button, $"\"{button}\" button", on, asShown, token);
     }
 
     /// <summary>
@@ -277,7 +298,36 @@ public sealed class TestUser
     {
         ArgumentNullException.ThrowIfNull(button);
 
-        return TapAsync(Find(button, "button matching the predicate", on), token);
+        return TapAsync(button, "button matching the predicate", on, asShown: false, token);
+    }
+
+    /// <summary>
+    /// Taps the one inline button <paramref name="button"/> picks on <paramref name="on"/>, as the user's app showed
+    /// it or as it now stands.
+    /// </summary>
+    /// <param name="button">Picks the button, e.g. <c>b =&gt; b.CallbackData == "date:next"</c>.</param>
+    /// <param name="on">The message to tap it on.</param>
+    /// <param name="asShown">Whether to find the button on the snapshot <paramref name="on"/>, as a stale view would.</param>
+    /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>The bot's answer: the notification or alert the user sees, if any.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// The message is from another chat, or not exactly one callback button on it matches.
+    /// </exception>
+    /// <remarks>
+    /// With <paramref name="asShown"/>, the bot gets the message as it now stands, or only its chat and id once
+    /// deleted.
+    /// </remarks>
+    public Task<TestCallbackAnswer> TapsAsync(
+        Func<InlineKeyboardButton, bool> button,
+        TestMessage on,
+        bool asShown,
+        CancellationToken token = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(button);
+        ArgumentNullException.ThrowIfNull(on);
+
+        return TapAsync(button, "button matching the predicate", on, asShown, token);
     }
 
     /// <summary>
@@ -297,6 +347,45 @@ public sealed class TestUser
         TestMessage? on = null,
         CancellationToken token = default
     )
+        where TButton : struct => TapTypedAsync(which, on, asShown: false, token);
+
+    /// <summary>
+    /// Taps the button whose data decodes as <typeparamref name="TButton"/> and matches <paramref name="which"/>, on
+    /// <paramref name="on"/> as the user's app showed it or as it now stands.
+    /// </summary>
+    /// <typeparam name="TButton">A <c>[ButtonData]</c> struct.</typeparam>
+    /// <param name="which">Picks the button by its data; any, when <c>null</c>.</param>
+    /// <param name="on">The message to tap it on.</param>
+    /// <param name="asShown">Whether to find the button on the snapshot <paramref name="on"/>, as a stale view would.</param>
+    /// <param name="token">Stops waiting for the bot.</param>
+    /// <returns>The bot's answer: the notification or alert the user sees, if any.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// <typeparamref name="TButton"/> can't be button data, the message is from another chat, or not exactly one
+    /// button on it matches.
+    /// </exception>
+    /// <remarks>
+    /// With <paramref name="asShown"/>, the bot gets the message as it now stands, or only its chat and id once
+    /// deleted.
+    /// </remarks>
+    public Task<TestCallbackAnswer> TapsAsync<TButton>(
+        Func<TButton, bool>? which,
+        TestMessage on,
+        bool asShown,
+        CancellationToken token = default
+    )
+        where TButton : struct
+    {
+        ArgumentNullException.ThrowIfNull(on);
+
+        return TapTypedAsync(which, on, asShown, token);
+    }
+
+    private Task<TestCallbackAnswer> TapTypedAsync<TButton>(
+        Func<TButton, bool>? which,
+        TestMessage? on,
+        bool asShown,
+        CancellationToken token
+    )
         where TButton : struct
     {
         // Fails at once for a type that can't be button data.
@@ -306,15 +395,14 @@ public sealed class TestUser
         var what = which is null ? $"{type} button" : $"{type} button matching the predicate";
 
         return TapAsync(
-            Find(
-                button => Decode(button, out TButton data) && (which?.Invoke(data) ?? true),
-                what,
-                on,
-                (message, matches) =>
-                    $"{Quote(message)} shows more than one {what}, so which one {FirstName} taps is ambiguous: "
-                    + $"{string.Join(", ", matches.Select(ValueOf))}. Pick one with TapsAsync<{type}>(b => …)."
-            ),
-            token
+            button => Decode(button, out TButton data) && (which?.Invoke(data) ?? true),
+            what,
+            on,
+            asShown,
+            token,
+            (message, matches) =>
+                $"{message} shows more than one {what}, so which one {FirstName} taps is ambiguous: "
+                + $"{string.Join(", ", matches.Select(ValueOf))}. Pick one with TapsAsync<{type}>(b => …)."
         );
 
         static bool Decode(InlineKeyboardButton button, out TButton data)
@@ -327,15 +415,52 @@ public sealed class TestUser
             Decode(button, out TButton data) ? data.ToString() : null;
     }
 
-    private async Task<TestCallbackAnswer> TapAsync((TestMessage Message, string Data) tap, CancellationToken token)
+    // Finds the button on `on` as shown, as it now stands, or (on null) on the newest message showing one; the bot
+    // gets the message as it now stands. `ambiguous` words the error for a message and its matches.
+    private Task<TestCallbackAnswer> TapAsync(
+        Func<InlineKeyboardButton, bool> match,
+        string what,
+        TestMessage? on,
+        bool asShown,
+        CancellationToken token,
+        Func<string, InlineKeyboardButton[], string>? ambiguous = null
+    )
     {
-        var (message, data) = tap;
+        if (!asShown || on is null)
+        {
+            var (message, data) = Find(match, what, on, ambiguous);
+            return TapAsync(message.ToJson(), data, token);
+        }
+
+        if (on.Message.Chat.Id != Chat.Id)
+        {
+            throw new InvalidOperationException($"{Quote(on)} is not in {Chat.Description}.");
+        }
+
+        var shown = $"as {FirstName}'s app showed it";
+        var (_, shownData) = Pick(match, what, [on], $"on {Quote(on)} {shown}", $", {shown},", ambiguous);
+
+        // Telegram sends a deleted message as an inaccessible one: its chat and id, dated 0.
+        var current =
+            _host.Api.MessageIn(Chat.Id, on.Id)
+            ?? new JsonObject
+            {
+                ["chat"] = on.ToJson()["chat"]!.DeepClone(),
+                ["message_id"] = on.Id,
+                ["date"] = 0,
+            };
+
+        return TapAsync(current, shownData, token);
+    }
+
+    private async Task<TestCallbackAnswer> TapAsync(JsonObject message, string data, CancellationToken token)
+    {
         var queryId = _host.Api.NextCallbackQueryId();
         var query = new JsonObject
         {
             ["id"] = queryId,
             ["from"] = _person.DeepClone(),
-            ["message"] = message.ToJson(),
+            ["message"] = message,
             ["chat_instance"] = Chat.Id.ToString(),
             ["data"] = data,
         };
@@ -382,35 +507,10 @@ public sealed class TestUser
         return string.IsNullOrEmpty(caption) ? null : caption;
     }
 
-    private Func<JsonObject> PhotoOf(byte[] photo) =>
-        () =>
-        {
-            var thumbnail = _host.Api.StoreFile(
-                FileKind.Photo,
-                Thumbnail,
-                new JsonObject { ["width"] = 90, ["height"] = 68 }
-            )["photo"]![0]!;
-
-            var content = _host.Api.StoreFile(
-                FileKind.Photo,
-                photo,
-                new JsonObject { ["width"] = 1280, ["height"] = 960 }
-            );
-            content["photo"]!.AsArray().Insert(0, thumbnail.DeepClone());
-            return content;
-        };
+    private Func<JsonObject> PhotoOf(byte[] photo) => () => _host.Api.UserPhoto(photo);
 
     private Func<JsonObject> DocumentOf(byte[] document, string fileName, string? mimeType = null) =>
-        () =>
-            _host.Api.StoreFile(
-                FileKind.Document,
-                document,
-                new JsonObject
-                {
-                    ["file_name"] = fileName,
-                    ["mime_type"] = string.IsNullOrWhiteSpace(mimeType) ? MimeTypes.Of(fileName) : mimeType,
-                }
-            );
+        () => _host.Api.UserDocument(document, fileName, mimeType);
 
     // As Telegram: a caption, already checked, carries a leading /command marked.
     private Task<TestMessage> SendsFileAsync(Func<JsonObject> file, string? caption, CancellationToken token) =>
@@ -495,29 +595,37 @@ public sealed class TestUser
         return posted!;
     }
 
-    private static void ThrowIfEmpty(byte[] content, [CallerArgumentExpression(nameof(content))] string? name = null)
-    {
-        ArgumentNullException.ThrowIfNull(content, name);
-
-        if (content.Length == 0)
-        {
-            throw new ArgumentException("The Telegram app never sends an empty file.", name);
-        }
-    }
+    private static void ThrowIfEmpty(byte[] content, [CallerArgumentExpression(nameof(content))] string? name = null) =>
+        FakeBotApi.ThrowIfEmpty(content, name);
 
     private static string Quote(TestMessage message) => $"\"{message.Content}\"";
 
-    // The one button `match` picks on `on`, or on the newest message showing one; `what` and `ambiguous` word errors.
+    // The one button `match` picks on `on` as it now stands, or on the newest message showing one.
     private (TestMessage Message, string Data) Find(
         Func<InlineKeyboardButton, bool> match,
         string what,
         TestMessage? on,
-        Func<TestMessage, InlineKeyboardButton[], string>? ambiguous = null
+        Func<string, InlineKeyboardButton[], string>? ambiguous
     )
     {
         var messages = Messages;
-        IEnumerable<TestMessage> candidates = on is null ? messages.Reverse() : [Current(on, messages)];
 
+        return on is null
+            ? Pick(match, what, messages.Reverse(), $"in {Chat.Description}", "", ambiguous)
+            : Pick(match, what, [StillShown(on, messages)], $"on {Quote(on)}", "", ambiguous);
+    }
+
+    // The one button `match` picks on the first of `candidates` showing one. `what`, `where` (for none) and `ambiguous`
+    // word errors; `aside` follows a quoted message in them.
+    private (TestMessage Message, string Data) Pick(
+        Func<InlineKeyboardButton, bool> match,
+        string what,
+        IEnumerable<TestMessage> candidates,
+        string where,
+        string aside,
+        Func<string, InlineKeyboardButton[], string>? ambiguous
+    )
+    {
         foreach (var message in candidates)
         {
             var matches = message.Keyboard.Where(match).ToArray();
@@ -533,24 +641,25 @@ public sealed class TestUser
                             + "bot never hears of the tap."
                     );
                 case [_, _, ..] when ambiguous is not null:
-                    throw new InvalidOperationException(ambiguous(message, matches));
+                    throw new InvalidOperationException(ambiguous(Quote(message) + aside, matches));
                 case [var first, ..]:
                     throw new InvalidOperationException(
-                        $"{Quote(message)} shows more than one {what}, so which one {FirstName} taps is ambiguous. "
+                        $"{Quote(message)}{aside} shows more than one {what}, so which one {FirstName} taps is "
+                            + "ambiguous. "
                             + $"Pick one with TapsAsync(b => b.CallbackData == \"{first.CallbackData ?? "…"}\")."
                     );
             }
         }
 
         var shown = candidates.SelectMany(message => message.Buttons).Distinct().ToArray();
-        var where = on is null ? $"in {Chat.Description}" : $"on {Quote(on)}";
         throw new InvalidOperationException(
             $"{FirstName} sees no {what} {where}. "
                 + (shown.Length == 0 ? "There are no buttons." : $"The buttons are \"{string.Join("\", \"", shown)}\".")
         );
     }
 
-    private TestMessage Current(TestMessage on, IReadOnlyList<TestMessage> messages)
+    // `on` as it now stands.
+    private TestMessage StillShown(TestMessage on, IReadOnlyList<TestMessage> messages)
     {
         if (on.Message.Chat.Id != Chat.Id)
         {

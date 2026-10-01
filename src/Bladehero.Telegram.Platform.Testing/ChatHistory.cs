@@ -2,10 +2,14 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
-// A chat's messages as they now stand. As in Telegram, message ids count up per chat, whoever posts.
+// A chat's messages as they now stand, and every state each has had. As in Telegram, message ids count up per chat,
+// whoever posts.
 internal sealed class ChatHistory(JsonObject chat)
 {
     private readonly List<JsonObject> _messages = [];
+
+    // Copies of each message as posted and after every change; kept after a deletion.
+    private readonly Dictionary<int, List<JsonObject>> _revisions = [];
     private TaskCompletionSource _changed = NewSignal();
     private int _lastMessageId;
 
@@ -32,12 +36,15 @@ internal sealed class ChatHistory(JsonObject chat)
         }
 
         _messages.Add(message);
+        _revisions[_lastMessageId] = [message.DeepClone().AsObject()];
         Changed();
         return message;
     }
 
     public JsonObject? Find(int messageId) =>
         _messages.FirstOrDefault(message => message["message_id"]!.GetValue<int>() == messageId);
+
+    public IReadOnlyList<JsonObject> Revisions(int messageId) => _revisions.GetValueOrDefault(messageId) ?? [];
 
     public bool Remove(int messageId)
     {
@@ -49,6 +56,10 @@ internal sealed class ChatHistory(JsonObject chat)
         Changed();
         return true;
     }
+
+    // Called after a message found here was edited, next to Changed.
+    public void Revise(JsonObject message) =>
+        _revisions[message["message_id"]!.GetValue<int>()].Add(message.DeepClone().AsObject());
 
     // Called after a message found here was edited.
     public void Changed()
