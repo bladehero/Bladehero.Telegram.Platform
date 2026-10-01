@@ -31,6 +31,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation)
 - [Sending on your own](#sending-on-your-own)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
+- [History](#history): [entries](#whats-in-an-entry) · [read](#read-it-back) · [privacy](#privacy) · [stores](#stores)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
   [logs](#logs) · [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) ·
   [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) · [fake Telegram](#check-and-fail-telegram) ·
@@ -502,6 +503,110 @@ services.AddTelegramLongPollingReceiving(
     assemblies: typeof(Program).Assembly
 );
 ```
+
+## History
+
+The history is an append-only record of the bot's Telegram traffic: every update it gets and every Bot API call it
+makes. Telegram doesn't let a bot read a chat's past, so it has to be captured as it passes.
+
+```csharp
+services.AddTelegramHistory().UseInMemory();   // a store, see Stores
+```
+
+### What's in an entry
+
+Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a deletion is an entry of its own.
+
+| Field | Holds |
+| --- | --- |
+| `Id` | The store's id, increasing in the order entries were recorded. |
+| `Time` | When the bot got the update, or when the call finished. |
+| `Direction` | `Incoming` for an update, `Outgoing` for a call. |
+| `Kind` | The update's type, such as `callback_query`, or the call's method, such as `sendMessage`. |
+| `UpdateId` | The update's id; for a call, the update the bot was handling when it made it. |
+| `ChatId` | The chat it happened in. |
+| `UserId` | The user who sent the update, or the user a call is about. |
+| `MessageId` | The message it's about, within the chat. |
+| `InlineMessageId` | The inline-mode message it's about; such a message has no chat. |
+| `Text` | The text or caption as Telegram shows it, a button's data, or an inline query. |
+| `FileId`, `FileName` | The file's id and name; never its bytes. |
+| `ErrorCode`, `Error` | Why a call failed: Telegram's code and description, or the exception's message. |
+| `Json` | The update, or the call's request and result, as Bot API JSON. |
+
+`ToString()` sums an entry up in one line, e.g. `sendMessage: Hi (403 Forbidden: bot was blocked by the user)`.
+
+### Read it back
+
+`ITelegramHistory.ReadAsync` returns the latest `Limit` entries (100 unless set) that match every filter set, oldest
+first. A read includes everything recorded before it, so a handler sees the update it's handling and its own calls.
+
+| Query | Entries |
+| --- | --- |
+| `ChatId` | The chat's. |
+| `MessageId` | The message's: its sending, edits, taps and deletion. Needs `ChatId`. |
+| `InlineMessageId` | The inline-mode message's. |
+| `UpdateId` | The update's, and the calls made while handling it. |
+| `Since` | From this time on. |
+| `BeforeId` | Older than this `Id`. |
+
+A chat's recent past as context for an LLM:
+
+```csharp
+var recent = await history.ReadAsync(new() { ChatId = chat.Id, Limit = 50 }, token);
+var transcript = string.Join('\n', recent.Select(x => x.Direction == TelegramHistoryDirection.Incoming
+    ? $"User: {x.Text}" : $"Bot: {x.Text}"));
+```
+
+To page further back, read `query with { BeforeId = page[0].Id }` until a page comes back empty.
+
+### Privacy
+
+- `KeepJson = false` keeps every field but `Json`.
+- `Filter` changes or drops each entry before it's stored: return it, changed with `with` if need be, or `null` to
+  drop it. Redacting `Text` alone leaves it in `Json`.
+
+```csharp
+services.AddTelegramHistory(history =>
+{
+    history.KeepJson = false;
+    history.Filter = entry => entry.Kind == "sendChatAction" ? null : entry;
+});
+```
+
+A filter that needs services is set through the options API:
+
+```csharp
+services.AddOptions<TelegramHistoryOptions>()
+    .Configure<IPrivacy>((history, privacy) => history.Filter = privacy.Redact);
+```
+
+### Stores
+
+A store keeps the entries; pick one after `AddTelegramHistory()`, or bring your own. Startup fails without one.
+
+#### Your own store
+
+Implement `ITelegramHistoryStore` and register it:
+
+```csharp
+services.AddTelegramHistory().Services.AddSingleton<ITelegramHistoryStore, MyStore>();
+```
+
+- `AppendAsync` gets each batch oldest first and gives each entry an increasing `Id`. One writer calls it, one batch at
+  a time.
+- `ReadAsync` returns the latest `Limit` entries that match every filter set, older than `BeforeId` if set, oldest
+  first; `Since` is inclusive. A write-only store may throw `NotSupportedException`.
+- A scoped store, e.g. one over a `DbContext`, gets a scope of its own for each batch and each read.
+
+### Writing
+
+Recording never makes the bot wait for the store, and never throws into it:
+
+- Entries wait in a bounded queue (`QueueCapacity`, 10 000) and are stored in the background, in batches.
+- When the queue is full, new entries are dropped, with a warning at most once a minute.
+- A store that fails is logged as an error; that batch is dropped and later ones are stored.
+- On shutdown, what's queued is stored within the host's shutdown timeout; a warning counts anything left.
+- `ITelegramHistory.FlushAsync` waits until everything recorded so far is stored.
 
 ## Component tests
 
@@ -1182,6 +1287,10 @@ optionally, `Telegram:SecretToken`.
 - Refusals now match Telegram for text of only spaces, new lines or invisible characters (`text must be non-empty`),
   caption edits (`MEDIA_CAPTION_TOO_LONG`) and text-only inline buttons (`not allowed`).
 - Photos have four sizes.
+
+### To 10.3
+
+- History is new and off until `AddTelegramHistory`; without it nothing changes.
 
 ## License
 
