@@ -13,9 +13,13 @@ internal sealed class UpdateQueue
     private readonly Dictionary<int, TaskCompletionSource> _handled = [];
     private TaskCompletionSource _arrived = NewSignal();
     private TaskCompletionSource _polled = NewSignal();
+
+    // The waiting poll's signal that a newer poll ended it, as Telegram ends the older of two.
+    private TaskCompletionSource? _waiting;
     private int _lastId;
     private int _polls;
     private int _inFlight;
+    private int _superseded;
 
     // getUpdates calls with an offset of 0 or more: those of a running loop, not the one that drops pending updates.
     public int Polls
@@ -30,6 +34,21 @@ internal sealed class UpdateQueue
     }
 
     public int InFlight => Volatile.Read(ref _inFlight);
+
+    // Whether a poll was ever ended by a newer one.
+    public bool Superseded => Volatile.Read(ref _superseded) > 0;
+
+    // Whether a poll waits for updates now.
+    public bool Waiting
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _waiting is not null;
+            }
+        }
+    }
 
     public int Add(JsonObject update)
     {
@@ -75,11 +94,13 @@ internal sealed class UpdateQueue
         }
     }
 
-    public async Task<JsonArray> TakeAsync(JsonObject parameters, CancellationToken token)
+    // Null when a newer poll that has to wait ends this one; a poll that returns at once ends none.
+    public async Task<JsonArray?> TakeAsync(JsonObject parameters, CancellationToken token)
     {
         var offset = parameters["offset"]?.GetValue<long>() ?? 0;
         var limit = parameters["limit"]?.GetValue<int>() ?? DefaultLimit;
         var timeout = TimeSpan.FromSeconds(parameters["timeout"]?.GetValue<int>() ?? 0);
+        TaskCompletionSource? superseded = null;
 
         Interlocked.Increment(ref _inFlight);
         try
@@ -114,20 +135,41 @@ internal sealed class UpdateQueue
                     }
 
                     arrived = _arrived.Task;
+
+                    if (superseded is null)
+                    {
+                        _waiting?.TrySetResult();
+                        _waiting = superseded = NewSignal();
+                    }
                 }
 
                 try
                 {
-                    await arrived.WaitAsync(timeout, token);
+                    await Task.WhenAny(arrived, superseded.Task).WaitAsync(timeout, token);
                 }
                 catch (TimeoutException)
                 {
                     return [];
                 }
+
+                if (superseded.Task.IsCompleted)
+                {
+                    Interlocked.Increment(ref _superseded);
+                    return null;
+                }
             }
         }
         finally
         {
+            // A poll that ends, cancelled included, no longer waits, so a later one is no conflict.
+            lock (_gate)
+            {
+                if (_waiting == superseded)
+                {
+                    _waiting = null;
+                }
+            }
+
             Interlocked.Decrement(ref _inFlight);
         }
     }

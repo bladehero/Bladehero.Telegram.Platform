@@ -18,7 +18,7 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// would, its errors and limits included; the bot can write only to a chat a test user opened or an update brought. A
 /// method the fake does not support fails with an error naming it. <see cref="Fail"/> makes Telegram refuse a call,
 /// and <see cref="FailNetwork"/> makes it never arrive. One host at a time: dispose a host before starting another on
-/// the same fake, as for a restart, since the fake doesn't refuse a second poller as Telegram does.
+/// the same fake, as for a restart, since a second host polling at once gets Telegram's 409.
 /// </remarks>
 public sealed partial class FakeBotApi
 {
@@ -138,7 +138,7 @@ public sealed partial class FakeBotApi
     {
         ArgumentNullException.ThrowIfNull(error);
 
-        AddFailure(method, error, times, chatId);
+        AddFailure(method, FailureKind.Refused, error, times, chatId);
     }
 
     /// <summary>
@@ -154,10 +154,9 @@ public sealed partial class FakeBotApi
     /// given.
     /// </exception>
     public void FailNetwork(string method, int? times = null, long? chatId = null) =>
-        AddFailure(method, error: null, times, chatId);
+        AddFailure(method, FailureKind.Unreachable, error: null, times, chatId);
 
-    // A null error fails the network instead.
-    private void AddFailure(string method, BotApiError? error, int? times, long? chatId)
+    private void AddFailure(string method, FailureKind kind, BotApiError? error, int? times, long? chatId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
@@ -184,7 +183,7 @@ public sealed partial class FakeBotApi
 
         lock (_gate)
         {
-            _failures.Add(new Failure(method, error, times, chatId));
+            _failures.Add(new Failure(method, kind, error, times, chatId));
         }
     }
 
@@ -645,7 +644,12 @@ public sealed partial class FakeBotApi
 
             // Before the poll counts as listening, so a delivery checks the list this poll asked for.
             UpdateAllowedUpdates(parameters);
-            var updates = await _updates.TakeAsync(parameters, token);
+            if (await _updates.TakeAsync(parameters, token) is not { } updates)
+            {
+                await Task.Delay(ConflictPause, token);
+                return Respond(new BotApiError(409, TerminatedByOtherPoll));
+            }
+
             return Respond(HttpStatusCode.OK, new JsonObject { ["ok"] = true, ["result"] = updates });
         }
 
@@ -654,23 +658,33 @@ public sealed partial class FakeBotApi
         {
             _calls.Add(new BotApiCall(method, parameters.DeepClone().AsObject()));
 
-            switch (TakeFailure(method, parameters))
+            var failure = TakeFailure(method, parameters);
+            switch (failure?.Kind)
             {
-                case { Error: { } error }:
-                    return Respond(error);
-                case not null:
+                case FailureKind.Refused:
+                    return Respond(failure.Error!);
+                case FailureKind.Unreachable:
                     throw new HttpRequestException(
                         $"The network failed for {method}, as FakeBotApi.FailNetwork asked; Telegram never saw it."
                     );
+                case FailureKind.TimedOut:
+                    throw TimedOut(method);
             }
 
+            // A lost response is lost whatever Telegram answered, a refusal included.
+            var lost = failure?.Kind is FailureKind.ResponseLost;
             try
             {
                 result = Answer(method, parameters, attachments);
             }
             catch (Refusal refusal)
             {
-                return Respond(refusal.Error);
+                return lost ? throw ResponseLost(method) : Respond(refusal.Error);
+            }
+
+            if (lost)
+            {
+                throw ResponseLost(method);
             }
         }
 
@@ -730,9 +744,11 @@ public sealed partial class FakeBotApi
         public BotApiError Error { get; } = error;
     }
 
-    // chatId: only calls to that chat, whether chat_id came as a number or as form text. No error: the network fails.
-    private sealed class Failure(string method, BotApiError? error, int? times, long? chatId)
+    // chatId: only calls to that chat, whether chat_id came as a number or as form text; error: for Refused only.
+    private sealed class Failure(string method, FailureKind kind, BotApiError? error, int? times, long? chatId)
     {
+        public FailureKind Kind { get; } = kind;
+
         public BotApiError? Error { get; } = error;
 
         public bool Exhausted => times is 0;

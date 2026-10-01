@@ -90,7 +90,8 @@ public sealed partial class FakeBotApi
 
         return file is null
             ? Respond(new BotApiError(404, "Not Found"))
-            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(file.Content) };
+            : FailedDownload(file.Id)
+                ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(file.Content) };
     }
 
     private JsonObject SendFile(

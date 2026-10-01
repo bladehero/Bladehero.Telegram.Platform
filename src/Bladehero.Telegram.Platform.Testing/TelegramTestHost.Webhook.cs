@@ -14,7 +14,8 @@ public sealed partial class TelegramTestHost
         HttpClient client,
         FakeBotApi api,
         int pollsBefore,
-        string entryPoint
+        string entryPoint,
+        Func<HttpClient> createClient
     ) : IRunningBot
     {
         private const string SecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token";
@@ -25,6 +26,8 @@ public sealed partial class TelegramTestHost
         private readonly List<Task> _abandoned = [];
 
         public IServiceProvider Services => services;
+
+        public HttpClient? CreateClient() => createClient();
 
         public async Task DeliverAsync(
             Func<JsonObject> compose,

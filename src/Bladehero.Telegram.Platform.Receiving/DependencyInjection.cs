@@ -40,6 +40,14 @@ public static class DependencyInjection
             throw new ArgumentException("At least one assembly is required", nameof(assemblies));
         }
 
+        services
+            .AddOptions<ParallelCommandExecutionConfiguration>()
+            .Validate(
+                x => x.ParallelCount is null or > 0,
+                "ParallelCount must be at least 1, or null to run a batch as one chunk."
+            )
+            .ValidateOnStart();
+
         services.AddScoped<ITelegramErrorHandler, LoggingTelegramErrorHandler>();
         services.TryAddScoped<IButtonRefusalHandler, DefaultButtonRefusalHandler>();
         services.AddScoped<ParallelTelegramCommandExecutor>();

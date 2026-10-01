@@ -66,6 +66,7 @@ internal sealed class ScopedUpdateHandler(
 
     private async Task ReportAsync(TelegramError error, CancellationToken cancellationToken)
     {
+        using var logScope = UpdateLogScope.Begin(logger, error.Update);
         try
         {
             await using var scope = scopeFactory.CreateAsyncScope();
