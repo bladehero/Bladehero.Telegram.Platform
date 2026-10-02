@@ -555,7 +555,8 @@ A chat's recent past as context for an LLM:
 ```csharp
 var recent = await history.ReadAsync(new() { ChatId = chat.Id, Limit = 50 }, token);
 var transcript = string.Join('\n', recent
-    .Where(x => x.Text is not null && x.Kind is "message" or "edited_message" or "sendMessage" or "editMessageText")
+    .Where(x => x.Text is not null && x.Error is null
+        && x.Kind is "message" or "edited_message" or "sendMessage" or "editMessageText")
     .Select(x => x.Direction == TelegramHistoryDirection.Incoming ? $"User: {x.Text}" : $"Bot: {x.Text}"));
 ```
 
