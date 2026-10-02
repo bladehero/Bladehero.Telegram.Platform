@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Telegram.Bot.Types;
@@ -29,6 +30,54 @@ public sealed class TelegramMessageRefTests
     {
         // Act
         var act = () => new TelegramMessageRef(inlineMessageId);
+
+        // Assert
+        act.Should().Throw<ArgumentException>();
+    }
+
+    public static TheoryData<TelegramMessageRef, bool> Shapes =>
+        new()
+        {
+            { new TelegramMessageRef(Group, 10), false },
+            { new TelegramMessageRef(Group, 10), true },
+            { new TelegramMessageRef("AAAAinline"), false },
+            { new TelegramMessageRef("AAAAinline"), true },
+        };
+
+    [Theory]
+    [MemberData(nameof(Shapes))]
+    public void Json_ShouldRoundTripBothShapes(TelegramMessageRef reference, bool web)
+    {
+        // Arrange
+        var options = web ? JsonSerializerOptions.Web : JsonSerializerOptions.Default;
+
+        // Act
+        var alone = JsonSerializer.Deserialize<TelegramMessageRef>(
+            JsonSerializer.Serialize(reference, options),
+            options
+        );
+        var inRecord = JsonSerializer.Deserialize<Stored>(
+            JsonSerializer.Serialize(new Stored(reference), options),
+            options
+        );
+
+        // Assert
+        using (new AssertionScope())
+        {
+            alone.Should().Be(reference);
+            inRecord.Should().Be(new Stored(reference));
+        }
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"ChatId":0,"MessageId":10,"InlineMessageId":null}""")]
+    [InlineData("""{"ChatId":-1001234567890,"MessageId":0}""")]
+    [InlineData("""{"InlineMessageId":" "}""")]
+    public void Json_ThatNamesNoMessage_ShouldThrow(string json)
+    {
+        // Act
+        var act = () => JsonSerializer.Deserialize<TelegramMessageRef>(json);
 
         // Assert
         act.Should().Throw<ArgumentException>();
@@ -104,4 +153,6 @@ public sealed class TelegramMessageRefTests
             .Throw<ArgumentException>()
             .WithMessage("The tap has no message to change, as for a game button.*");
     }
+
+    private sealed record Stored(TelegramMessageRef Card);
 }
