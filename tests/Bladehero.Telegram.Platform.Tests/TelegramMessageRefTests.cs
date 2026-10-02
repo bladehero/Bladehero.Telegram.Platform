@@ -101,6 +101,32 @@ public sealed class TelegramMessageRefTests
     }
 
     [Fact]
+    public void From_ABusinessMessage_ShouldThrow()
+    {
+        // Arrange
+        var message = BusinessMessage();
+
+        // Act
+        var act = () => TelegramMessageRef.From(message);
+
+        // Assert
+        act.Should().Throw<ArgumentException>().WithMessage(BusinessRefusal).WithParameterName("message");
+    }
+
+    [Fact]
+    public void From_ATapOnABusinessMessage_ShouldThrow()
+    {
+        // Arrange
+        var tap = new CallbackQuery { Id = "cb4", Message = BusinessMessage() };
+
+        // Act
+        var act = () => TelegramMessageRef.From(tap);
+
+        // Assert
+        act.Should().Throw<ArgumentException>().WithMessage(BusinessRefusal).WithParameterName("query");
+    }
+
+    [Fact]
     public void From_ATapOnAMessage_ShouldTakeItsChatAndId()
     {
         // Arrange
@@ -153,6 +179,18 @@ public sealed class TelegramMessageRefTests
             .Throw<ArgumentException>()
             .WithMessage("The tap has no message to change, as for a game button.*");
     }
+
+    private const string BusinessRefusal =
+        "A business message needs its business_connection_id on every call; change it through ITelegramBotClient.*";
+
+    // Sent on behalf of a business account, in its private chat with Nick.
+    private static Message BusinessMessage() =>
+        new()
+        {
+            Id = 10,
+            Chat = new Chat { Id = 7000000001, Type = ChatType.Private },
+            BusinessConnectionId = "AAAAbusiness",
+        };
 
     private sealed record Stored(TelegramMessageRef Card);
 }

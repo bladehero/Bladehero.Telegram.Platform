@@ -51,23 +51,41 @@ public readonly record struct TelegramMessageRef
 
     /// <summary>The message as sent, e.g. a result of <c>SendMessage</c>.</summary>
     /// <param name="message">The message.</param>
+    /// <exception cref="ArgumentException">
+    /// A business message, which needs its <c>business_connection_id</c> on every call.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The message has id 0: an ephemeral or scheduled message has no id yet.
+    /// </exception>
     public static TelegramMessageRef From(Message message)
     {
         ArgumentNullException.ThrowIfNull(message);
-        return new TelegramMessageRef(message.Chat.Id, message.Id);
+        return InChat(message, nameof(message));
     }
 
     /// <summary>The message a button was tapped on, in a chat or inline.</summary>
     /// <param name="query">The tap.</param>
-    /// <exception cref="ArgumentException">The query has neither, as for a game button.</exception>
+    /// <exception cref="ArgumentException">
+    /// The query has neither, as for a game button, or it was tapped on a business message.
+    /// </exception>
     public static TelegramMessageRef From(CallbackQuery query)
     {
         ArgumentNullException.ThrowIfNull(query);
         return query switch
         {
-            { Message: { } message } => new TelegramMessageRef(message.Chat.Id, message.Id),
+            { Message: { } message } => InChat(message, nameof(query)),
             { InlineMessageId: { } inlineMessageId } => new TelegramMessageRef(inlineMessageId),
             _ => throw new ArgumentException("The tap has no message to change, as for a game button.", nameof(query)),
         };
     }
+
+    // Changing a business message without its connection id would change the bot's own message with that id.
+    private static TelegramMessageRef InChat(Message message, string paramName) =>
+        message.BusinessConnectionId is null
+            ? new TelegramMessageRef(message.Chat.Id, message.Id)
+            : throw new ArgumentException(
+                "A business message needs its business_connection_id on every call; "
+                    + "change it through ITelegramBotClient.",
+                paramName
+            );
 }
