@@ -15,11 +15,14 @@ internal sealed class TestDatabase : IAsyncDisposable
 
     public static async Task<TestDatabase> CreateAsync()
     {
-        var database = new TestDatabase();
+        var database = Unmigrated();
         await using var context = database.NewContext();
         await context.Database.MigrateAsync();
         return database;
     }
+
+    // For the app to migrate as it starts.
+    public static TestDatabase Unmigrated() => new();
 
     public BudgetContext NewContext() =>
         new(new DbContextOptionsBuilder<BudgetContext>().UseSqlite(ConnectionString).Options);

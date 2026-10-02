@@ -3,9 +3,11 @@ using Bladehero.Telegram.Platform.Receiving.Commands.Typed;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -66,7 +68,7 @@ public sealed class EntityFrameworkCoreHistoryDependencyInjectionTests
     public async Task History_OfAComponentTest_ShouldBeInTheAppsDatabase()
     {
         // Arrange
-        await using var database = await TestDatabase.CreateAsync();
+        await using var database = TestDatabase.Unmigrated();
         await using var bot = await TelegramTestHost.ForLongPollingAsync(
             (IServiceCollection services) =>
             {
@@ -76,6 +78,15 @@ public sealed class EntityFrameworkCoreHistoryDependencyInjectionTests
                 );
                 database.AddTo(services);
                 services.AddTelegramHistory().UseEntityFrameworkCore<BudgetContext>();
+
+                // As an app migrates at its start; startup's own calls are stored once it has.
+                services.BeforeStart(
+                    async (provider, token) =>
+                    {
+                        await using var scope = provider.CreateAsyncScope();
+                        await scope.ServiceProvider.GetRequiredService<BudgetContext>().Database.MigrateAsync(token);
+                    }
+                );
             }
         );
         var nick = bot.PrivateChat("Nick");
@@ -85,14 +96,15 @@ public sealed class EntityFrameworkCoreHistoryDependencyInjectionTests
 
         // Assert: the action has already waited for the history.
         await using var scope = bot.Services.CreateAsyncScope();
-        var kinds = await scope
-            .ServiceProvider.GetRequiredService<BudgetContext>()
-            .Set<TelegramHistoryEntry>()
-            .Where(x => x.ChatId == nick.Chat.Id)
-            .OrderBy(x => x.Id)
-            .Select(x => x.Kind)
-            .ToListAsync();
-        kinds.Should().Equal("message", "sendMessage");
+        var history = scope.ServiceProvider.GetRequiredService<BudgetContext>().Set<TelegramHistoryEntry>();
+        using (new AssertionScope())
+        {
+            (await history.Where(x => x.ChatId == nick.Chat.Id).OrderBy(x => x.Id).Select(x => x.Kind).ToListAsync())
+                .Should()
+                .Equal("message", "sendMessage");
+            (await history.AnyAsync(x => x.Kind == "getMe")).Should().BeTrue("startup's calls are stored too");
+            bot.Logs.Should().NotContain(x => x.Level >= LogLevel.Error);
+        }
     }
 
     // A context that forgot MapTelegramHistory.
