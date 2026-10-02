@@ -46,10 +46,12 @@ No registration, no routing table: drop the class in a scanned assembly.
 | [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramSender`, DI wiring. |
 | [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
+| [`Bladehero.Telegram.Platform.History.InMemory`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.InMemory/) | [History](#history) kept in memory, per chat. |
 | [`Bladehero.Telegram.Platform.Testing`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Testing/) | [Component tests](#component-tests) against an in-memory Telegram. |
 
 ```sh
 dotnet add package Bladehero.Telegram.Platform.Receiving.Background   # pulls in the other runtime packages
+dotnet add package Bladehero.Telegram.Platform.History.InMemory       # history kept in memory
 dotnet add package Bladehero.Telegram.Platform.Testing                # test projects
 ```
 
@@ -640,6 +642,17 @@ services.AddOptions<TelegramHistoryOptions>()
 ### Stores
 
 A store keeps the entries; pick one after `AddTelegramHistory()`, or bring your own. Startup fails without one.
+
+#### In memory
+
+```csharp
+services.AddTelegramHistory().UseInMemory(maxEntriesPerChat: 1000);
+```
+
+- It keeps the latest `maxEntriesPerChat` entries of each chat; entries without a chat, such as inline queries, share
+  one such cap.
+- It's lost on restart.
+- Memory grows with the number of chats, so it suits development, tests and small bots.
 
 #### Your own store
 
