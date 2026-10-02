@@ -103,17 +103,63 @@ public sealed class TelegramHistoryWriterTests
         RecordEntries(host, 2, 3, 4);
         host.Time.Advance(TimeSpan.FromSeconds(59));
         RecordEntries(host, 5);
+        var withinTheMinute = host.Logs.At(LogLevel.Warning).Count;
 
         // Act
         host.Time.Advance(TimeSpan.FromSeconds(1));
-        RecordEntries(host, 6);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            withinTheMinute.Should().Be(1);
+            host.Logs.At(LogLevel.Warning)
+                .Should()
+                .SatisfyRespectively(
+                    first => first.Should().EndWith(": 1 dropped."),
+                    second => second.Should().EndWith(": 2 dropped.")
+                );
+        }
+    }
+
+    [Fact]
+    public async Task Record_WhenABurstIsDropped_ShouldReportTheRestAMinuteLater()
+    {
+        // Arrange
+        await using var host = await HistoryHost.StartAsync(x => x.QueueCapacity = 1);
+        await BusyStoreAsync(host);
+        RecordEntries(host, 2, 3, 4, 5);
+
+        // Act
+        host.Time.Advance(TimeSpan.FromMinutes(1));
+        host.Time.Advance(TimeSpan.FromMinutes(1));
 
         // Assert
         host.Logs.At(LogLevel.Warning)
             .Should()
             .SatisfyRespectively(
                 first => first.Should().EndWith(": 1 dropped."),
-                second => second.Should().EndWith(": 3 dropped.")
+                second => second.Should().EndWith(": 2 dropped.")
+            );
+    }
+
+    [Fact]
+    public async Task Stop_WithDropsNotYetReported_ShouldReportThem()
+    {
+        // Arrange
+        await using var host = await HistoryHost.StartAsync(x => x.QueueCapacity = 1);
+        await BusyStoreAsync(host);
+        RecordEntries(host, 2, 3, 4, 5);
+        host.Store.Open();
+
+        // Act
+        await host.Host.StopAsync();
+
+        // Assert
+        host.Logs.At(LogLevel.Warning)
+            .Should()
+            .SatisfyRespectively(
+                first => first.Should().EndWith(": 1 dropped."),
+                second => second.Should().EndWith(": 2 dropped.")
             );
     }
 

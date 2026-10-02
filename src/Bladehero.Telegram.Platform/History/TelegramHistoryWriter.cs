@@ -37,6 +37,7 @@ internal sealed class TelegramHistoryWriter(
     private int _unstored;
     private int _dropped;
     private DateTimeOffset? _lastDropWarning;
+    private ITimer? _dropReport;
 
     // Whether the last batch failed to be stored.
     public bool Failing => _failing;
@@ -101,6 +102,7 @@ internal sealed class TelegramHistoryWriter(
     {
         _stopped = true;
         _queue.Writer.TryComplete();
+        ReportDrops();
         if (_loop is { } loop)
         {
             try
@@ -208,6 +210,7 @@ internal sealed class TelegramHistoryWriter(
         }
     }
 
+    // A warning on the first drop, then at most once a minute; drops within the minute are reported when it's up.
     private void Dropped()
     {
         int dropped;
@@ -215,22 +218,54 @@ internal sealed class TelegramHistoryWriter(
         {
             _dropped++;
             var now = _time.GetUtcNow();
-            if (now - _lastDropWarning < DropWarningInterval)
+            if (_lastDropWarning is { } last && now - last < DropWarningInterval)
             {
+                _dropReport ??= _time.CreateTimer(
+                    _ => ReportDrops(),
+                    null,
+                    last + DropWarningInterval - now,
+                    Timeout.InfiniteTimeSpan
+                );
                 return;
             }
 
+            _dropReport?.Dispose();
+            _dropReport = null;
             _lastDropWarning = now;
             dropped = _dropped;
             _dropped = 0;
         }
 
+        WarnOfDrops(dropped);
+    }
+
+    // The drops not yet reported, if any.
+    private void ReportDrops()
+    {
+        int dropped;
+        lock (_gate)
+        {
+            _dropReport?.Dispose();
+            _dropReport = null;
+            if (_dropped == 0)
+            {
+                return;
+            }
+
+            _lastDropWarning = _time.GetUtcNow();
+            dropped = _dropped;
+            _dropped = 0;
+        }
+
+        WarnOfDrops(dropped);
+    }
+
+    private void WarnOfDrops(int dropped) =>
         logger.LogWarning(
             "The Telegram history queue is full ({Capacity} entries): {Count} dropped.",
             _capacity,
             dropped
         );
-    }
 
     // An entry, or a flush marker.
     private readonly record struct Item(TelegramHistoryEntry? Entry, TaskCompletionSource? Flushed);
