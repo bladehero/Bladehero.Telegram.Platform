@@ -680,6 +680,10 @@ services.AddTelegramHistory().UseEntityFrameworkCore<BudgetContext>(maxAge: Time
 - Startup fails when the context doesn't map the history. A missing migration shows as an error log on the first write.
 - Apply the migration before the host has finished starting, e.g. before `app.Run()` or in a hosted service's start:
   startup's own calls are stored then.
+- In tests, don't share one in-memory SQLite connection with this store: the history writes in the background at the
+  same time, and a `SqliteConnection` isn't thread-safe. Use a file database, or `UseInMemory()`.
+- On SQLite, a history read inside your own open write transaction waits up to 2 s, and the history's write waits for
+  your commit.
 
 #### Your own store
 
@@ -1210,12 +1214,13 @@ services.Remove(services.Single(x =>
 For an internal type you can't name, match on `x.ImplementationType?.Name == "ModelWarmup"`.
 
 **The database:** point the app's connection string at a file of the test's own, so a test never writes to the
-developer's real database, and delete it once the host is disposed:
+developer's real database, and delete it once the host is disposed. Keep connection pooling, as `Pooling=False` slows
+every action that writes the history, and clear the pools before deleting:
 
 ```csharp
 var path = Path.Combine(Path.GetTempPath(), $"budget-{Guid.NewGuid():N}.db");
 var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
-    web.UseSetting("ConnectionStrings:Database", $"Data Source={path};Pooling=False"));   // no pool keeps it open
+    web.UseSetting("ConnectionStrings:Database", $"Data Source={path}"));
 try
 {
     // … the test …
@@ -1223,6 +1228,7 @@ try
 finally
 {
     await bot.DisposeAsync();
+    SqliteConnection.ClearAllPools();   // pooled connections keep the file open
     foreach (var file in new[] { path, path + "-wal", path + "-shm" })
     {
         File.Delete(file);   // no error if it isn't there
@@ -1254,6 +1260,9 @@ depends on the version, and the registration that loses is ignored without any e
 - on EF Core 8, the first one wins, so after the app's own it's ignored;
 - when the app uses another provider, such as InMemory, `AddDbContext` or `ConfigureDbContext` after the app's own fails
   on EF Core 9 and 10 with "Services for database providers … have been registered in the service provider".
+
+With the [EF Core history store](#ef-core), use a file instead: the history writes in the background at the same time,
+and one `SqliteConnection` isn't thread-safe.
 
 The shared open connection keeps the database across a restart on the same fake. Without replacing EF Core's
 registrations, point the app's connection string elsewhere instead:
