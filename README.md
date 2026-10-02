@@ -44,7 +44,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 
 | Package | Contents |
 | --- | --- |
-| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramSender`, `ITelegramMessages`, DI wiring. |
+| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramMessages`, DI wiring. |
 | [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
 | [`Bladehero.Telegram.Platform.History.InMemory`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.InMemory/) | [History](#history) kept in memory, per chat. |
@@ -451,23 +451,23 @@ await conversation.MoveToAsync("size", order with { CardId = card.Id }, token);
 
 ## Sending on your own
 
-Replies use the request's client. Messages the bot starts itself — reminders, alerts — go through `ITelegramSender`.
-The receiving setups register it; an app that only sends needs just the core package:
+Replies use the request's client. Messages the bot starts itself — reminders, alerts — and messages it changes later
+go through `ITelegramMessages`. The receiving setups register it; an app that only sends needs just the core package:
 
 ```csharp
 services.AddTelegramBot(configuration);   // binds TelegramBotConfiguration: { "Token": "…" }
 ```
 
 ```csharp
-public sealed class LimitAlerts(ITelegramSender sender)
+public sealed class LimitAlerts(ITelegramMessages messages)
 {
     public Task WarnAsync(long chatId, string text, CancellationToken token) =>
-        sender.SendAsync(chatId, text, cancellationToken: token);
+        messages.SendAsync(chatId, text, token: token);
 }
 ```
 
-For more than text (editing, deleting, sending files), inject the bot's `ITelegramBotClient`: the same client the
-library receives and replies with. To build it differently, e.g. for a local Bot API server, register your own
+For more than text (files, other options), inject the bot's `ITelegramBotClient`: the same client the library
+receives and replies with. To build it differently, e.g. for a local Bot API server, register your own
 `ITelegramBotClient` as a singleton, before or after these calls, and the library uses that one too:
 
 - Each of the library's services resolves it once and keeps it (the webhook endpoint per request). A scoped
@@ -499,8 +499,10 @@ Telegram's rules are built in:
 - "Already deleted" is success. After 48 hours Telegram won't delete a message, so its keyboard comes off instead.
 - Inline-mode messages can be shown and cleared, not replaced or deleted.
 
+`SendAsync` takes any reply markup; `ShowAsync` and `ReplaceAsync` take an inline keyboard, as edits do.
+
 For a message sent or tapped another way, `TelegramMessageRef.From(message)` or `From(callbackQuery)` gives its
-handle. Keep `ITelegramSender` for one-off sends.
+handle.
 
 ## Errors and the HttpClient
 
@@ -1348,7 +1350,7 @@ both run, and the second answer fails the action, so give each button's data to 
   - stale, foreign and double-tapped buttons: an earlier order's, another member's card, a receipt taken already, and
     a tap from a view that missed an edit;
   - a barista telling each customer when their coffee is ready, [sent on its own](#sending-on-your-own) through
-    `ITelegramSender`, on the clock of an injected `TimeProvider`;
+    `ITelegramMessages`, on the clock of an injected `TimeProvider`;
   - an [error handler](#errors-and-the-httpclient) that apologises in the chat, even to someone who blocked the bot;
   - a greeting when the bot is added to a group, next to a logger of `MyChatMember` updates;
   - a coffee order in a group, where the bot is made an admin to hear the typed cup names, and a test of what a bot
@@ -1447,6 +1449,8 @@ optionally, `Telegram:SecretToken`.
 - History is new and off until `AddTelegramHistory`; without it nothing changes.
 - New: `ITelegramMessages` sends, shows, replaces and deletes the bot's messages by a storable `TelegramMessageRef`,
   with Telegram's edit and delete rules built in; `AddTelegramBot` registers it.
+- `ITelegramSender` is removed: use `ITelegramMessages.SendAsync`, which returns a `TelegramMessageRef` rather than the
+  `Message`; for the full `Message`, call `ITelegramBotClient.SendMessage`.
 - `Bladehero.Telegram.Platform.Receiving` now depends on `Bladehero.Telegram.Platform`.
 - With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
   interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails; a test that replaces
