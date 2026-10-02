@@ -437,6 +437,24 @@ public sealed partial class TelegramHistoryEntriesTests
         entries.Should().ContainSingle().Which.UpdateId.Should().Be(7);
     }
 
+    [Fact]
+    public void FromCall_WithNonAsciiText_ShouldKeepItReadableInTheJson()
+    {
+        // Arrange
+        const string text = "Привет ☕ <b>\"q\"</b>";
+        var request = new SendMessageRequest { ChatId = Group, Text = text };
+
+        // Act
+        var entries = Call(request, MessageIn(Group, 10, text: text));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            entries.Single().Json.Should().Contain("""Привет ☕ <b>\"q\"</b>""");
+            Json(entries.Single())["request"]!["text"]!.GetValue<string>().Should().Be(text);
+        }
+    }
+
     private static IReadOnlyList<TelegramHistoryEntry> Call(
         IRequest request,
         object? result = null,

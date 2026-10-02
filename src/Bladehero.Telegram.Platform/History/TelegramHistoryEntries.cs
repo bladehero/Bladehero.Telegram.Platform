@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Telegram.Bot;
@@ -13,6 +14,13 @@ internal static class TelegramHistoryEntries
     // Request fields that hold secrets; never kept.
     private static readonly string[] Secrets = ["secret_token", "provider_token"];
 
+    // Bot API JSON that keeps non-ASCII text, such as Cyrillic or emoji, readable; quotes and control characters are
+    // still escaped.
+    private static readonly JsonSerializerOptions KeptJson = new(JsonBotAPI.Options)
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     // Ids come from the result first, then from the request's Bot API fields.
     internal static IReadOnlyList<TelegramHistoryEntry> FromCall(
         IRequest request,
@@ -23,13 +31,13 @@ internal static class TelegramHistoryEntries
         bool keepJson
     )
     {
-        var fields = JsonSerializer.SerializeToNode(request, request.GetType(), JsonBotAPI.Options) as JsonObject ?? [];
+        var fields = JsonSerializer.SerializeToNode(request, request.GetType(), KeptJson) as JsonObject ?? [];
         foreach (var secret in Secrets)
         {
             fields.Remove(secret);
         }
 
-        var requestJson = keepJson ? fields.ToJsonString(JsonBotAPI.Options) : null;
+        var requestJson = keepJson ? fields.ToJsonString(KeptJson) : null;
         var call = new TelegramHistoryEntry
         {
             Time = time,
@@ -106,8 +114,7 @@ internal static class TelegramHistoryEntries
         return [call with { MessageId = Value<int>(fields["message_id"]) }];
     }
 
-    private static string Serialize(object value) =>
-        JsonSerializer.Serialize(value, value.GetType(), JsonBotAPI.Options);
+    private static string Serialize(object value) => JsonSerializer.Serialize(value, value.GetType(), KeptJson);
 
     private static T? Value<T>(JsonNode? node)
         where T : struct => node is JsonValue value && value.TryGetValue(out T number) ? number : null;
