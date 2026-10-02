@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Bladehero.Telegram.Platform.History;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -398,6 +399,8 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
         // Only a settled update's late entries may fail another action, so concurrent actions don't take each other's.
         try
         {
+            // Before the checks, so a store that failed is among the logged errors.
+            await FlushHistoryAsync(token);
             _errors.ThrowFor(updateId);
             if (FailOnErrorLogs)
             {
@@ -455,6 +458,12 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
             .Where(x => x.ServiceType == typeof(ITelegramBotClient) || x.ServiceType == typeof(TelegramBotClient))
             .ToArray();
 
+        // The fake's client records as the app's would: an app whose client escapes its history fails as in production.
+        var recorded =
+            ownClients.LastOrDefault(x => x.ServiceType == typeof(ITelegramBotClient) && !x.IsKeyedService)
+                is { } effective
+            && TelegramHistoryClients.IsRecording(effective);
+
         foreach (var descriptor in ownClients)
         {
             services.Remove(descriptor);
@@ -467,6 +476,11 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
                     ? ServiceDescriptor.Singleton(type, client)
                     : ServiceDescriptor.KeyedSingleton(type, key, client)
             );
+        }
+
+        if (recorded)
+        {
+            TelegramHistoryClients.Decorate(services);
         }
 
         // Added last, so the app's ClearProviders can't remove it, with a rule its own filters can't override.
