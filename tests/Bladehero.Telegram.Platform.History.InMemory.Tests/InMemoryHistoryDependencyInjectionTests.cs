@@ -25,6 +25,24 @@ public sealed class InMemoryHistoryDependencyInjectionTests
     }
 
     [Fact]
+    public void UseInMemory_ShouldGiveEachContainerItsOwnStore()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramHistory().UseInMemory();
+
+        // Act
+        using var first = services.BuildServiceProvider();
+        using var second = services.BuildServiceProvider();
+
+        // Assert
+        first
+            .GetRequiredService<ITelegramHistoryStore>()
+            .Should()
+            .NotBeSameAs(second.GetRequiredService<ITelegramHistoryStore>());
+    }
+
+    [Fact]
     public async Task UseInMemory_ShouldKeepWhatTheBotSends()
     {
         // Arrange

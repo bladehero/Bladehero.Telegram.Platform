@@ -15,7 +15,8 @@ public static class InMemoryHistoryDependencyInjection
     public static TelegramHistoryBuilder UseInMemory(this TelegramHistoryBuilder history, int maxEntriesPerChat = 1000)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxEntriesPerChat, 1);
-        history.Services.AddSingleton<ITelegramHistoryStore>(new InMemoryTelegramHistoryStore(maxEntriesPerChat));
+        // A factory, so each container built from these services keeps a history of its own.
+        history.Services.AddSingleton<ITelegramHistoryStore>(_ => new InMemoryTelegramHistoryStore(maxEntriesPerChat));
         return history;
     }
 }
