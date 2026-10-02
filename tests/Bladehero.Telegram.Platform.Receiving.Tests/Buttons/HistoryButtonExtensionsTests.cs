@@ -159,7 +159,9 @@ public sealed class HistoryButtonExtensionsTests
         // Assert
         await act.Should()
             .ThrowAsync<InvalidOperationException>()
-            .WithMessage("Finding a message by its buttons needs the history's JSON; KeepJson is off.");
+            .WithMessage(
+                "Finding a message by its buttons needs the history's JSON: KeepJson is off, or a Filter removed it."
+            );
     }
 
     [Fact]

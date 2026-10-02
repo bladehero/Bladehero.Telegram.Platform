@@ -18,7 +18,8 @@ public static class HistoryButtonExtensions
     /// <param name="match">Which buttons count, e.g. only one user's; any when <c>null</c>.</param>
     /// <param name="token">Cancels the read.</param>
     /// <exception cref="InvalidOperationException">
-    /// The history doesn't keep JSON (<c>KeepJson</c> is off), or <typeparamref name="TButton"/> can't be button data.
+    /// The history has no JSON (<c>KeepJson</c> is off, or a <c>Filter</c> removed it), or
+    /// <typeparamref name="TButton"/> can't be button data.
     /// </exception>
     public static async Task<TelegramMessageRef?> FindLatestWithButtonAsync<TButton>(
         this ITelegramHistory history,
@@ -56,7 +57,8 @@ public static class HistoryButtonExtensions
             if (entry.Json is null)
             {
                 throw new InvalidOperationException(
-                    "Finding a message by its buttons needs the history's JSON; KeepJson is off."
+                    "Finding a message by its buttons needs the history's JSON: "
+                        + "KeepJson is off, or a Filter removed it."
                 );
             }
 
