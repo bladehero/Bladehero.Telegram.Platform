@@ -47,12 +47,14 @@ No registration, no routing table: drop the class in a scanned assembly.
 | [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
 | [`Bladehero.Telegram.Platform.History.InMemory`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.InMemory/) | [History](#history) kept in memory, per chat. |
+| [`Bladehero.Telegram.Platform.History.EntityFrameworkCore`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.EntityFrameworkCore/) | [History](#history) in your database through EF Core. |
 | [`Bladehero.Telegram.Platform.Testing`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Testing/) | [Component tests](#component-tests) against an in-memory Telegram. |
 
 ```sh
-dotnet add package Bladehero.Telegram.Platform.Receiving.Background   # pulls in the other runtime packages
-dotnet add package Bladehero.Telegram.Platform.History.InMemory       # history kept in memory
-dotnet add package Bladehero.Telegram.Platform.Testing                # test projects
+dotnet add package Bladehero.Telegram.Platform.Receiving.Background           # pulls in the other runtime packages
+dotnet add package Bladehero.Telegram.Platform.History.InMemory               # history kept in memory
+dotnet add package Bladehero.Telegram.Platform.History.EntityFrameworkCore    # history in your database
+dotnet add package Bladehero.Telegram.Platform.Testing                        # test projects
 ```
 
 ## Quick start
@@ -653,6 +655,29 @@ services.AddTelegramHistory().UseInMemory(maxEntriesPerChat: 1000);
   one such cap.
 - It's lost on restart.
 - Memory grows with the number of chats, so it suits development, tests and small bots.
+
+#### EF Core
+
+Map the history into your own context, add a migration, and pick the store:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.MapTelegramHistory();
+```
+
+```sh
+dotnet ef migrations add AddTelegramHistory
+```
+
+```csharp
+services.AddTelegramHistory().UseEntityFrameworkCore<BudgetContext>(maxAge: TimeSpan.FromDays(180));
+```
+
+- It writes through a context instance of its own, so it never mixes with the app's changes. `AddDbContext`, a factory
+  and a pool all work.
+- Any relational provider works; it needs EF Core 10.0.10 or later.
+- `maxAge` deletes older entries hourly; without it, everything is kept.
+- `MapTelegramHistory(tableName, schema)` picks the table, `TelegramHistory` by default.
+- Startup fails when the context doesn't map the history. A missing migration shows as an error log on the first write.
 
 #### Your own store
 
