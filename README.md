@@ -480,15 +480,15 @@ receives and replies with. To build it differently, e.g. for a local Bot API ser
 
 ### Change messages later
 
-`ITelegramMessages` changes the bot's messages later by `TelegramMessageRef`, a plain value to store, e.g. as two
-columns.
+`ITelegramMessages` changes the bot's messages later by `TelegramMessageRef`, a plain value to store.
 
 ```csharp
 var card = await messages.SendAsync(chatId, "Nick, you have 50 points.", keyboard, token: token); // store it
 card = await messages.ShowAsync(card, "Nick, you have 40 points.", keyboard, token: token);       // edit, or send fresh
 card = await messages.ReplaceAsync(card, "Nick, you have 40 points.", keyboard, token: token);    // fresh at the bottom
-await messages.ClearKeyboardAsync(card, token);   // keep the text, no more taps
-await messages.DeleteAsync(card, token);          // gone, or at least no keyboard
+await messages.ShowKeyboardAsync(card, submenu, token); // swap the buttons, keep the text
+await messages.ClearKeyboardAsync(card, token);         // keep the text, no more taps
+await messages.DeleteAsync(card, token);                // gone, or at least no keyboard
 ```
 
 Telegram's rules are built in:
@@ -496,13 +496,25 @@ Telegram's rules are built in:
 - "Not modified" is success.
 - A message that can't be edited any more is shown in a fresh one. A fresh message is always sent before the old one
   is removed, so a failed send keeps the card.
-- "Already deleted" is success. After 48 hours Telegram won't delete a message, so its keyboard comes off instead.
+- "Already deleted" is success. After 48 hours Telegram won't delete a message, except in a supergroup or channel
+  where the bot may delete messages, so its keyboard comes off instead.
 - Inline-mode messages can be shown and cleared, not replaced or deleted.
+- `ShowAsync` and `ReplaceAsync` remove a message they can't show on: give them the bot's own messages. `DeleteAsync`
+  takes any message the bot may delete.
+- Two `ReplaceAsync` calls on one card at once send two fresh cards.
 
-`SendAsync` takes any reply markup; `ShowAsync` and `ReplaceAsync` take an inline keyboard, as edits do.
+`SendAsync` takes any reply markup; `ShowAsync`, `ReplaceAsync` and `ShowKeyboardAsync` take an inline keyboard, as
+edits do.
 
-For a message sent or tapped another way, `TelegramMessageRef.From(message)` or `From(callbackQuery)` gives its
-handle.
+To store a handle, keep its `ChatId` and `MessageId` (or `InlineMessageId`) in columns of your own and rebuild it;
+System.Text.Json round-trips it, e.g. in conversation data. For a message sent or tapped another way,
+`TelegramMessageRef.From(message)` or `From(callbackQuery)` gives its handle.
+
+Forum topics: edits work in place, but fresh messages go to General. Business messages aren't supported: use
+`ITelegramBotClient` with `businessConnectionId`.
+
+Unit tests get the service from a container (`AddTelegramBot` with your fake client registered first), or mock
+`ITelegramMessages`.
 
 Without a stored handle, [history](#history) can find the card by its buttons:
 
@@ -1467,7 +1479,8 @@ optionally, `Telegram:SecretToken`.
 - New: `ITelegramMessages` sends, shows, replaces and deletes the bot's messages by a storable `TelegramMessageRef`,
   with Telegram's edit and delete rules built in; `AddTelegramBot` registers it.
 - `ITelegramSender` is removed: use `ITelegramMessages.SendAsync`, which returns a `TelegramMessageRef` rather than the
-  `Message`; for the full `Message`, call `ITelegramBotClient.SendMessage`.
+  `Message`; for the full `Message`, call `ITelegramBotClient.SendMessage`. `SendAsync`'s parameters differ:
+  `replyMarkup` comes before `parseMode`, and the token is `token:`.
 - `Bladehero.Telegram.Platform.Receiving` now depends on `Bladehero.Telegram.Platform`.
 - With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
   interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails; a test that replaces
