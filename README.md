@@ -480,13 +480,13 @@ receives and replies with. To build it differently, e.g. for a local Bot API ser
 
 ### Change messages later
 
-`ITelegramMessages` sends the bot's messages and changes them later by `TelegramMessageRef`, a plain value to store,
-e.g. as two columns. `AddTelegramBot` registers it.
+`ITelegramMessages` changes the bot's messages later by `TelegramMessageRef`, a plain value to store, e.g. as two
+columns.
 
 ```csharp
-var card = await messages.SendAsync(chatId, "Nick, you have 50 points.", keyboard, token: token);   // store it
-card = await messages.ShowAsync(card, "Nick, you have 40 points.", keyboard, token: token);   // edit, or a fresh one
-card = await messages.ReplaceAsync(card, "Nick, you have 40 points.", keyboard, token: token); // fresh at the bottom
+var card = await messages.SendAsync(chatId, "Nick, you have 50 points.", keyboard, token: token); // store it
+card = await messages.ShowAsync(card, "Nick, you have 40 points.", keyboard, token: token);       // edit, or send fresh
+card = await messages.ReplaceAsync(card, "Nick, you have 40 points.", keyboard, token: token);    // fresh at the bottom
 await messages.ClearKeyboardAsync(card, token);   // keep the text, no more taps
 await messages.DeleteAsync(card, token);          // gone, or at least no keyboard
 ```
@@ -1353,9 +1353,10 @@ both run, and the second answer fails the action, so give each button's data to 
   - `/start` answered by three commands in turn, by [priority](#priorities);
   - the [`[BotCommand]` menu](#command-menu), and a `/help` listing it from `IBotCommandMenu`;
   - a loyalty club of [known users](#known-users), resolved by user id and seeded from `CoffeeShop:Members`: `/join`,
-    `/leave`, `/redeem 10` with arguments, and a `/points` card sent fresh to the bottom, updated in place by a tap and
-    removed by Close, with [typed](#buttons-with-typed-data) buttons whose `CheckAsync` refuses anyone but the card's
-    owner;
+    `/leave`, `/redeem 10` with arguments, and a `/points` card sent fresh to the bottom through
+    [`ITelegramMessages`](#change-messages-later), found again from the chat's history rather than kept in memory,
+    updated in place by a tap and removed by Close, with [typed](#buttons-with-typed-data) buttons whose `CheckAsync`
+    refuses anyone but the card's owner;
   - receipts for points: photos, PDFs, and photo and PDF albums read by a stand-in for an AI reader, too-big and
     unsupported files turned down, and `/history` sending a CSV file; the receipt and album buttons are typed, with the
     same owner check;

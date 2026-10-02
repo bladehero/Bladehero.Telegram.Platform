@@ -31,6 +31,6 @@ internal sealed class CloseButton(MemberDirectory members, PointsCard card)
         var (_, query, client) = request;
 
         await client.AnswerCallbackQuery(query.Id, cancellationToken: token);
-        await card.CloseAsync(client, query.Message!.Chat, query.Message.Id, User.UserId, token);
+        await card.CloseAsync(TelegramMessageRef.From(query), token);
     }
 }

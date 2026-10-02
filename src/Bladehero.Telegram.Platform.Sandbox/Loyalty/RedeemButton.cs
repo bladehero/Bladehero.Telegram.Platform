@@ -49,6 +49,6 @@ internal sealed class RedeemButton(MemberDirectory members, PointsCard card)
         }
 
         await client.AnswerCallbackQuery(query.Id, $"Redeemed {points} points", cancellationToken: token);
-        await card.UpdateAsync(client, query.Message!.Chat, query.Message.Id, after, token);
+        await card.UpdateAsync(TelegramMessageRef.From(query), after, token);
     }
 }
