@@ -1147,6 +1147,9 @@ bot.Api.CommandMenu(new BotCommandScopeAllPrivateChats()).Should().NotBeEmpty();
 await bot.SendAsync(new Update { /* … */ });   // any raw update
 ```
 
+`BotApiError.MessageCantBeDeleted` plays out Telegram's 48-hour delete limit, and `TestMessage.Ref` gives a message's
+`TelegramMessageRef`.
+
 A call the bot makes after the update was handled is waited for from a mark; typed requests are read without JSON:
 
 ```csharp
