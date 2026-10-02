@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -35,6 +36,10 @@ internal sealed class TelegramHistoryWriter(
     private volatile Task? _loop;
     private volatile bool _stopped;
     private volatile bool _failing;
+
+    // Bot API calls in flight, each until its entry is queued.
+    private readonly ConcurrentDictionary<long, TaskCompletionSource> _calls = new();
+    private long _lastCall;
 
     // Recorded and not yet handed to the store.
     private int _unstored;
@@ -115,6 +120,27 @@ internal sealed class TelegramHistoryWriter(
                 request.MethodName
             );
         }
+    }
+
+    // Marks a Bot API call in flight until disposed, so a strong flush can wait for its entry.
+    public IDisposable StartCall()
+    {
+        var id = Interlocked.Increment(ref _lastCall);
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _calls[id] = done;
+        return new Call(this, id, done);
+    }
+
+    // With waitForCalls, first waits for the calls in flight now; only tests do, as a read in production mustn't wait
+    // for another flow's slow call.
+    public async Task FlushAsync(bool waitForCalls, CancellationToken token)
+    {
+        if (waitForCalls)
+        {
+            await Task.WhenAll(_calls.Values.Select(x => x.Task)).WaitAsync(token);
+        }
+
+        await FlushAsync(token);
     }
 
     // Completes once every entry queued before it was handed to the store; at once when the writer isn't running.
@@ -348,4 +374,13 @@ internal sealed class TelegramHistoryWriter(
 
     // An entry, or a flush marker.
     private readonly record struct Item(TelegramHistoryEntry? Entry, TaskCompletionSource? Flushed);
+
+    private sealed class Call(TelegramHistoryWriter writer, long id, TaskCompletionSource done) : IDisposable
+    {
+        public void Dispose()
+        {
+            writer._calls.TryRemove(id, out _);
+            done.TrySetResult();
+        }
+    }
 }
