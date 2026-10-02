@@ -5,20 +5,21 @@ using Microsoft.Extensions.Logging;
 
 namespace Bladehero.Telegram.Platform.History.EntityFrameworkCore;
 
-// Deletes entries older than maxAge soon after start, then hourly on the app's clock. It never faults, as a faulted
-// background service reads as a stopped bot; a failed pass is logged and the next one tries again.
+// Deletes entries older than maxAge once the host has started, then hourly on the app's clock. It never faults, as a
+// faulted background service reads as a stopped bot; a failed pass is logged and the next one tries again.
 internal sealed class TelegramHistoryCleanup<TContext>(
     IServiceScopeFactory scopeFactory,
     TimeSpan maxAge,
     ILogger<TelegramHistoryCleanup<TContext>> logger,
     TimeProvider? timeProvider = null
-) : BackgroundService
+) : BackgroundService, IHostedLifecycleService
     where TContext : DbContext
 {
     private static readonly TimeSpan Every = TimeSpan.FromHours(1);
 
     // The app's clock when it registered one; the library registers none.
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
+    private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     // Completed after each pass, for tests.
     private TaskCompletionSource _passed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -69,13 +70,25 @@ internal sealed class TelegramHistoryCleanup<TContext>(
         }
     }
 
+    public Task StartingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    // Once every hosted service has started, e.g. migrated the database.
+    public Task StartedAsync(CancellationToken cancellationToken)
+    {
+        _started.TrySetResult();
+        return Task.CompletedTask;
+    }
+
+    public Task StoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task StoppedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Off the host's start: the first pass may build the context's model.
-        await Task.Yield();
-        using var timer = new PeriodicTimer(Every, _time);
         try
         {
+            await _started.Task.WaitAsync(stoppingToken);
+            using var timer = new PeriodicTimer(Every, _time);
             do
             {
                 await CleanUpAsync(stoppingToken);
@@ -85,6 +98,9 @@ internal sealed class TelegramHistoryCleanup<TContext>(
                     .TrySetResult();
             } while (await timer.WaitForNextTickAsync(stoppingToken));
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+        catch (Exception) when (stoppingToken.IsCancellationRequested)
+        {
+            // Stopped, possibly mid-pass.
+        }
     }
 }

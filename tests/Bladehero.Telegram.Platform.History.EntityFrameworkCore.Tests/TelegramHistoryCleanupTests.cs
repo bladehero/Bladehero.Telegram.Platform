@@ -1,7 +1,9 @@
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using static Bladehero.Telegram.Platform.History.EntityFrameworkCore.Tests.EntityFrameworkCoreTelegramHistoryStoreTests;
@@ -77,5 +79,43 @@ public sealed class TelegramHistoryCleanupTests
         }
 
         await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task Cleanup_ShouldWaitForTheHostToStart()
+    {
+        // Arrange
+        await using var database = TestDatabase.Unmigrated();
+        var logs = new LogRecorder();
+        var builder = Host.CreateEmptyApplicationBuilder(new());
+        builder.Logging.AddProvider(logs);
+        database.AddTo(builder.Services);
+        builder.Services.AddTelegramHistory().UseEntityFrameworkCore<BudgetContext>(maxAge: TimeSpan.FromDays(1));
+        builder.Services.AddHostedService<Migration>();
+        using var host = builder.Build();
+
+        // Act
+        await host.StartAsync();
+        var cleanup = host
+            .Services.GetServices<IHostedService>()
+            .OfType<TelegramHistoryCleanup<BudgetContext>>()
+            .Single();
+        await cleanup.WaitForPassesAsync(1, CancellationToken.None).WaitAsync(Patience);
+
+        // Assert
+        logs.Entries.Should().NotContain(x => x.Level >= LogLevel.Error);
+        await host.StopAsync();
+    }
+
+    // Creates the database as it starts, after the cleanup, as an app's own migration may.
+    private sealed class Migration(IServiceScopeFactory scopes) : IHostedService
+    {
+        public async Task StartAsync(CancellationToken cancellationToken)
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<BudgetContext>().Database.MigrateAsync(cancellationToken);
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }
