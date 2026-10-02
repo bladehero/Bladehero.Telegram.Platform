@@ -2,19 +2,21 @@
   <PropertyGroup>
     <PackageId>Bladehero.Telegram.Platform</PackageId>
     <Title>Bladehero.Telegram.Platform</Title>
-    <Description>Core building blocks for Telegram bots on .NET: strongly typed bot configuration, an ITelegramSender for messages the bot starts itself, and the Microsoft.Extensions.DependencyInjection wiring behind both.</Description>
+    <Description>Core building blocks for Telegram bots on .NET: strongly typed bot configuration, an ITelegramSender for messages the bot starts itself, the Microsoft.Extensions.DependencyInjection wiring behind both, and an opt-in history of the bot's updates and calls.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Background" />
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Background.Tests" />
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Testing" />
+    <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Tests" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Bladehero.Configuration.Extensions" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Telegram.Bot" />
   </ItemGroup>
