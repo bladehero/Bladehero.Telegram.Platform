@@ -181,5 +181,6 @@ public static class DependencyInjection
         // Records the client's calls when AddTelegramHistory came first.
         TelegramHistoryClients.Decorate(services);
         services.TryAddSingleton<ITelegramSender, TelegramSender>();
+        services.TryAddSingleton<ITelegramMessages, TelegramMessages>();
     }
 }
