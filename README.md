@@ -1423,8 +1423,11 @@ optionally, `Telegram:SecretToken`.
 - History is new and off until `AddTelegramHistory`; without it nothing changes.
 - `Bladehero.Telegram.Platform.Receiving` now depends on `Bladehero.Telegram.Platform`.
 - With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
-  interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails.
-- In component tests with history, each action also waits until the history is written.
+  interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails; a test that replaces
+  the client calls `AddTelegramHistory()` again after it.
+- With history on, the bot's client is built at startup, so a malformed token fails the start.
+- In component tests with history, each action also waits for the bot's calls in flight and until the history is
+  written.
 
 ## License
 
