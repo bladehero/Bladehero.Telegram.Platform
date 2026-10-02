@@ -1,6 +1,7 @@
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Errors;
+using Telegram.Bot;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.Tests;
 
@@ -15,6 +16,12 @@ internal sealed class ScopeLog
 
     /// <summary>What the command throws, if anything.</summary>
     public Exception? CommandFailure { get; set; }
+
+    /// <summary>What the command replies to the update's chat, if anything.</summary>
+    public string? Reply { get; set; }
+
+    /// <summary>What <see cref="ProbeErrorHandler"/> tells the failed update's chat, if anything.</summary>
+    public string? Apology { get; set; }
 }
 
 internal sealed class ScopedDependency : IDisposable
@@ -41,7 +48,10 @@ internal sealed class ProbeCommand(ScopeLog log, ScopedDependency dependency) : 
     public Task HandleAsync(CommandRequest request, CancellationToken token)
     {
         log.SeenByUpdates.Add(dependency);
-        return log.CommandFailure is { } failure ? Task.FromException(failure) : Task.CompletedTask;
+        return log.CommandFailure is { } failure ? Task.FromException(failure)
+            : log.Reply is { } reply
+                ? request.Client.SendMessage(request.Update.Message!.Chat, reply, cancellationToken: token)
+            : Task.CompletedTask;
     }
 }
 
@@ -51,7 +61,9 @@ internal sealed class ProbeErrorHandler(ScopeLog log, ScopedDependency dependenc
     {
         log.SeenByErrors.Add(dependency);
         log.Errors.Add(telegramError);
-        return Task.CompletedTask;
+        return log.Apology is { } apology && telegramError.Update?.Message is { } message
+            ? telegramError.Client.SendMessage(message.Chat, apology)
+            : Task.CompletedTask;
     }
 }
 

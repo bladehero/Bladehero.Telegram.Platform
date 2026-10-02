@@ -74,6 +74,13 @@ internal sealed class FakeBotClient(
             SetWebhookRequest => true,
             GetMyCommandsRequest => menu ?? [],
             SetMyCommandsRequest => true,
+            SendMessageRequest send => new Message
+            {
+                Id = Requests.Count,
+                Date = DateTime.UtcNow,
+                Chat = new Chat { Id = send.ChatId.Identifier ?? 0, Type = ChatType.Private },
+                Text = send.Text,
+            },
             _ => throw new InvalidOperationException($"Unexpected request: {request.MethodName}"),
         };
 
