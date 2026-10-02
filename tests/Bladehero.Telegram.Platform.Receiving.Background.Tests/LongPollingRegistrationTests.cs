@@ -120,11 +120,11 @@ public sealed class LongPollingRegistrationTests
     }
 
     [Fact]
-    public void TheSenderIsResolvableForMessagesTheBotStartsItself()
+    public void TheMessagesAreResolvableForMessagesTheBotStartsItself()
     {
         using var provider = Build(FromConfiguration());
 
-        Assert.NotNull(provider.GetService<ITelegramSender>());
+        Assert.NotNull(provider.GetService<ITelegramMessages>());
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class LongPollingRegistrationTests
         using var provider = Build(services);
 
         Assert.Single(provider.GetServices<IHostedService>().OfType<TelegramLongPollingBackgroundService>());
-        Assert.NotNull(provider.GetService<ITelegramSender>());
+        Assert.NotNull(provider.GetService<ITelegramMessages>());
     }
 
     [Fact]
@@ -165,7 +165,7 @@ public sealed class LongPollingRegistrationTests
         using var provider = Build(services);
 
         Assert.Single(provider.GetServices<IHostedService>().OfType<TelegramWebhookInitializer>());
-        Assert.NotNull(provider.GetService<ITelegramSender>());
+        Assert.NotNull(provider.GetService<ITelegramMessages>());
     }
 
     [Fact]

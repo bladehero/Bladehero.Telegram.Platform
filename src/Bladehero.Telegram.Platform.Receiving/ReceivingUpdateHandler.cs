@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.History;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Bladehero.Telegram.Platform.Receiving.Errors;
@@ -13,7 +14,8 @@ internal sealed class ReceivingUpdateHandler(
     ITelegramErrorHandler telegramErrorHandler,
     Conversation conversation,
     ITelegramBotIdentity identity,
-    ILogger<ReceivingUpdateHandler> logger
+    ILogger<ReceivingUpdateHandler> logger,
+    TelegramHistoryWriter? history = null
 ) : IUpdateHandler
 {
     public async Task HandleUpdateAsync(
@@ -23,6 +25,9 @@ internal sealed class ReceivingUpdateHandler(
     )
     {
         using var scope = UpdateLogScope.Begin(logger, update);
+
+        // Before any command runs, so even an update none handles is recorded.
+        history?.RecordUpdate(update);
 
         // IsCommand then refuses commands addressed to another bot. While the username is unknown it accepts them, and
         // a getMe starts in the background; it never throws and runs at most once a minute after a failure.

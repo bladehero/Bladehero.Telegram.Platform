@@ -30,6 +30,11 @@ public sealed class TestMessage
     /// <summary>The message id, unique within its chat.</summary>
     public int Id => Message.Id;
 
+    /// <summary>
+    /// The message as a <see cref="TelegramMessageRef"/>, to change it through <see cref="ITelegramMessages"/>.
+    /// </summary>
+    public TelegramMessageRef Ref => new(Message.Chat.Id, Message.Id);
+
     /// <summary>The text of a text message; <c>null</c> for a photo or file, whose text is its caption.</summary>
     public string? Text => Message.Text;
 

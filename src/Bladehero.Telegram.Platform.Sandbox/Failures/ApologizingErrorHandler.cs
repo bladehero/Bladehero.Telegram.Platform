@@ -6,7 +6,7 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.Sandbox.Failures;
 
 // Logs every error, as the default handler does, and apologises in the chat the failed update came from.
-internal sealed class ApologizingErrorHandler(ITelegramSender sender, ILogger<ApologizingErrorHandler> logger)
+internal sealed class ApologizingErrorHandler(ITelegramMessages messages, ILogger<ApologizingErrorHandler> logger)
     : ITelegramErrorHandler
 {
     public async Task HandleAsync(TelegramError telegramError)
@@ -20,7 +20,7 @@ internal sealed class ApologizingErrorHandler(ITelegramSender sender, ILogger<Ap
 
         try
         {
-            await sender.SendAsync(chat.Id, "Sorry, something went wrong — please try again.");
+            await messages.SendAsync(chat.Id, "Sorry, something went wrong — please try again.");
         }
         catch (RequestException failure)
         {

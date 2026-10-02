@@ -29,12 +29,14 @@ No registration, no routing table: drop the class in a scanned assembly.
   [command menu](#command-menu) · [known users](#known-users) · [buttons with typed data](#buttons-with-typed-data)
 - [Execution](#execution): [priorities](#priorities) · [parallelism](#parallelism) · [scopes](#scopes)
 - [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation)
-- [Sending on your own](#sending-on-your-own)
+- [Sending on your own](#sending-on-your-own): [change messages later](#change-messages-later)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
+- [History](#history): [entries](#whats-in-an-entry) · [ids](#where-ids-come-from) · [read](#read-it-back) ·
+  [privacy](#privacy) · [stores](#stores) · [writing](#writing)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
-  [logs](#logs) · [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) ·
-  [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) · [fake Telegram](#check-and-fail-telegram) ·
-  [production apps](#test-a-production-app)
+  [logs](#logs) · [history](#read-the-history) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
+  [files](#send-and-read-files) · [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) ·
+  [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
 
@@ -42,14 +44,18 @@ No registration, no routing table: drop the class in a scanned assembly.
 
 | Package | Contents |
 | --- | --- |
-| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramSender`, DI wiring. |
+| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramMessages`, DI wiring. |
 | [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
+| [`Bladehero.Telegram.Platform.History.InMemory`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.InMemory/) | [History](#history) kept in memory, per chat. |
+| [`Bladehero.Telegram.Platform.History.EntityFrameworkCore`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.EntityFrameworkCore/) | [History](#history) in your database through EF Core. |
 | [`Bladehero.Telegram.Platform.Testing`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Testing/) | [Component tests](#component-tests) against an in-memory Telegram. |
 
 ```sh
-dotnet add package Bladehero.Telegram.Platform.Receiving.Background   # pulls in the other runtime packages
-dotnet add package Bladehero.Telegram.Platform.Testing                # test projects
+dotnet add package Bladehero.Telegram.Platform.Receiving.Background           # pulls in the other runtime packages
+dotnet add package Bladehero.Telegram.Platform.History.InMemory               # history kept in memory
+dotnet add package Bladehero.Telegram.Platform.History.EntityFrameworkCore    # history in your database
+dotnet add package Bladehero.Telegram.Platform.Testing                        # test projects
 ```
 
 ## Quick start
@@ -445,23 +451,23 @@ await conversation.MoveToAsync("size", order with { CardId = card.Id }, token);
 
 ## Sending on your own
 
-Replies use the request's client. Messages the bot starts itself — reminders, alerts — go through `ITelegramSender`.
-The receiving setups register it; an app that only sends needs just the core package:
+Replies use the request's client. Messages the bot starts itself — reminders, alerts — and messages it changes later
+go through `ITelegramMessages`. The receiving setups register it; an app that only sends needs just the core package:
 
 ```csharp
 services.AddTelegramBot(configuration);   // binds TelegramBotConfiguration: { "Token": "…" }
 ```
 
 ```csharp
-public sealed class LimitAlerts(ITelegramSender sender)
+public sealed class LimitAlerts(ITelegramMessages messages)
 {
     public Task WarnAsync(long chatId, string text, CancellationToken token) =>
-        sender.SendAsync(chatId, text, cancellationToken: token);
+        messages.SendAsync(chatId, text, token: token);
 }
 ```
 
-For more than text (editing, deleting, sending files), inject the bot's `ITelegramBotClient`: the same client the
-library receives and replies with. To build it differently, e.g. for a local Bot API server, register your own
+For more than text (files, other options), inject the bot's `ITelegramBotClient`: the same client the library
+receives and replies with. To build it differently, e.g. for a local Bot API server, register your own
 `ITelegramBotClient` as a singleton, before or after these calls, and the library uses that one too:
 
 - Each of the library's services resolves it once and keeps it (the webhook endpoint per request). A scoped
@@ -471,6 +477,57 @@ library receives and replies with. To build it differently, e.g. for a local Bot
 - Register it as `ITelegramBotClient`: one registered only as `TelegramBotClient` leaves the library building a second.
 - A client for another bot goes under a key (`AddKeyedSingleton<ITelegramBotClient>("alerts", …)`), or it becomes this
   bot's client.
+
+### Change messages later
+
+`ITelegramMessages` changes the bot's messages later by `TelegramMessageRef`, a plain value to store.
+
+```csharp
+var card = await messages.SendAsync(chatId, "Nick, you have 50 points.", keyboard, token: token); // store it
+card = await messages.ShowAsync(card, "Nick, you have 40 points.", keyboard, token: token);       // edit, or send fresh
+card = await messages.ReplaceAsync(card, "Nick, you have 40 points.", keyboard, token: token);    // fresh at the bottom
+await messages.ShowKeyboardAsync(card, submenu, token); // swap the buttons, keep the text
+await messages.ClearKeyboardAsync(card, token);         // keep the text, no more taps
+await messages.DeleteAsync(card, token);                // gone, or at least no keyboard
+```
+
+Telegram's rules are built in:
+
+- "Not modified" is success.
+- A message that can't be edited any more is shown in a fresh one. A fresh message is always sent before the old one
+  is removed, so a failed send keeps the card.
+- "Already deleted" is success. After 48 hours Telegram won't delete a message, except in a supergroup or channel
+  where the bot may delete messages, so its keyboard comes off instead.
+- Inline-mode messages can be shown and cleared, not replaced or deleted.
+- `ShowAsync` and `ReplaceAsync` remove a message they can't show on: give them the bot's own messages. `DeleteAsync`
+  takes any message the bot may delete.
+- Two `ReplaceAsync` calls on one card at once send two fresh cards.
+
+`SendAsync` takes any reply markup; `ShowAsync`, `ReplaceAsync` and `ShowKeyboardAsync` take an inline keyboard, as
+edits do.
+
+To store a handle, keep its `ChatId` and `MessageId` (or `InlineMessageId`) in columns of your own and rebuild it;
+System.Text.Json round-trips it, e.g. in conversation data. For a message sent or tapped another way,
+`TelegramMessageRef.From(message)` or `From(callbackQuery)` gives its handle.
+
+Forum topics: edits work in place, but fresh messages go to General. Business messages aren't supported: use
+`ITelegramBotClient` with `businessConnectionId`.
+
+Unit tests get the service from a container (`AddTelegramBot` with your fake client registered first), or mock
+`ITelegramMessages`.
+
+Without a stored handle, [history](#history) can find the card by its buttons:
+
+```csharp
+var card = await history.FindLatestWithButtonAsync<Redeem>(chat.Id, x => x.OwnerId == userId, token);
+card = card is { } old ? await messages.ReplaceAsync(old, text, keyboard, token: token)
+                       : await messages.SendAsync(chat.Id, text, keyboard, token: token);
+```
+
+- It reads the chat's latest 500 entries for the newest message still showing a matching button.
+- It finds typed buttons only; hand-written data counts when a `[ButtonData]` record of the same shape decodes it.
+- It needs `KeepJson`, on by default.
+- It's best effort: a missed card just means a fresh one is sent.
 
 ## Errors and the HttpClient
 
@@ -502,6 +559,210 @@ services.AddTelegramLongPollingReceiving(
     assemblies: typeof(Program).Assembly
 );
 ```
+
+## History
+
+The history is an append-only record of the bot's Telegram traffic: every update it gets and every Bot API call it
+makes. Telegram doesn't let a bot read a chat's past, so it has to be captured as it passes.
+
+```csharp
+services.AddTelegramHistory().UseInMemory();   // a store, see Stores
+```
+
+Register an `ITelegramBotClient` of your own **before** `AddTelegramHistory`; startup fails otherwise. The library's
+own registrations may come before or after. Only that client's calls are recorded: not a keyed client for another bot,
+nor a `TelegramBotClient` injected by its type or built by hand.
+
+- A test that replaces the client calls `AddTelegramHistory()` again after it.
+- An app that decorates the client itself does so before `AddTelegramHistory`.
+- An app's own receiving loop passes the container's `ITelegramBotClient` to the update handler, or its commands' calls
+  aren't recorded.
+
+### What's in an entry
+
+Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a deletion is an entry of its own. An update
+or call about several messages is an entry per message: `sendMediaGroup`, `copyMessages`, `forwardMessages`,
+`deleteMessages` and `deleted_business_messages`.
+
+| Field | Holds |
+| --- | --- |
+| `Id` | The store's id, increasing in the order entries were recorded. |
+| `Time` | When the bot got the update, or when the call finished. |
+| `Direction` | `Incoming` for an update, `Outgoing` for a call. |
+| `Kind` | The update's type, such as `callback_query`, or the call's method, such as `sendMessage`. |
+| `UpdateId` | The update's id; for a call, the update the bot was handling when it made it. |
+| `ChatId` | The chat it happened in. |
+| `UserId` | The user who sent the update, or the user a call is about. |
+| `MessageId` | The message it's about, within the chat. |
+| `InlineMessageId` | The inline-mode message it's about; such a message has no chat. |
+| `Text` | The text or caption, as Telegram shows it when the call returns the message, otherwise as sent; a button's data, or an inline query. |
+| `FileId`, `FileName` | The file's id and name; never its bytes. |
+| `ErrorCode`, `Error` | Why a call failed: Telegram's code and description, or the exception's message. |
+| `Json` | The update, or the call's request and result, as Bot API JSON as Telegram.Bot serializes it, so unknown fields and defaults are left out. |
+
+`ToString()` sums an entry up in one line, e.g. `sendMessage: Hi (403 Forbidden: bot was blocked by the user)`.
+
+Polling's `getUpdates` and file downloads aren't recorded; the `getFile` before a download is.
+
+A call carries the update it was made for:
+
+- A call made while handling an update has that update's `UpdateId`.
+- Work the update started but didn't await, such as a `Task.Run`, inherits it.
+- An error handler's calls are linked to the failed update.
+- Calls from hosted services carry none. Start long-lived loops outside updates, or with
+  `ExecutionContext.SuppressFlow()`, or each of their calls names the update that started them.
+
+### Where ids come from
+
+A call's ids come from its result when it has one, such as the message sent, and otherwise from the request.
+
+| Update or call | Ids |
+| --- | --- |
+| A callback query | The tapped message's chat and id; a tap on an inline-mode message has only `InlineMessageId`. |
+| A channel post | No `UserId`. |
+| A poll answer | `UserId`, or `ChatId` when a channel voted. |
+| `chat_member`, `my_chat_member` | `UserId` is whoever made the change. |
+| A guest message | No `ChatId`; a reply sent with `answerGuestQuery` has its `InlineMessageId`, but its text only in `Json`. |
+| A chat given as `@username` | `ChatId` only when the call returns the message; otherwise the name stays in `Json`, and no message ids are kept. |
+| `copyMessage` | `MessageId` is the copy's. |
+| `copyMessages` or `forwardMessages` that failed | No `MessageId`: the ids it was given are the source chat's. |
+| An inline message's edit | `InlineMessageId`, and no chat; `Kind` is still the method, such as `editMessageText`. |
+| `getFile` | `FileId`. |
+
+A call with no chat, user or inline message of its own, such as answering a tap, takes the chat and user of the update
+it was made for.
+
+A call Telegram refused has its `ErrorCode` and description in `Error`. One that failed otherwise, such as a timeout,
+has only the exception's message.
+
+### Read it back
+
+Inject `ITelegramHistory`. `ReadAsync` returns the latest `Limit` entries (100 unless set) that match every filter set,
+oldest first. A read waits up to 2 seconds for what was recorded before it to be stored, so a handler sees the update
+it's handling and its own calls; while the store is failing, it reads what's stored without waiting.
+
+| Query | Entries |
+| --- | --- |
+| `ChatId` | The chat's. |
+| `MessageId` | The message's: its sending, edits, taps and deletion. Needs `ChatId`. |
+| `InlineMessageId` | The inline-mode message's. |
+| `UpdateId` | The update's, and the calls made while handling it. |
+| `Since` | From this time on. |
+| `BeforeId` | Older than this `Id`. |
+
+Update ids are unique only over recent traffic: after a week without updates, Telegram picks the next one at random.
+
+A chat's recent past as context for an LLM:
+
+```csharp
+var recent = await history.ReadAsync(new() { ChatId = chat.Id, Limit = 50 }, token);
+var transcript = string.Join('\n', recent
+    .Where(x => x.Text is not null && x.Error is null
+        && x.Kind is "message" or "edited_message" or "sendMessage" or "editMessageText")
+    .Select(x => x.Direction == TelegramHistoryDirection.Incoming ? $"User: {x.Text}" : $"Bot: {x.Text}"));
+```
+
+A tap carries its button's data, not its label; the label is in the tapped message, in `Json`.
+
+To page further back, read `query with { BeforeId = page[0].Id }` until a page comes back empty.
+
+### Privacy
+
+- `KeepJson = false` keeps every field but `Json`.
+- `Filter` changes or drops each entry before it's stored: return it, changed with `with` if need be, or `null` to
+  drop it. Redacting `Text` alone leaves it in `Json`.
+- Secrets in requests, `secret_token` and `provider_token`, and the bot tokens `getManagedBotToken` and
+  `replaceManagedBotToken` return, are always left out of `Json`.
+- URLs, such as `setWebhook`'s, can carry secrets of your own; drop or redact them with `Filter`.
+
+```csharp
+services.AddTelegramHistory(history =>
+{
+    history.KeepJson = false;
+    // sendMessageDraft is recorded once per streamed draft.
+    history.Filter = entry => entry.Kind is "sendChatAction" or "sendMessageDraft" ? null : entry;
+});
+```
+
+A filter that needs services is set through the options API:
+
+```csharp
+services.AddOptions<TelegramHistoryOptions>()
+    .Configure<IPrivacy>((history, privacy) => history.Filter = privacy.Redact);
+```
+
+### Stores
+
+A store keeps the entries; pick one after `AddTelegramHistory()`, or bring your own. Startup fails without one.
+
+#### In memory
+
+From `Bladehero.Telegram.Platform.History.InMemory`:
+
+```csharp
+services.AddTelegramHistory().UseInMemory(maxEntriesPerChat: 1000);
+```
+
+- It keeps the latest `maxEntriesPerChat` entries of each chat; entries without a chat, such as inline queries, share
+  one such cap.
+- It's lost on restart.
+- Memory grows with the number of chats, so it suits development, tests and small bots.
+
+#### EF Core
+
+From `Bladehero.Telegram.Platform.History.EntityFrameworkCore`: map the history into your own context, add a migration,
+and pick the store:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.MapTelegramHistory();
+```
+
+```sh
+dotnet ef migrations add AddTelegramHistory
+```
+
+```csharp
+services.AddTelegramHistory().UseEntityFrameworkCore<BudgetContext>(maxAge: TimeSpan.FromDays(180));
+```
+
+- It writes through a context instance of its own, so it never mixes with the app's changes. `AddDbContext`, a factory
+  and a pool all work.
+- Any relational provider works; it needs EF Core 10.0.10 or later.
+- `maxAge` deletes older entries hourly; without it, everything is kept.
+- `MapTelegramHistory(tableName, schema)` picks the table, `TelegramHistory` by default.
+- Startup fails when the context doesn't map the history. A missing migration shows as an error log on the first write.
+- Apply the migration before the host has finished starting, e.g. before `app.Run()` or in a hosted service's start:
+  startup's own calls are stored then.
+- In tests, don't share one in-memory SQLite connection with this store: the history writes in the background at the
+  same time, and a `SqliteConnection` isn't thread-safe. Use a file database, or `UseInMemory()`.
+- On SQLite, a history read inside your own open write transaction waits up to 2 s, and the history's write waits for
+  your commit.
+
+#### Your own store
+
+Implement `ITelegramHistoryStore` and register it:
+
+```csharp
+services.AddTelegramHistory().Services.AddSingleton<ITelegramHistoryStore, MyStore>();
+```
+
+- `AppendAsync` gets each batch oldest first and gives each entry an increasing `Id`. One writer calls it, one batch at
+  a time.
+- `ReadAsync` answers a query as in [Read it back](#read-it-back); `Since` is inclusive, `BeforeId` exclusive. A
+  write-only store may throw `NotSupportedException`.
+- A scoped store, e.g. one over a `DbContext`, gets a scope of its own for each batch and each read.
+
+### Writing
+
+Recording never makes the bot wait for the store, and never throws into it. Entries are stored by a hosted service, so
+history needs a running host (`IHost` or `WebApplication`); without one nothing is stored.
+
+- Entries wait in a bounded queue (`QueueCapacity`, 10 000) and are stored in the background, in batches.
+- When the queue is full, new entries are dropped, with a warning at most once a minute that counts them.
+- A store that fails is logged as an error; that batch is dropped and later ones are stored.
+- Storing starts once every hosted service has started; what's recorded before waits in the queue.
+- On shutdown, what's queued is stored within the host's shutdown timeout; a warning counts anything left.
+- `ITelegramHistory.FlushAsync` waits until everything recorded so far is stored.
 
 ## Component tests
 
@@ -654,6 +915,24 @@ action rethrows anyway isn't reported twice. It counts from when it's turned on,
 
 To send logs elsewhere too, such as to the test output, add a provider with `builder.Logging.AddProvider(...)` in the
 builder overload, or with `web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
+
+### Read the history
+
+With [history](#history) on, each action also waits until the bot's history is written, so `bot.History` reads
+everything the bot did, including messages sent later once they've arrived:
+
+```csharp
+await nick.SendsAsync("/coffee");
+await nick.TapsAsync("Large");
+
+var tap = (await bot.History.ReadAsync(new() { ChatId = nick.Chat.Id }))
+    .Last(x => x.Kind == "callback_query");
+(await bot.History.ReadAsync(new() { UpdateId = tap.UpdateId }))
+    .Select(x => x.Kind).Should().Equal("callback_query", "answerCallbackQuery", "editMessageText", "sendMessage");
+```
+
+A store that fails logs an error, which `FailOnErrorLogs` reports. An app that registers its own client after
+`AddTelegramHistory` fails to start in tests, as in production.
 
 ### Chat with it
 
@@ -893,6 +1172,9 @@ bot.Api.CommandMenu(new BotCommandScopeAllPrivateChats()).Should().NotBeEmpty();
 await bot.SendAsync(new Update { /* … */ });   // any raw update
 ```
 
+`BotApiError.MessageCantBeDeleted` plays out Telegram's 48-hour delete limit, and `TestMessage.Ref` gives a message's
+`TelegramMessageRef`.
+
 A call the bot makes after the update was handled is waited for from a mark; typed requests are read without JSON:
 
 ```csharp
@@ -989,12 +1271,13 @@ services.Remove(services.Single(x =>
 For an internal type you can't name, match on `x.ImplementationType?.Name == "ModelWarmup"`.
 
 **The database:** point the app's connection string at a file of the test's own, so a test never writes to the
-developer's real database, and delete it once the host is disposed:
+developer's real database, and delete it once the host is disposed. Keep connection pooling, as `Pooling=False` slows
+every action that writes the history, and clear the pools before deleting:
 
 ```csharp
 var path = Path.Combine(Path.GetTempPath(), $"budget-{Guid.NewGuid():N}.db");
 var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
-    web.UseSetting("ConnectionStrings:Database", $"Data Source={path};Pooling=False"));   // no pool keeps it open
+    web.UseSetting("ConnectionStrings:Database", $"Data Source={path}"));
 try
 {
     // … the test …
@@ -1002,6 +1285,7 @@ try
 finally
 {
     await bot.DisposeAsync();
+    SqliteConnection.ClearAllPools();   // pooled connections keep the file open
     foreach (var file in new[] { path, path + "-wal", path + "-shm" })
     {
         File.Delete(file);   // no error if it isn't there
@@ -1033,6 +1317,9 @@ depends on the version, and the registration that loses is ignored without any e
 - on EF Core 8, the first one wins, so after the app's own it's ignored;
 - when the app uses another provider, such as InMemory, `AddDbContext` or `ConfigureDbContext` after the app's own fails
   on EF Core 9 and 10 with "Services for database providers … have been registered in the service provider".
+
+With the [EF Core history store](#ef-core), use a file instead: the history writes in the background at the same time,
+and one `SqliteConnection` isn't thread-safe.
 
 The shared open connection keeps the database across a restart on the same fake. Without replacing EF Core's
 registrations, point the app's connection string elsewhere instead:
@@ -1078,9 +1365,10 @@ both run, and the second answer fails the action, so give each button's data to 
   - `/start` answered by three commands in turn, by [priority](#priorities);
   - the [`[BotCommand]` menu](#command-menu), and a `/help` listing it from `IBotCommandMenu`;
   - a loyalty club of [known users](#known-users), resolved by user id and seeded from `CoffeeShop:Members`: `/join`,
-    `/leave`, `/redeem 10` with arguments, and a `/points` card sent fresh to the bottom, updated in place by a tap and
-    removed by Close, with [typed](#buttons-with-typed-data) buttons whose `CheckAsync` refuses anyone but the card's
-    owner;
+    `/leave`, `/redeem 10` with arguments, and a `/points` card sent fresh to the bottom through
+    [`ITelegramMessages`](#change-messages-later), found again from the chat's history rather than kept in memory,
+    updated in place by a tap and removed by Close, with [typed](#buttons-with-typed-data) buttons whose `CheckAsync`
+    refuses anyone but the card's owner;
   - receipts for points: photos, PDFs, and photo and PDF albums read by a stand-in for an AI reader, too-big and
     unsupported files turned down, and `/history` sending a CSV file; the receipt and album buttons are typed, with the
     same owner check;
@@ -1091,11 +1379,13 @@ both run, and the second answer fails the action, so give each button's data to 
   - stale, foreign and double-tapped buttons: an earlier order's, another member's card, a receipt taken already, and
     a tap from a view that missed an edit;
   - a barista telling each customer when their coffee is ready, [sent on its own](#sending-on-your-own) through
-    `ITelegramSender`, on the clock of an injected `TimeProvider`;
+    `ITelegramMessages`, on the clock of an injected `TimeProvider`;
   - an [error handler](#errors-and-the-httpclient) that apologises in the chat, even to someone who blocked the bot;
   - a greeting when the bot is added to a group, next to a logger of `MyChatMember` updates;
   - a coffee order in a group, where the bot is made an admin to hear the typed cup names, and a test of what a bot
     without admin rights misses under [group privacy](#groups-and-privacy);
+  - the chat's [history](#history) in memory, with `/recent` listing what just happened, and tests that follow a tap
+    to everything it caused;
   - component tests of restarts on the same fake with and without a shared conversation store, members seeded with
     `UserIdOf` before the host starts, Telegram refusing calls to one chat or asking the bot to slow down, and a
     `FakeTimeProvider` moving the barista's clock on. The stand-ins are registered after `AddCoffeeShop`, in place of
@@ -1182,6 +1472,22 @@ optionally, `Telegram:SecretToken`.
 - Refusals now match Telegram for text of only spaces, new lines or invisible characters (`text must be non-empty`),
   caption edits (`MEDIA_CAPTION_TOO_LONG`) and text-only inline buttons (`not allowed`).
 - Photos have four sizes.
+
+### To 10.3
+
+- History is new and off until `AddTelegramHistory`; without it nothing changes.
+- New: `ITelegramMessages` sends, shows, replaces and deletes the bot's messages by a storable `TelegramMessageRef`,
+  with Telegram's edit and delete rules built in; `AddTelegramBot` registers it.
+- `ITelegramSender` is removed: use `ITelegramMessages.SendAsync`, which returns a `TelegramMessageRef` rather than the
+  `Message`; for the full `Message`, call `ITelegramBotClient.SendMessage`. `SendAsync`'s parameters differ:
+  `replyMarkup` comes before `parseMode`, and the token is `token:`.
+- `Bladehero.Telegram.Platform.Receiving` now depends on `Bladehero.Telegram.Platform`.
+- With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
+  interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails; a test that replaces
+  the client calls `AddTelegramHistory()` again after it.
+- With history on, the bot's client is built at startup, so a malformed token fails the start.
+- In component tests with history, each action also waits for the bot's calls in flight and until the history is
+  written.
 
 ## License
 

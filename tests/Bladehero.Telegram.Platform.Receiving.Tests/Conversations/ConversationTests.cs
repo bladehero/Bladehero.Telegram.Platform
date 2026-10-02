@@ -114,6 +114,21 @@ public sealed class ConversationTests
     }
 
     [Fact]
+    public async Task GetDataAsync_WithAMessageRef_ShouldReadItBack()
+    {
+        // Arrange
+        var store = new InMemoryConversationStore();
+        var card = new Card(new TelegramMessageRef(-1001234567890, 10), new TelegramMessageRef("AAAAinline"));
+        await Bound(store).StartAsync("order", "size", card, CancellationToken.None);
+
+        // Act
+        var data = await Bound(store).GetDataAsync<Card>(CancellationToken.None);
+
+        // Assert
+        data.Should().Be(card);
+    }
+
+    [Fact]
     public async Task EndAsync_ShouldRemoveTheConversation()
     {
         // Arrange
@@ -292,4 +307,6 @@ public sealed class ConversationTests
     }
 
     private sealed record Order(string Size, int Shots = 1);
+
+    private sealed record Card(TelegramMessageRef InChat, TelegramMessageRef Inline);
 }

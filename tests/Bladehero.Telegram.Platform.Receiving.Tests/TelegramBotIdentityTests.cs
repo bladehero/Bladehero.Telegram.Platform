@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.History;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.Time.Testing;
@@ -99,6 +100,29 @@ public sealed class TelegramBotIdentityTests
         {
             afterAFailure.Should().BeNull();
             sut.Current.Should().BeSameAs(Bot);
+        }
+    }
+
+    [Fact]
+    public async Task TryGetAsync_FromInsideAnUpdate_ShouldNotLinkItsGetMeToTheUpdate()
+    {
+        // Arrange
+        Update? causeDuringGetMe = null;
+        var client = new Mock<ITelegramBotClient>();
+        client.Setup(GetMe()).Callback(() => causeDuringGetMe = TelegramHistoryCause.Current).ReturnsAsync(Bot);
+        var sut = new TelegramBotIdentity(client.Object);
+
+        // Act
+        using (TelegramHistoryCause.Begin(new Update { Id = 7 }))
+        {
+            await sut.TryGetAsync(CancellationToken.None);
+        }
+
+        // Assert
+        using (new AssertionScope())
+        {
+            client.Verify(GetMe(), Times.Once);
+            causeDuringGetMe.Should().BeNull();
         }
     }
 

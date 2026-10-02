@@ -17,6 +17,9 @@ public sealed record BotApiError(int ErrorCode, string Description)
     public static BotApiError QueryTooOld { get; } =
         new(400, "Bad Request: query is too old and response timeout expired or query ID is invalid");
 
+    /// <summary>Telegram's refusal to delete a message, e.g. one sent more than 48 hours ago.</summary>
+    public static BotApiError MessageCantBeDeleted { get; } = new(400, "Bad Request: message can't be deleted");
+
     /// <summary>For a 429: seconds to wait before retrying.</summary>
     public int? RetryAfter { get; init; }
 

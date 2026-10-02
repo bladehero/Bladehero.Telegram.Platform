@@ -1,4 +1,5 @@
 using Bladehero.Configuration.Extensions;
+using Bladehero.Telegram.Platform.History;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -8,13 +9,13 @@ using Telegram.Bot;
 namespace Bladehero.Telegram.Platform;
 
 /// <summary>
-/// Registers the bot's <see cref="ITelegramBotClient"/> and <see cref="ITelegramSender"/>, for an app that only sends;
-/// the receiving setups call it themselves.
+/// Registers the bot's <see cref="ITelegramBotClient"/> and <see cref="ITelegramMessages"/>, for an app that only
+/// sends; the receiving setups call it themselves.
 /// </summary>
 public static class DependencyInjection
 {
     /// <summary>
-    /// Registers the bot's <see cref="ITelegramBotClient"/> and <see cref="ITelegramSender"/>, with
+    /// Registers the bot's <see cref="ITelegramBotClient"/> and <see cref="ITelegramMessages"/>, with
     /// <see cref="TelegramBotConfiguration"/> bound from <paramref name="configuration"/>.
     /// </summary>
     /// <remarks>
@@ -44,7 +45,7 @@ public static class DependencyInjection
     }
 
     /// <summary>
-    /// Registers the bot's <see cref="ITelegramBotClient"/> and <see cref="ITelegramSender"/>, with
+    /// Registers the bot's <see cref="ITelegramBotClient"/> and <see cref="ITelegramMessages"/>, with
     /// <see cref="TelegramBotConfiguration"/> set by <paramref name="configure"/>.
     /// </summary>
     /// <remarks>
@@ -176,6 +177,9 @@ public static class DependencyInjection
             var options = new TelegramBotClientOptions(botConfiguration.Token);
             return new TelegramBotClient(options, httpClientFactory?.Invoke(provider));
         });
-        services.TryAddSingleton<ITelegramSender, TelegramSender>();
+
+        // Records the client's calls when AddTelegramHistory came first.
+        TelegramHistoryClients.Decorate(services);
+        services.TryAddSingleton<ITelegramMessages, TelegramMessages>();
     }
 }

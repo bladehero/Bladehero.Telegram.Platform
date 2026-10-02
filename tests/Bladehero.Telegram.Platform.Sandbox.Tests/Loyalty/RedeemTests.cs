@@ -146,7 +146,7 @@ public sealed class RedeemTests
             bot.Api.Calls.Skip(calls)
                 .Select(x => x.Method)
                 .Should()
-                .Equal("answerCallbackQuery", "editMessageText", "deleteMessage", "sendMessage");
+                .Equal("answerCallbackQuery", "editMessageText", "sendMessage", "deleteMessage");
             cards.Should().ContainSingle().Which.Id.Should().NotBe(card.Id);
             cards[0].Text.Should().Be("Nick, you have 30 points.");
         }

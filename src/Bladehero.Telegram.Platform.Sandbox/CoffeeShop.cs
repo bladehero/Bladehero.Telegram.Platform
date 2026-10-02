@@ -1,3 +1,5 @@
+using Bladehero.Telegram.Platform.History;
+using Bladehero.Telegram.Platform.History.InMemory;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
@@ -21,6 +23,7 @@ internal static class CoffeeShop
     {
         services.AddTelegramLongPollingReceiving(configuration, assemblies: typeof(CoffeeShop).Assembly);
         services.AddScoped<ITelegramErrorHandler, ApologizingErrorHandler>(); // after receiving, to replace its own
+        services.AddTelegramHistory().UseInMemory(); // The chats' history, for /recent.
         services.Configure<CoffeeShopOptions>(configuration.GetSection(CoffeeShopOptions.Section));
         services.TryAddSingleton(TimeProvider.System);
 

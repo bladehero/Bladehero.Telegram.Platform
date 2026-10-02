@@ -99,25 +99,80 @@ public sealed class PointsTests
         // Assert
         using (new AssertionScope())
         {
-            bot.Api.Calls.Skip(calls).Select(x => x.Method).Should().Equal("deleteMessage", "sendMessage");
+            bot.Api.Calls.Skip(calls).Select(x => x.Method).Should().Equal("sendMessage", "deleteMessage");
             nick.LastMessage.ToString().Should().Be(NicksCard);
         }
     }
 
     [Fact]
-    public async Task Points_WhenTheOldCardCannotBeDeleted_ShouldStillSendANewOne()
+    public async Task Points_WhenTheOldCardCannotBeDeleted_ShouldTakeItsButtonsOffAndSendANewOne()
     {
         // Arrange
         await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40));
         var nick = bot.PrivateChat("Nick");
         await nick.SendsAsync("/points");
-        bot.Api.Fail("deleteMessage", new BotApiError(400, "Bad Request: message can't be deleted"), times: 1);
+        bot.Api.Fail("deleteMessage", BotApiError.MessageCantBeDeleted, times: 1);
 
         // Act
         await nick.SendsAsync("/points");
 
         // Assert
-        nick.Messages.Select(x => x.ToString()).Should().Equal("Nick: /points", NicksCard, "Nick: /points", NicksCard);
+        nick.Messages.Select(x => x.ToString())
+            .Should()
+            .Equal("Nick: /points", "Bot: Nick, you have 40 points.", "Nick: /points", NicksCard);
+    }
+
+    [Fact]
+    public async Task Points_AfterARedeemTap_ShouldStillReplaceThatCard()
+    {
+        // Arrange
+        await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40));
+        var nick = bot.PrivateChat("Nick");
+        var card = await ShowCardAsync(nick);
+        await nick.TapsAsync("Redeem 10");
+        var mark = bot.Api.Mark();
+
+        // Act
+        await nick.SendsAsync("/points");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Api.CallsSince(mark)
+                .Should()
+                .Contain(x => x.Method == "deleteMessage" && (int)x.Parameters["message_id"]! == card.Id);
+            Cards(nick).Should().ContainSingle().Which.Id.Should().Be(nick.LastMessage.Id);
+            nick.LastMessage.Text.Should().Be("Nick, you have 30 points.");
+        }
+    }
+
+    [Fact]
+    public async Task Points_InTheSameChatForTwoMembers_ShouldKeepEachOnesCard()
+    {
+        // Arrange: the bot deletes only its own cards, which needs no admin rights.
+        await using var bot = await SandboxBot.StartWithMembersAsync(("Nick", 40), ("Anna", 30));
+        var office = bot.GroupChat("Office");
+        var nick = office.Member("Nick");
+        var anna = office.Member("Anna");
+        await nick.SendsAsync("/points");
+        var nicksCard = office.LastMessage;
+        await anna.SendsAsync("/points");
+        var annasCard = office.LastMessage;
+
+        // Act
+        await nick.SendsAsync("/points");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            office.Current(nicksCard).Should().BeNull();
+            office.Current(annasCard).Should().NotBeNull();
+            office
+                .Messages.Where(x => x.IsFromBot)
+                .Select(x => x.Text)
+                .Should()
+                .Equal("Anna, you have 30 points.", "Nick, you have 40 points.");
+        }
     }
 
     [Fact]

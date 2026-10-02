@@ -17,6 +17,7 @@ public sealed class CommandMenuTests
         "/join Join the loyalty club",
         "/leave Leave the loyalty club",
         "/points Your loyalty points",
+        "/recent What happened here lately",
         "/redeem Redeem points, e.g. /redeem 10",
     ];
 
