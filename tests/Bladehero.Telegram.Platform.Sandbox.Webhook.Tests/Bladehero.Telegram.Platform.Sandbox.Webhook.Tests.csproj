@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Bladehero.Telegram.Platform.History.InMemory\Bladehero.Telegram.Platform.History.InMemory.csproj" />
     <ProjectReference Include="..\..\src\Bladehero.Telegram.Platform.Sandbox.Webhook\Bladehero.Telegram.Platform.Sandbox.Webhook.csproj" />
     <ProjectReference Include="..\..\src\Bladehero.Telegram.Platform.Testing\Bladehero.Telegram.Platform.Testing.csproj" />
   </ItemGroup>

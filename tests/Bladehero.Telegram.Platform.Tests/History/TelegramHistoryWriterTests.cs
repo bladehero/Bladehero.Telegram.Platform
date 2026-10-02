@@ -375,6 +375,37 @@ public sealed class TelegramHistoryWriterTests
     }
 
     [Fact]
+    public async Task FlushAsync_WaitingForCalls_ShouldWaitForTheCallsInFlight()
+    {
+        // Arrange
+        await using var host = await HistoryHost.StartAsync();
+        var call = host.Writer.StartCall();
+        var flush = host.Writer.FlushAsync(waitForCalls: true, CancellationToken.None);
+        var whileInFlight = flush.IsCompleted;
+
+        // Act
+        call.Dispose();
+        await flush;
+
+        // Assert
+        whileInFlight.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task FlushAsync_OfTheApp_ShouldNotWaitForCallsInFlight()
+    {
+        // Arrange
+        await using var host = await HistoryHost.StartAsync();
+        using var call = host.Writer.StartCall();
+
+        // Act
+        var flush = host.History.FlushAsync();
+
+        // Assert: generous, as only a wait for the call would take that long.
+        await flush.Invoking(x => x.WaitAsync(TimeSpan.FromSeconds(30))).Should().NotThrowAsync();
+    }
+
+    [Fact]
     public async Task Stop_ShouldStoreWhatIsStillQueued()
     {
         // Arrange
