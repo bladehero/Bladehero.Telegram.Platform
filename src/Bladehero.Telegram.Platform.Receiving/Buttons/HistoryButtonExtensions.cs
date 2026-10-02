@@ -62,8 +62,13 @@ public static class HistoryButtonExtensions
                 );
             }
 
-            // A call that returns no message, such as a reaction, leaves the keyboard as it was.
-            if (JsonNode.Parse(entry.Json)?["result"] is not JsonObject result || !result.ContainsKey("chat"))
+            // A call that returns no message, such as a reaction, leaves the keyboard as it was. A business message's
+            // ids are another account's, so it decides nothing either.
+            if (
+                JsonNode.Parse(entry.Json)?["result"] is not JsonObject result
+                || !result.ContainsKey("chat")
+                || result.ContainsKey("business_connection_id")
+            )
             {
                 continue;
             }

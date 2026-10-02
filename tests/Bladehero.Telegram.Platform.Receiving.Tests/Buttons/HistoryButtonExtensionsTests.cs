@@ -112,6 +112,21 @@ public sealed class HistoryButtonExtensionsTests
     }
 
     [Fact]
+    public async Task FindLatestWithButtonAsync_OfABusinessCard_ShouldSkipIt()
+    {
+        // Arrange: a newer card sent on behalf of a business account.
+        var business = Card(2, Redeem(Nick));
+        business.BusinessConnectionId = "AAAAbusiness";
+        _history.Add(Call("sendMessage", 1, Card(1, Redeem(Nick))), Call("sendMessage", 2, business));
+
+        // Act
+        var card = await _history.FindLatestWithButtonAsync<RedeemButton>(Chat);
+
+        // Assert
+        card.Should().Be(new TelegramMessageRef(Chat, 1));
+    }
+
+    [Fact]
     public async Task FindLatestWithButtonAsync_WithABoundButton_ShouldFindIt()
     {
         // Arrange
