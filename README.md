@@ -517,6 +517,9 @@ Register an `ITelegramBotClient` of your own **before** `AddTelegramHistory`; st
 own registrations may come before or after. Only that client's calls are recorded: not a keyed client for another bot,
 nor a `TelegramBotClient` injected by its type or built by hand.
 
+- A test that replaces the client calls `AddTelegramHistory()` again after it.
+- An app that decorates the client itself does so before `AddTelegramHistory`.
+
 ### What's in an entry
 
 Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a deletion is an entry of its own. A call
@@ -555,7 +558,7 @@ A call's ids come from its result when it has one, such as the message sent, and
 
 | Call | Ids |
 | --- | --- |
-| A chat given as `@username` | `ChatId` from the message sent; a call that failed keeps the name only in `Json`. |
+| A chat given as `@username` | `ChatId` only when the call returns the message; otherwise the name stays in `Json`, and no message ids are kept. |
 | `sendMediaGroup` | An entry per message sent. |
 | `copyMessage` | `MessageId` is the copy's. |
 | `copyMessages`, `forwardMessages` | An entry per message sent; one that failed has no `MessageId`, as the ids it was given are the source chat's. |
@@ -600,8 +603,8 @@ To page further back, read `query with { BeforeId = page[0].Id }` until a page c
 - `KeepJson = false` keeps every field but `Json`.
 - `Filter` changes or drops each entry before it's stored: return it, changed with `with` if need be, or `null` to
   drop it. Redacting `Text` alone leaves it in `Json`.
-- Secrets in requests, `secret_token` and `provider_token`, are always left out of `Json`. Files are recorded by id and
-  name, never their bytes.
+- Secrets in requests, `secret_token` and `provider_token`, and the bot tokens `getManagedBotToken` and
+  `replaceManagedBotToken` return, are always left out of `Json`. Files are recorded by id and name, never their bytes.
 - URLs, such as `setWebhook`'s, can carry secrets of your own; drop or redact them with `Filter`.
 
 ```csharp
