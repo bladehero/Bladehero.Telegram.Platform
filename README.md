@@ -566,7 +566,7 @@ A call's ids come from its result when it has one, such as the message sent, and
 | A poll answer | `UserId`, or `ChatId` when a channel voted. |
 | `deleted_business_messages` | An entry per message deleted. |
 | `chat_member`, `my_chat_member` | `UserId` is whoever made the change. |
-| A guest message | No `ChatId`. |
+| A guest message | No `ChatId`; a reply sent with `answerGuestQuery` has its `InlineMessageId`, but its text only in `Json`. |
 | A chat given as `@username` | `ChatId` only when the call returns the message; otherwise the name stays in `Json`, and no message ids are kept. |
 | `sendMediaGroup` | An entry per message sent. |
 | `copyMessage` | `MessageId` is the copy's. |
