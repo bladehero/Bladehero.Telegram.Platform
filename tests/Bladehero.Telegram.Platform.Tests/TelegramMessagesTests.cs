@@ -280,6 +280,24 @@ public sealed class TelegramMessagesTests
     }
 
     [Fact]
+    public async Task ReplaceAsync_CancelledAfterTheFreshSend_ShouldStillRemoveTheOldAndReturnTheFresh()
+    {
+        // Arrange: the caller gives up while Telegram answers the send.
+        using var cancellation = new CancellationTokenSource();
+        _telegram.OnCall("sendMessage", cancellation.Cancel);
+
+        // Act
+        var replaced = await _sut.ReplaceAsync(Card, "You have 40 points.", Keyboard, token: cancellation.Token);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            replaced.Should().Be(new TelegramMessageRef(Nick, 10));
+            _telegram.Methods.Should().Equal("sendMessage", "deleteMessage");
+        }
+    }
+
+    [Fact]
     public async Task ReplaceAsync_WhenTheSendFails_ShouldThrowAndKeepTheOld()
     {
         // Arrange

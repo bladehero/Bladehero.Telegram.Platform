@@ -108,7 +108,9 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
         }
 
         var fresh = await SendAsync(message.ChatId, text, keyboard, parseMode, token);
-        await RemoveAsync(message, token);
+
+        // The fresh one is sent, so the caller's cancellation mustn't strand it without a handle.
+        await RemoveAsync(message, CancellationToken.None);
         return fresh;
     }
 
