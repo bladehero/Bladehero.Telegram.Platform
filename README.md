@@ -548,7 +548,8 @@ Polling's `getUpdates` and file downloads aren't recorded; the `getFile` before 
 A call carries the update it was made for:
 
 - A call made while handling an update has that update's `UpdateId`.
-- Work the update started but didn't await, such as a `Task.Run`, inherits it.
+- Work the update started but didn't await, such as a `Task.Run`, inherits it, and an error handler's calls are
+  linked to the failed update.
 - Calls from hosted services carry none. Start long-lived loops outside updates, or with
   `ExecutionContext.SuppressFlow()`, or each of their calls names the update that started them.
 
@@ -556,8 +557,12 @@ A call carries the update it was made for:
 
 A call's ids come from its result when it has one, such as the message sent, and otherwise from the request.
 
-| Call | Ids |
+| Update or call | Ids |
 | --- | --- |
+| A callback query | The tapped message's chat and id; a tap on an inline-mode message has only `InlineMessageId`. |
+| A channel post | No `UserId`. |
+| A poll answer | `UserId`, or `ChatId` when a channel voted. |
+| `deleted_business_messages` | An entry per message deleted. |
 | A chat given as `@username` | `ChatId` only when the call returns the message; otherwise the name stays in `Json`, and no message ids are kept. |
 | `sendMediaGroup` | An entry per message sent. |
 | `copyMessage` | `MessageId` is the copy's. |
@@ -566,7 +571,8 @@ A call's ids come from its result when it has one, such as the message sent, and
 | An inline message's edit | `InlineMessageId`, and no chat; `Kind` is still the method, such as `editMessageText`. |
 | `getFile` | `FileId`. |
 
-A call Telegram refused has its `ErrorCode` and description in `Error`. One that failed otherwise, such as a timeout,
+A call with no chat, user or inline message of its own, such as answering a tap, takes the chat and user of the update
+it was made for. A call Telegram refused has its `ErrorCode` and description in `Error`. One that failed otherwise, such as a timeout,
 has only the exception's message.
 
 ### Read it back
@@ -583,6 +589,8 @@ handling and its own calls; while the store is failing, it reads what's stored w
 | `UpdateId` | The update's, and the calls made while handling it. |
 | `Since` | From this time on. |
 | `BeforeId` | Older than this `Id`. |
+
+Update ids are unique only over recent traffic: after a week without updates, Telegram picks the next one at random.
 
 A chat's recent past as context for an LLM:
 
@@ -1335,6 +1343,7 @@ optionally, `Telegram:SecretToken`.
 ### To 10.3
 
 - History is new and off until `AddTelegramHistory`; without it nothing changes.
+- `Bladehero.Telegram.Platform.Receiving` now depends on `Bladehero.Telegram.Platform`.
 - With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
   interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails.
 
