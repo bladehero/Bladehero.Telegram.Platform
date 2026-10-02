@@ -151,7 +151,9 @@ public sealed class HistoryDependencyInjectionTests
             .ThrowAsync<OptionsValidationException>()
             .WithMessage(
                 "The bot's calls wouldn't be recorded: an ITelegramBotClient is registered after AddTelegramHistory(). "
-                    + "Move AddTelegramHistory() below your own ITelegramBotClient registration*"
+                    + "Move AddTelegramHistory() below your own ITelegramBotClient registration "
+                    + "(e.g. services.AddSingleton<ITelegramBotClient>(...)), or call it again after that registration, "
+                    + "as a test that replaces the client must."
             );
     }
 

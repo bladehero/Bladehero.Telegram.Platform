@@ -14,7 +14,8 @@ public static class HistoryDependencyInjection
     private const string ClientAfterHistory =
         "The bot's calls wouldn't be recorded: an ITelegramBotClient is registered after AddTelegramHistory(). "
         + "Move AddTelegramHistory() below your own ITelegramBotClient registration "
-        + "(e.g. services.AddSingleton<ITelegramBotClient>(...)).";
+        + "(e.g. services.AddSingleton<ITelegramBotClient>(...)), or call it again after that registration, as a test "
+        + "that replaces the client must.";
 
     /// <summary>
     /// Records every update the bot gets and every Bot API call it makes, stored in the background in the store picked
