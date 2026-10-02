@@ -519,6 +519,8 @@ nor a `TelegramBotClient` injected by its type or built by hand.
 
 - A test that replaces the client calls `AddTelegramHistory()` again after it.
 - An app that decorates the client itself does so before `AddTelegramHistory`.
+- An app's own receiving loop passes the container's `ITelegramBotClient` to the update handler, or its commands' calls
+  aren't recorded.
 
 ### What's in an entry
 
@@ -563,6 +565,8 @@ A call's ids come from its result when it has one, such as the message sent, and
 | A channel post | No `UserId`. |
 | A poll answer | `UserId`, or `ChatId` when a channel voted. |
 | `deleted_business_messages` | An entry per message deleted. |
+| `chat_member`, `my_chat_member` | `UserId` is whoever made the change. |
+| A guest message | No `ChatId`. |
 | A chat given as `@username` | `ChatId` only when the call returns the message; otherwise the name stays in `Json`, and no message ids are kept. |
 | `sendMediaGroup` | An entry per message sent. |
 | `copyMessage` | `MessageId` is the copy's. |
