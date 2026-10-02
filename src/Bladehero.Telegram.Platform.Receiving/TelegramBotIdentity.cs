@@ -59,7 +59,16 @@ internal sealed class TelegramBotIdentity(ITelegramBotClient client, TimeProvide
     {
         lock (_gate)
         {
-            return _pending ??= Task.Run(FetchAsync, CancellationToken.None);
+            if (_pending is null)
+            {
+                // Shared by every caller, so it belongs to no update.
+                using (ExecutionContext.SuppressFlow())
+                {
+                    _pending = Task.Run(FetchAsync, CancellationToken.None);
+                }
+            }
+
+            return _pending;
         }
     }
 
