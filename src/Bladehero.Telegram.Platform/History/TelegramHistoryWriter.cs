@@ -238,12 +238,7 @@ internal sealed class TelegramHistoryWriter(
             var now = _time.GetUtcNow();
             if (_lastDropWarning is { } last && now - last < DropWarningInterval)
             {
-                _dropReport ??= _time.CreateTimer(
-                    _ => ReportDrops(),
-                    null,
-                    last + DropWarningInterval - now,
-                    Timeout.InfiniteTimeSpan
-                );
+                _dropReport ??= ReportDropsIn(last + DropWarningInterval - now);
                 return;
             }
 
@@ -255,6 +250,20 @@ internal sealed class TelegramHistoryWriter(
         }
 
         WarnOfDrops(dropped);
+    }
+
+    // Without the dropping caller's context: the report belongs to no update and mustn't keep one alive.
+    private ITimer ReportDropsIn(TimeSpan due)
+    {
+        if (ExecutionContext.IsFlowSuppressed())
+        {
+            return _time.CreateTimer(_ => ReportDrops(), null, due, Timeout.InfiniteTimeSpan);
+        }
+
+        using (ExecutionContext.SuppressFlow())
+        {
+            return _time.CreateTimer(_ => ReportDrops(), null, due, Timeout.InfiniteTimeSpan);
+        }
     }
 
     // The drops not yet reported, if any.

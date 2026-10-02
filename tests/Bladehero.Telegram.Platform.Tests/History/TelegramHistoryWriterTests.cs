@@ -143,6 +143,35 @@ public sealed class TelegramHistoryWriterTests
     }
 
     [Fact]
+    public async Task Record_DropsInsideAnUpdate_ShouldReportThemOutsideIt()
+    {
+        // Arrange
+        var time = new ContextCapturingTimeProvider();
+        await using var host = await HistoryHost.StartAsync(
+            x => x.QueueCapacity = 1,
+            services: x => x.AddSingleton<TimeProvider>(time)
+        );
+        await BusyStoreAsync(host);
+        RecordEntries(host, 2);
+        var logger = host.Host.Services.GetRequiredService<ILogger<TelegramHistoryWriterTests>>();
+        using (logger.BeginScope("update 7"))
+        {
+            RecordEntries(host, 3, 4);
+        }
+
+        // Act
+        time.Advance(TimeSpan.FromMinutes(1));
+
+        // Assert
+        host.Logs.Entries.Where(x => x.Level == LogLevel.Warning)
+            .Should()
+            .SatisfyRespectively(
+                atOnce => atOnce.Should().Be((LogLevel.Warning, AFull(1), "update 7")),
+                aMinuteLater => aMinuteLater.Should().Be((LogLevel.Warning, AFull(1), (string?)null))
+            );
+    }
+
+    [Fact]
     public async Task Stop_WithDropsNotYetReported_ShouldReportThem()
     {
         // Arrange
@@ -385,6 +414,9 @@ public sealed class TelegramHistoryWriterTests
             host.Logs.At(LogLevel.Error).Should().BeEmpty();
         }
     }
+
+    // The warning for `dropped` entries, with a queue of 1.
+    private static string AFull(int dropped) => $"The Telegram history queue is full (1 entries): {dropped} dropped.";
 
     // Records #1 and waits until the store is busy storing it.
     private static async Task BusyStoreAsync(HistoryHost host)
