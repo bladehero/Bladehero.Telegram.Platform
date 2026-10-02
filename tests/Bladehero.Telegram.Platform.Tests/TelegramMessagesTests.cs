@@ -100,6 +100,7 @@ public sealed class TelegramMessagesTests
     [Theory]
     [InlineData("message to edit not found")]
     [InlineData("MESSAGE_ID_INVALID")]
+    [InlineData("message not found")]
     public async Task ShowAsync_WhenTheMessageIsGone_ShouldSendAFreshOne(string refusal)
     {
         // Arrange
@@ -332,6 +333,7 @@ public sealed class TelegramMessagesTests
     [InlineData(null)]
     [InlineData("message to delete not found")]
     [InlineData("MESSAGE_ID_INVALID")]
+    [InlineData("message not found")]
     public async Task DeleteAsync_WhenDeletedOrAlreadyGone_ShouldReturnTrue(string? refusal)
     {
         // Arrange
@@ -411,6 +413,7 @@ public sealed class TelegramMessagesTests
     [InlineData(null)]
     [InlineData(NotModified)]
     [InlineData("message to edit not found")]
+    [InlineData("message not found")]
     public async Task ClearKeyboardAsync_WhenClearedUnchangedOrGone_ShouldNotThrow(string? refusal)
     {
         // Arrange
