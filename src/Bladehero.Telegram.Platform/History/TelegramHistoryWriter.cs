@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Telegram.Bot.Requests.Abstractions;
 
 namespace Bladehero.Telegram.Platform.History;
 
@@ -18,6 +19,7 @@ internal sealed class TelegramHistoryWriter(
     private static readonly TimeSpan DropWarningInterval = TimeSpan.FromMinutes(1);
 
     private readonly int _capacity = options.Value.QueueCapacity;
+    private readonly bool _keepJson = options.Value.KeepJson;
     private readonly Func<TelegramHistoryEntry, TelegramHistoryEntry?>? _filter = options.Value.Filter;
 
     // The app's clock when it registered one; the library registers none.
@@ -58,6 +60,39 @@ internal sealed class TelegramHistoryWriter(
         }
 
         return false;
+    }
+
+    // Records a Bot API call made while handling the current update, if any; never throws.
+    public void RecordCall(IRequest request, object? result, Exception? error)
+    {
+        if (_stopped)
+        {
+            return;
+        }
+
+        try
+        {
+            var entries = TelegramHistoryEntries.FromCall(
+                request,
+                result,
+                error,
+                TelegramHistoryCause.Current,
+                _time.GetUtcNow(),
+                _keepJson
+            );
+            foreach (var entry in entries)
+            {
+                Record(entry);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Couldn't record the {Method} call in the Telegram history.",
+                request.MethodName
+            );
+        }
     }
 
     // Completes once every entry queued before it was handed to the store; at once when the writer isn't running.
