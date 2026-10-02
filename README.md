@@ -528,10 +528,10 @@ Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a del
 | `UserId` | The user who sent the update, or the user a call is about. |
 | `MessageId` | The message it's about, within the chat. |
 | `InlineMessageId` | The inline-mode message it's about; such a message has no chat. |
-| `Text` | The text or caption as Telegram shows it, a button's data, or an inline query. |
+| `Text` | The text or caption, as Telegram shows it when the call returns the message, otherwise as sent; a button's data, or an inline query. |
 | `FileId`, `FileName` | The file's id and name; never its bytes. |
 | `ErrorCode`, `Error` | Why a call failed: Telegram's code and description, or the exception's message. |
-| `Json` | The update, or the call's request and result, as Bot API JSON. |
+| `Json` | The update, or the call's request and result, as Bot API JSON as Telegram.Bot serializes it, so unknown fields and defaults are left out. |
 
 `ToString()` sums an entry up in one line, e.g. `sendMessage: Hi (403 Forbidden: bot was blocked by the user)`.
 
@@ -554,9 +554,12 @@ A chat's recent past as context for an LLM:
 
 ```csharp
 var recent = await history.ReadAsync(new() { ChatId = chat.Id, Limit = 50 }, token);
-var transcript = string.Join('\n', recent.Select(x => x.Direction == TelegramHistoryDirection.Incoming
-    ? $"User: {x.Text}" : $"Bot: {x.Text}"));
+var transcript = string.Join('\n', recent
+    .Where(x => x.Text is not null && x.Kind is "message" or "edited_message" or "sendMessage" or "editMessageText")
+    .Select(x => x.Direction == TelegramHistoryDirection.Incoming ? $"User: {x.Text}" : $"Bot: {x.Text}"));
 ```
+
+A tap carries its button's data, not its label; the label is in the tapped message, in `Json`.
 
 To page further back, read `query with { BeforeId = page[0].Id }` until a page comes back empty.
 
@@ -565,12 +568,14 @@ To page further back, read `query with { BeforeId = page[0].Id }` until a page c
 - `KeepJson = false` keeps every field but `Json`.
 - `Filter` changes or drops each entry before it's stored: return it, changed with `with` if need be, or `null` to
   drop it. Redacting `Text` alone leaves it in `Json`.
+- URLs, such as `setWebhook`'s, can carry secrets of your own; drop or redact them with `Filter`.
 
 ```csharp
 services.AddTelegramHistory(history =>
 {
     history.KeepJson = false;
-    history.Filter = entry => entry.Kind == "sendChatAction" ? null : entry;
+    // sendMessageDraft is recorded once per streamed draft.
+    history.Filter = entry => entry.Kind is "sendChatAction" or "sendMessageDraft" ? null : entry;
 });
 ```
 
@@ -601,10 +606,11 @@ services.AddTelegramHistory().Services.AddSingleton<ITelegramHistoryStore, MySto
 
 ### Writing
 
-Recording never makes the bot wait for the store, and never throws into it:
+Recording never makes the bot wait for the store, and never throws into it. Entries are stored by a hosted service, so
+history needs a running host (`IHost` or `WebApplication`); without one nothing is stored.
 
 - Entries wait in a bounded queue (`QueueCapacity`, 10 000) and are stored in the background, in batches.
-- When the queue is full, new entries are dropped, with a warning at most once a minute.
+- When the queue is full, new entries are dropped, with a warning at most once a minute that counts them.
 - A store that fails is logged as an error; that batch is dropped and later ones are stored.
 - On shutdown, what's queued is stored within the host's shutdown timeout; a warning counts anything left.
 - `ITelegramHistory.FlushAsync` waits until everything recorded so far is stored.
