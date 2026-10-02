@@ -70,7 +70,34 @@ public sealed class TelegramMessageRefTests
     }
 
     [Theory]
-    [InlineData("{}")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Json_OfADefaultRef_ShouldReadBackAsDefault(bool web)
+    {
+        // Arrange: a card not sent yet.
+        var options = web ? JsonSerializerOptions.Web : JsonSerializerOptions.Default;
+
+        // Act
+        var alone = JsonSerializer.Deserialize<TelegramMessageRef>(
+            JsonSerializer.Serialize(default(TelegramMessageRef), options),
+            options
+        );
+        var inRecord = JsonSerializer.Deserialize<Stored>(
+            JsonSerializer.Serialize(new Stored(default), options),
+            options
+        );
+        var empty = JsonSerializer.Deserialize<TelegramMessageRef>("{}", options);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            alone.Should().Be(default(TelegramMessageRef));
+            inRecord.Should().Be(new Stored(default));
+            empty.Should().Be(default(TelegramMessageRef));
+        }
+    }
+
+    [Theory]
     [InlineData("""{"ChatId":0,"MessageId":10,"InlineMessageId":null}""")]
     [InlineData("""{"ChatId":-1001234567890,"MessageId":0}""")]
     [InlineData("""{"InlineMessageId":" "}""")]

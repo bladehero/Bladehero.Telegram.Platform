@@ -35,10 +35,14 @@ public readonly record struct TelegramMessageRef
         InlineMessageId = inlineMessageId;
     }
 
-    // For serializers: every field, validated as one of the two shapes.
+    // For serializers: every field, validated as one of the two shapes; all zero reads back as default, a card not
+    // sent yet.
     [JsonConstructor]
     private TelegramMessageRef(long chatId, int messageId, string? inlineMessageId) =>
-        this = inlineMessageId is null ? new(chatId, messageId) : new(inlineMessageId);
+        this =
+            inlineMessageId is not null ? new(inlineMessageId)
+            : chatId == 0 && messageId == 0 ? default
+            : new(chatId, messageId);
 
     /// <summary>The chat; 0 for an inline-mode message.</summary>
     public long ChatId { get; }
