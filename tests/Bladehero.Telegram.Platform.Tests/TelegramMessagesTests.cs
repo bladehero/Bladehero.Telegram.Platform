@@ -450,6 +450,54 @@ public sealed class TelegramMessagesTests
         await act.Should().ThrowAsync<ApiRequestException>();
     }
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(null, true)]
+    [InlineData(NotModified, false)]
+    [InlineData(NotModified, true)]
+    [InlineData("message to edit not found", false)]
+    public async Task ShowKeyboardAsync_WhenShownUnchangedOrGone_ShouldNotThrow(string? refusal, bool inline)
+    {
+        // Arrange
+        if (refusal is not null)
+        {
+            _telegram.Answer("editMessageReplyMarkup", Refusal(refusal));
+        }
+
+        // Act
+        var act = () => _sut.ShowKeyboardAsync(inline ? Inline : Card, Keyboard);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should().NotThrowAsync();
+            _telegram
+                .Calls.Should()
+                .ContainSingle()
+                .Which.Should()
+                .Be(
+                    inline
+                        ? new Call("editMessageReplyMarkup", null, null, "AAAAinline", null, true)
+                        : new Call("editMessageReplyMarkup", Nick, 5, null, null, true)
+                );
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ShowKeyboardAsync_WhenItCantBeEdited_ShouldThrow(bool inline)
+    {
+        // Arrange
+        _telegram.Answer("editMessageReplyMarkup", Refusal("message can't be edited"));
+
+        // Act
+        var act = () => _sut.ShowKeyboardAsync(inline ? Inline : Card, Keyboard);
+
+        // Assert
+        await act.Should().ThrowAsync<ApiRequestException>();
+    }
+
     [Fact]
     public async Task AnyMethod_WithADefaultRef_ShouldThrowArgumentException()
     {

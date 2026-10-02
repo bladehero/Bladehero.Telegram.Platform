@@ -141,27 +141,34 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
         }
     }
 
-    public async Task ClearKeyboardAsync(TelegramMessageRef message, CancellationToken token = default)
+    public async Task ShowKeyboardAsync(
+        TelegramMessageRef message,
+        InlineKeyboardMarkup? keyboard,
+        CancellationToken token = default
+    )
     {
         Guard(message);
         try
         {
             if (message.InlineMessageId is { } inlineMessageId)
             {
-                await client.EditMessageReplyMarkup(inlineMessageId, replyMarkup: null, cancellationToken: token);
+                await client.EditMessageReplyMarkup(inlineMessageId, replyMarkup: keyboard, cancellationToken: token);
             }
             else
             {
                 await client.EditMessageReplyMarkup(
                     message.ChatId,
                     message.MessageId,
-                    replyMarkup: null,
+                    replyMarkup: keyboard,
                     cancellationToken: token
                 );
             }
         }
         catch (ApiRequestException error) when (IsNotModified(error) || IsGoneForEdit(error)) { }
     }
+
+    public Task ClearKeyboardAsync(TelegramMessageRef message, CancellationToken token = default) =>
+        ShowKeyboardAsync(message, null, token);
 
     // A message the bot can't edit, such as a user's, keeps what it shows.
     private async Task ClearKeyboardIfEditableAsync(TelegramMessageRef message, CancellationToken token)

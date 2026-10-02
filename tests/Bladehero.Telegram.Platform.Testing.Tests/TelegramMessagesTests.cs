@@ -265,6 +265,31 @@ public sealed class TelegramMessagesTests
     }
 
     [Fact]
+    public async Task ShowKeyboardAsync_WhenBackIsTappedTwice_ShouldKeepTheMenu()
+    {
+        // Arrange: a settings card that swaps to a submenu and back.
+        await using var bot = await TestBot.StartAsync();
+        var nick = bot.PrivateChat("Nick");
+        var messages = MessagesOf(bot);
+        var menu = new InlineKeyboardMarkup().AddButton("Language", "settings:language");
+        var languages = new InlineKeyboardMarkup().AddButton("English", "settings:en").AddButton("Back", "settings");
+        var card = await messages.SendAsync(nick.Chat.Id, "Settings", menu);
+        await messages.ShowKeyboardAsync(card, languages);
+        await messages.ShowKeyboardAsync(card, menu);
+
+        // Act: Back again, which Telegram answers "not modified".
+        var again = () => messages.ShowKeyboardAsync(card, menu);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await again.Should().NotThrowAsync();
+            nick.Messages.Select(x => x.ToString()).Should().Equal("Bot: Settings [Language]");
+            nick.RevisionsOf(nick.LastMessage).Should().HaveCount(3);
+        }
+    }
+
+    [Fact]
     public async Task TestMessage_Ref_ShouldNameTheMessage()
     {
         // Arrange
