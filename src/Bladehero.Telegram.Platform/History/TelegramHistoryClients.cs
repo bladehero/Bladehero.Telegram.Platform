@@ -16,7 +16,7 @@ internal static class TelegramHistoryClients
 
         for (var i = 0; i < services.Count; i++)
         {
-            if (IsClient(services[i]) && !IsDecorated(services[i]))
+            if (IsClient(services[i]) && !IsRecording(services[i]))
             {
                 services[i] = new ServiceDescriptor(
                     typeof(ITelegramBotClient),
@@ -27,11 +27,12 @@ internal static class TelegramHistoryClients
         }
     }
 
+    // Whether the registration is the bot's client, wrapped to record its calls.
+    internal static bool IsRecording(ServiceDescriptor descriptor) =>
+        IsClient(descriptor) && descriptor.ImplementationFactory?.Target is Decorator;
+
     private static bool IsClient(ServiceDescriptor descriptor) =>
         descriptor.ServiceType == typeof(ITelegramBotClient) && !descriptor.IsKeyedService;
-
-    private static bool IsDecorated(ServiceDescriptor descriptor) =>
-        descriptor.ImplementationFactory?.Target is Decorator;
 
     private sealed class Decorator(ServiceDescriptor inner)
     {

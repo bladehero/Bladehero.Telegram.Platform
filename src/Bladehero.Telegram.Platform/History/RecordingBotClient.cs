@@ -62,6 +62,8 @@ internal class RecordingBotClient(ITelegramBotClient inner, TelegramHistoryWrite
         CancellationToken cancellationToken
     )
     {
+        // In flight until its entry is queued, so a test that saw the message also sees the entry.
+        using var call = writer.StartCall();
         TResponse result;
         try
         {
