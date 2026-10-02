@@ -7,6 +7,7 @@ using Telegram.Bot.Requests;
 using Telegram.Bot.Requests.Abstractions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.InlineQueryResults;
 using Telegram.Bot.Types.Payments;
 
 namespace Bladehero.Telegram.Platform.Tests.History;
@@ -453,6 +454,176 @@ public sealed partial class TelegramHistoryEntriesTests
             entries.Single().Json.Should().Contain("""Привет ☕ <b>\"q\"</b>""");
             Json(entries.Single())["request"]!["text"]!.GetValue<string>().Should().Be(text);
         }
+    }
+
+    [Fact]
+    public void FromCall_AnswerInlineQueryWithAnInvoice_ShouldLeaveTheNestedProviderTokenOut()
+    {
+        // Arrange
+        var invoice = new InputInvoiceMessageContent
+        {
+            Title = "Coffee",
+            Description = "A large latte",
+            Payload = "order-1",
+            Currency = "USD",
+            Prices = [new LabeledPrice("Latte", 450)],
+            ProviderToken = "284685063:TEST:abc",
+        };
+        var request = new AnswerInlineQueryRequest
+        {
+            InlineQueryId = "iq",
+            Results = [new InlineQueryResultArticle("latte", "Latte", invoice)],
+        };
+
+        // Act
+        var entries = Call(request, true);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            Json(entries.Single())["request"]!["results"]![0]!["input_message_content"]!["title"]!
+                .GetValue<string>()
+                .Should()
+                .Be("Coffee");
+            entries.Single().Json.Should().NotContain("provider_token").And.NotContain("284685063:TEST:abc");
+        }
+    }
+
+    [Fact]
+    public void FromCall_GetManagedBotToken_ShouldNotKeepTheToken()
+    {
+        // Arrange
+        var request = new GetManagedBotTokenRequest { UserId = 7000000002 };
+
+        // Act
+        var entries = Call(request, "7000000003:AAHmanagedSecret");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            Json(entries.Single())["result"].Should().BeNull();
+            entries.Single().Json.Should().NotContain("AAHmanagedSecret");
+        }
+    }
+
+    [Fact]
+    public void FromCall_AnswerWebAppQuery_ShouldTakeTheSentInlineMessageId()
+    {
+        // Arrange
+        var request = new AnswerWebAppQueryRequest
+        {
+            WebAppQueryId = "wq",
+            Result = new InlineQueryResultArticle("latte", "Latte", new InputTextMessageContent("A latte")),
+        };
+
+        // Act
+        var entries = Call(request, new SentWebAppMessage { InlineMessageId = "AAAAwebapp" });
+
+        // Assert
+        entries.Should().ContainSingle().Which.InlineMessageId.Should().Be("AAAAwebapp");
+    }
+
+    [Fact]
+    public void FromCall_AnswerGuestQuery_ShouldTakeTheSentInlineMessageId()
+    {
+        // Arrange
+        var request = new AnswerGuestQueryRequest
+        {
+            GuestQueryId = "gq",
+            Result = new InlineQueryResultArticle("latte", "Latte", new InputTextMessageContent("A latte")),
+        };
+
+        // Act
+        var entries = Call(request, new SentGuestMessage { InlineMessageId = "AAAAguest" });
+
+        // Assert
+        entries.Should().ContainSingle().Which.InlineMessageId.Should().Be("AAAAguest");
+    }
+
+    [Fact]
+    public void FromCall_DeleteBusinessMessagesUnderAnUpdate_ShouldNotTakeTheUpdatesChat()
+    {
+        // Arrange
+        var request = new DeleteBusinessMessagesRequest { BusinessConnectionId = "bc", MessageIds = [10, 11] };
+        var cause = new Update { Id = 5, Message = MessageIn(Group, 8, text: "/clean") };
+
+        // Act
+        var entries = TelegramHistoryEntries.FromCall(request, true, null, cause, Now, keepJson: true);
+
+        // Assert
+        entries
+            .Should()
+            .ContainSingle()
+            .Which.Should()
+            .BeEquivalentTo(
+                new
+                {
+                    UpdateId = 5,
+                    ChatId = (long?)null,
+                    UserId = (long?)null,
+                    MessageId = (int?)null,
+                }
+            );
+    }
+
+    [Fact]
+    public void FromCall_CopyToAUsername_ShouldHaveNoMessageId()
+    {
+        // Arrange
+        var request = new CopyMessageRequest
+        {
+            ChatId = "@news",
+            FromChatId = Nick,
+            MessageId = 5,
+        };
+
+        // Act
+        var entries = Call(request, new MessageId { Id = 15 });
+
+        // Assert
+        entries
+            .Should()
+            .ContainSingle()
+            .Which.Should()
+            .BeEquivalentTo(new { ChatId = (long?)null, MessageId = (int?)null });
+    }
+
+    [Fact]
+    public void FromCall_GetUserPersonalChatMessages_ShouldBeOneEntry()
+    {
+        // Arrange
+        var request = new GetUserPersonalChatMessagesRequest { UserId = Nick, Limit = 2 };
+
+        // Act
+        var entries = Call(request, new[] { MessageIn(Nick, 1, text: "Hi"), MessageIn(Nick, 2, text: "Bye") });
+
+        // Assert
+        entries
+            .Should()
+            .ContainSingle()
+            .Which.Should()
+            .BeEquivalentTo(
+                new
+                {
+                    UserId = Nick,
+                    ChatId = (long?)null,
+                    MessageId = (int?)null,
+                    Text = (string?)null,
+                }
+            );
+    }
+
+    [Fact]
+    public void FromCall_MessageIdZero_ShouldHaveNoMessageId()
+    {
+        // Arrange
+        var request = new DeleteMessageRequest { ChatId = Group, MessageId = 0 };
+
+        // Act
+        var entries = Call(request, true);
+
+        // Assert
+        entries.Should().ContainSingle().Which.MessageId.Should().BeNull();
     }
 
     private static IReadOnlyList<TelegramHistoryEntry> Call(

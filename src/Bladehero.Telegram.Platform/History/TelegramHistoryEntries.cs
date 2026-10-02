@@ -11,8 +11,11 @@ namespace Bladehero.Telegram.Platform.History;
 // Turns the bot's traffic into entries, one per event and per message.
 internal static class TelegramHistoryEntries
 {
-    // Request fields that hold secrets; never kept.
+    // Request fields that hold secrets, at any depth; never kept.
     private static readonly string[] Secrets = ["secret_token", "provider_token"];
+
+    // Calls whose result is a secret: only their request is kept.
+    private static readonly string[] SecretResults = ["getManagedBotToken", "replaceManagedBotToken"];
 
     // Bot API JSON that keeps non-ASCII text, such as Cyrillic or emoji, readable; quotes and control characters are
     // still escaped.
@@ -32,12 +35,13 @@ internal static class TelegramHistoryEntries
     )
     {
         var fields = JsonSerializer.SerializeToNode(request, request.GetType(), KeptJson) as JsonObject ?? [];
-        foreach (var secret in Secrets)
-        {
-            fields.Remove(secret);
-        }
+        RemoveSecrets(fields);
 
         var requestJson = keepJson ? fields.ToJsonString(KeptJson) : null;
+        var keepsResult = !SecretResults.Contains(request.MethodName);
+
+        // A get… call's messages are only read, not sent or changed by it.
+        var changesMessages = !request.MethodName.StartsWith("get", StringComparison.Ordinal);
         var call = new TelegramHistoryEntry
         {
             Time = time,
@@ -55,18 +59,58 @@ internal static class TelegramHistoryEntries
         // The request, and the part of the result the entry is about.
         string? Json(object? part) =>
             requestJson is null ? null
-            : part is null ? $$"""{"request":{{requestJson}}}"""
+            : part is null || !keepsResult ? $$"""{"request":{{requestJson}}}"""
             : $$"""{"request":{{requestJson}},"result":{{Serialize(part)}}}""";
 
-        return result switch
+        IReadOnlyList<TelegramHistoryEntry> entries = result switch
         {
-            Message message => [FromMessage(call, message, Json(message))],
-            Message[] { Length: > 0 } messages => [.. messages.Select(x => FromMessage(call, x, Json(x)))],
-            MessageId id => [call with { MessageId = id.Id, Json = Json(id) }],
-            MessageId[] { Length: > 0 } ids => [.. ids.Select(x => call with { MessageId = x.Id, Json = Json(x) })],
+            Message message when changesMessages => [FromMessage(call, message, Json(message))],
+            Message[] { Length: > 0 } messages when changesMessages =>
+            [
+                .. messages.Select(x => FromMessage(call, x, Json(x))),
+            ],
+            MessageId id when changesMessages => [call with { MessageId = id.Id, Json = Json(id) }],
+            MessageId[] { Length: > 0 } ids when changesMessages && call.ChatId is not null =>
+            [
+                .. ids.Select(x => call with { MessageId = x.Id, Json = Json(x) }),
+            ],
             TGFile file => [call with { FileId = file.FileId, Json = Json(file) }],
+            SentWebAppMessage sent => [call with { InlineMessageId = sent.InlineMessageId, Json = Json(sent) }],
+            SentGuestMessage sent => [call with { InlineMessageId = sent.InlineMessageId, Json = Json(sent) }],
             _ => FromRequest(call with { Json = Json(result) }, fields),
         };
+
+        // A message id means something only within a chat, and 0 is none.
+        return [.. entries.Select(x => x with { MessageId = x.ChatId is null ? null : MessageIdOf(x.MessageId) })];
+    }
+
+    // Telegram's 0 stands for no message.
+    internal static int? MessageIdOf(int? id) => id is 0 ? null : id;
+
+    private static void RemoveSecrets(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject fields:
+                foreach (var secret in Secrets)
+                {
+                    fields.Remove(secret);
+                }
+
+                foreach (var (_, value) in fields)
+                {
+                    RemoveSecrets(value);
+                }
+
+                break;
+            case JsonArray items:
+                foreach (var item in items)
+                {
+                    RemoveSecrets(item);
+                }
+
+                break;
+        }
     }
 
     // The file a message carries: a photo's largest size, or the one file of any other kind.
@@ -98,10 +142,10 @@ internal static class TelegramHistoryEntries
         };
     }
 
-    // The request's message ids, unless they belong to the chat it forwards or copies from.
+    // The request's message ids, unless they have no chat to belong to, or belong to the one it forwards or copies from.
     private static IReadOnlyList<TelegramHistoryEntry> FromRequest(TelegramHistoryEntry call, JsonObject fields)
     {
-        if (fields.ContainsKey("from_chat_id"))
+        if (call.ChatId is null || fields.ContainsKey("from_chat_id"))
         {
             return [call];
         }
