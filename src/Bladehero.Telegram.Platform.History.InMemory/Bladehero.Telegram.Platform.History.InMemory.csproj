@@ -3,6 +3,7 @@
     <PackageId>Bladehero.Telegram.Platform.History.InMemory</PackageId>
     <Title>Bladehero.Telegram.Platform.History.InMemory</Title>
     <Description>An in-memory store for the history of Telegram bots built on Bladehero.Telegram.Platform: the latest updates and Bot API calls of each chat, for development, tests and small bots.</Description>
+    <PackageTags>telegram;telegram-bot;bot;history;audit</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
