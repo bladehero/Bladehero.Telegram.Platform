@@ -12,7 +12,7 @@ internal sealed class TelegramHistoryWriter(
     IOptions<TelegramHistoryOptions> options,
     ILogger<TelegramHistoryWriter> logger,
     TimeProvider? timeProvider = null
-) : IHostedLifecycleService
+) : IHostedLifecycleService, IDisposable
 {
     internal const int BatchSize = 100;
     private static readonly TimeSpan DropWarningInterval = TimeSpan.FromMinutes(1);
@@ -124,6 +124,24 @@ internal sealed class TelegramHistoryWriter(
         if (left > 0)
         {
             logger.LogWarning("The Telegram history wasn't fully stored at shutdown: {Count} left.", left);
+        }
+    }
+
+    // A host disposed without stopping leaves no loop behind, and later entries are ignored.
+    public void Dispose()
+    {
+        _stopped = true;
+        _queue.Writer.TryComplete();
+        _abandoned.Cancel();
+        while (_queue.Reader.TryRead(out var item))
+        {
+            item.Flushed?.TrySetResult();
+        }
+
+        lock (_gate)
+        {
+            _dropReport?.Dispose();
+            _dropReport = null;
         }
     }
 

@@ -182,6 +182,26 @@ public sealed class TelegramHistoryWriterTests
     }
 
     [Fact]
+    public async Task Record_AfterTheHostIsDisposedWithoutStopping_ShouldNotLogAnError()
+    {
+        // Arrange
+        var host = await HistoryHost.StartAsync();
+        var writer = host.Writer;
+        host.Host.Dispose();
+
+        // Act
+        var recorded = writer.Record(HistoryHost.Entry(1));
+
+        // Assert
+        using (new AssertionScope())
+        {
+            recorded.Should().BeFalse();
+            writer.FlushAsync(CancellationToken.None).IsCompletedSuccessfully.Should().BeTrue();
+            host.Logs.At(LogLevel.Error).Should().BeEmpty();
+        }
+    }
+
+    [Fact]
     public async Task Store_ThatThrows_ShouldLogAnErrorAndStoreLaterEntries()
     {
         // Arrange
