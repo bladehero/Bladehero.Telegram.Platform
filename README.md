@@ -678,6 +678,8 @@ services.AddTelegramHistory().UseEntityFrameworkCore<BudgetContext>(maxAge: Time
 - `maxAge` deletes older entries hourly; without it, everything is kept.
 - `MapTelegramHistory(tableName, schema)` picks the table, `TelegramHistory` by default.
 - Startup fails when the context doesn't map the history. A missing migration shows as an error log on the first write.
+- Apply the migration before the host has finished starting, e.g. before `app.Run()` or in a hosted service's start:
+  startup's own calls are stored then.
 
 #### Your own store
 
