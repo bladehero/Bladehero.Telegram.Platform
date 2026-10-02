@@ -1,3 +1,6 @@
+using Bladehero.Telegram.Platform.History;
+using Bladehero.Telegram.Platform.History.InMemory;
+using Bladehero.Telegram.Platform.Receiving.Buttons;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.DependencyInjection;
@@ -253,6 +256,24 @@ public sealed class TelegramMessagesTests
 
         // Assert
         said.Ref.Should().Be(new TelegramMessageRef(nick.Chat.Id, said.Id));
+    }
+
+    [Fact]
+    public async Task FindLatestWithButtonAsync_WithInMemoryHistory_ShouldFindTheCardAfterAnEdit()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync(services: x => x.AddTelegramHistory().UseInMemory());
+        var nick = bot.PrivateChat("Nick");
+        var messages = MessagesOf(bot);
+        var sizes = new InlineKeyboardMarkup().AddButton(ButtonData.Button("250 ml", new TestBot.Size(250, 1)));
+        var card = await messages.SendAsync(nick.Chat.Id, "Which size?", sizes);
+        card = await messages.ShowAsync(card, "Which size? Small ones are out.", sizes);
+
+        // Act
+        var found = await bot.History.FindLatestWithButtonAsync<TestBot.Size>(nick.Chat.Id);
+
+        // Assert
+        found.Should().Be(card);
     }
 
     private static ITelegramMessages MessagesOf(TelegramTestHost bot) =>
