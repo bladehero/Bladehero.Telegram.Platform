@@ -39,6 +39,32 @@ public sealed class TelegramHistoryWriterTests
     }
 
     [Fact]
+    public async Task Record_WhileTheHostStarts_ShouldBeStoredOnlyOnceItHasStarted()
+    {
+        // Arrange
+        var store = new MigratingStore();
+
+        // Act
+        await using var host = await HistoryHost.StartAsync(services: x =>
+        {
+            x.AddSingleton<ITelegramHistoryStore>(store);
+            x.AddHostedService(provider => new StartupWork(
+                provider.GetRequiredService<TelegramHistoryWriter>(),
+                store
+            ));
+        });
+        await host.Writer.FlushAsync(CancellationToken.None);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            Texts(store.Entries).Should().Equal("#1");
+            store.ReadyAtFirstAppend.Should().BeTrue();
+            host.Logs.At(LogLevel.Error).Should().BeEmpty();
+        }
+    }
+
+    [Fact]
     public async Task Record_WhileTheStoreIsBusy_ShouldReturnAtOnce()
     {
         // Arrange
@@ -466,6 +492,50 @@ public sealed class TelegramHistoryWriterTests
     }
 
     private static IEnumerable<string?> Texts(IEnumerable<TelegramHistoryEntry> entries) => entries.Select(x => x.Text);
+
+    // A store whose database is ready only once the app has migrated it at its start; until then it fails.
+    private sealed class MigratingStore : ITelegramHistoryStore
+    {
+        private readonly List<TelegramHistoryEntry> _entries = [];
+
+        public bool Ready { get; set; }
+
+        public bool? ReadyAtFirstAppend { get; private set; }
+
+        public IReadOnlyList<TelegramHistoryEntry> Entries => _entries;
+
+        public Task AppendAsync(IReadOnlyList<TelegramHistoryEntry> entries, CancellationToken token)
+        {
+            ReadyAtFirstAppend ??= Ready;
+            if (!Ready)
+            {
+                throw new InvalidOperationException("SQLite Error 1: 'no such table: TelegramHistory'.");
+            }
+
+            _entries.AddRange(entries);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<TelegramHistoryEntry>> ReadAsync(
+            TelegramHistoryQuery query,
+            CancellationToken token
+        ) => throw new NotSupportedException();
+    }
+
+    // A hosted service that records an entry as it starts, and only then migrates the store's database.
+    private sealed class StartupWork(TelegramHistoryWriter writer, MigratingStore store) : IHostedService
+    {
+        public async Task StartAsync(CancellationToken cancellationToken)
+        {
+            writer.Record(HistoryHost.Entry(1));
+
+            // Were the writer running already, this would store the entry before the database is ready.
+            await writer.FlushAsync(cancellationToken);
+            store.Ready = true;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
 
     private sealed class ScopedStore : ITelegramHistoryStore, IDisposable
     {
