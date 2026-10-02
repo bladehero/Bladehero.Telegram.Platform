@@ -47,12 +47,14 @@ No registration, no routing table: drop the class in a scanned assembly.
 | [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
 | [`Bladehero.Telegram.Platform.History.InMemory`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.InMemory/) | [History](#history) kept in memory, per chat. |
+| [`Bladehero.Telegram.Platform.History.EntityFrameworkCore`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.EntityFrameworkCore/) | [History](#history) in your database through EF Core. |
 | [`Bladehero.Telegram.Platform.Testing`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Testing/) | [Component tests](#component-tests) against an in-memory Telegram. |
 
 ```sh
-dotnet add package Bladehero.Telegram.Platform.Receiving.Background   # pulls in the other runtime packages
-dotnet add package Bladehero.Telegram.Platform.History.InMemory       # history kept in memory
-dotnet add package Bladehero.Telegram.Platform.Testing                # test projects
+dotnet add package Bladehero.Telegram.Platform.Receiving.Background           # pulls in the other runtime packages
+dotnet add package Bladehero.Telegram.Platform.History.InMemory               # history kept in memory
+dotnet add package Bladehero.Telegram.Platform.History.EntityFrameworkCore    # history in your database
+dotnet add package Bladehero.Telegram.Platform.Testing                        # test projects
 ```
 
 ## Quick start
@@ -654,6 +656,35 @@ services.AddTelegramHistory().UseInMemory(maxEntriesPerChat: 1000);
 - It's lost on restart.
 - Memory grows with the number of chats, so it suits development, tests and small bots.
 
+#### EF Core
+
+Map the history into your own context, add a migration, and pick the store:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.MapTelegramHistory();
+```
+
+```sh
+dotnet ef migrations add AddTelegramHistory
+```
+
+```csharp
+services.AddTelegramHistory().UseEntityFrameworkCore<BudgetContext>(maxAge: TimeSpan.FromDays(180));
+```
+
+- It writes through a context instance of its own, so it never mixes with the app's changes. `AddDbContext`, a factory
+  and a pool all work.
+- Any relational provider works; it needs EF Core 10.0.10 or later.
+- `maxAge` deletes older entries hourly; without it, everything is kept.
+- `MapTelegramHistory(tableName, schema)` picks the table, `TelegramHistory` by default.
+- Startup fails when the context doesn't map the history. A missing migration shows as an error log on the first write.
+- Apply the migration before the host has finished starting, e.g. before `app.Run()` or in a hosted service's start:
+  startup's own calls are stored then.
+- In tests, don't share one in-memory SQLite connection with this store: the history writes in the background at the
+  same time, and a `SqliteConnection` isn't thread-safe. Use a file database, or `UseInMemory()`.
+- On SQLite, a history read inside your own open write transaction waits up to 2 s, and the history's write waits for
+  your commit.
+
 #### Your own store
 
 Implement `ITelegramHistoryStore` and register it:
@@ -1183,12 +1214,13 @@ services.Remove(services.Single(x =>
 For an internal type you can't name, match on `x.ImplementationType?.Name == "ModelWarmup"`.
 
 **The database:** point the app's connection string at a file of the test's own, so a test never writes to the
-developer's real database, and delete it once the host is disposed:
+developer's real database, and delete it once the host is disposed. Keep connection pooling, as `Pooling=False` slows
+every action that writes the history, and clear the pools before deleting:
 
 ```csharp
 var path = Path.Combine(Path.GetTempPath(), $"budget-{Guid.NewGuid():N}.db");
 var bot = await TelegramTestHost.ForLongPollingAsync<Program>(web =>
-    web.UseSetting("ConnectionStrings:Database", $"Data Source={path};Pooling=False"));   // no pool keeps it open
+    web.UseSetting("ConnectionStrings:Database", $"Data Source={path}"));
 try
 {
     // … the test …
@@ -1196,6 +1228,7 @@ try
 finally
 {
     await bot.DisposeAsync();
+    SqliteConnection.ClearAllPools();   // pooled connections keep the file open
     foreach (var file in new[] { path, path + "-wal", path + "-shm" })
     {
         File.Delete(file);   // no error if it isn't there
@@ -1227,6 +1260,9 @@ depends on the version, and the registration that loses is ignored without any e
 - on EF Core 8, the first one wins, so after the app's own it's ignored;
 - when the app uses another provider, such as InMemory, `AddDbContext` or `ConfigureDbContext` after the app's own fails
   on EF Core 9 and 10 with "Services for database providers … have been registered in the service provider".
+
+With the [EF Core history store](#ef-core), use a file instead: the history writes in the background at the same time,
+and one `SqliteConnection` isn't thread-safe.
 
 The shared open connection keeps the database across a restart on the same fake. Without replacing EF Core's
 registrations, point the app's connection string elsewhere instead:

@@ -32,6 +32,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bladehero.Telegram.Platform
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bladehero.Telegram.Platform.History.InMemory.Tests", "tests\Bladehero.Telegram.Platform.History.InMemory.Tests\Bladehero.Telegram.Platform.History.InMemory.Tests.csproj", "{5AC33E19-1961-4FDA-AB6D-140DF58EF2C1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bladehero.Telegram.Platform.History.EntityFrameworkCore", "src\Bladehero.Telegram.Platform.History.EntityFrameworkCore\Bladehero.Telegram.Platform.History.EntityFrameworkCore.csproj", "{9E3B7D08-6857-40CA-BCCA-054B37644FE9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bladehero.Telegram.Platform.History.EntityFrameworkCore.Tests", "tests\Bladehero.Telegram.Platform.History.EntityFrameworkCore.Tests\Bladehero.Telegram.Platform.History.EntityFrameworkCore.Tests.csproj", "{7CD14AEE-2380-45D7-A08E-C6DF035A8061}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -94,6 +98,14 @@ Global
 		{5AC33E19-1961-4FDA-AB6D-140DF58EF2C1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5AC33E19-1961-4FDA-AB6D-140DF58EF2C1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5AC33E19-1961-4FDA-AB6D-140DF58EF2C1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9E3B7D08-6857-40CA-BCCA-054B37644FE9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9E3B7D08-6857-40CA-BCCA-054B37644FE9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9E3B7D08-6857-40CA-BCCA-054B37644FE9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9E3B7D08-6857-40CA-BCCA-054B37644FE9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7CD14AEE-2380-45D7-A08E-C6DF035A8061}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7CD14AEE-2380-45D7-A08E-C6DF035A8061}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7CD14AEE-2380-45D7-A08E-C6DF035A8061}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7CD14AEE-2380-45D7-A08E-C6DF035A8061}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{9362A60C-531D-49E2-82F2-918F08A53971} = {B1A2F56D-9981-4E54-80BB-3B6A28EED5A4}
@@ -110,5 +122,7 @@ Global
 		{D7CDE113-C071-4AFA-8A11-CD3C6A5B7B5D} = {25FACE24-812D-4050-81EA-986DF0647798}
 		{19BFE3EA-BB0F-44F7-8249-B6A37851DD67} = {B1A2F56D-9981-4E54-80BB-3B6A28EED5A4}
 		{5AC33E19-1961-4FDA-AB6D-140DF58EF2C1} = {25FACE24-812D-4050-81EA-986DF0647798}
+		{9E3B7D08-6857-40CA-BCCA-054B37644FE9} = {B1A2F56D-9981-4E54-80BB-3B6A28EED5A4}
+		{7CD14AEE-2380-45D7-A08E-C6DF035A8061} = {25FACE24-812D-4050-81EA-986DF0647798}
 	EndGlobalSection
 EndGlobal

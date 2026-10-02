@@ -45,6 +45,7 @@ jobs:
             "src/Bladehero.Telegram.Platform.Receiving/Bladehero.Telegram.Platform.Receiving.csproj"
             "src/Bladehero.Telegram.Platform.Receiving.Background/Bladehero.Telegram.Platform.Receiving.Background.csproj"
             "src/Bladehero.Telegram.Platform.History.InMemory/Bladehero.Telegram.Platform.History.InMemory.csproj"
+            "src/Bladehero.Telegram.Platform.History.EntityFrameworkCore/Bladehero.Telegram.Platform.History.EntityFrameworkCore.csproj"
             "src/Bladehero.Telegram.Platform.Testing/Bladehero.Telegram.Platform.Testing.csproj"
           )
           for proj in "${projects[@]}"; do

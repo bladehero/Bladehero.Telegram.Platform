@@ -388,7 +388,7 @@ public sealed class ScopedUpdateHandlerTests
     {
         await provider.GetRequiredService<ITelegramBotIdentity>().GetAsync(CancellationToken.None);
         var writer = provider.GetRequiredService<TelegramHistoryWriter>();
-        await writer.StartingAsync(CancellationToken.None);
+        await writer.StartedAsync(CancellationToken.None);
         return writer;
     }
 

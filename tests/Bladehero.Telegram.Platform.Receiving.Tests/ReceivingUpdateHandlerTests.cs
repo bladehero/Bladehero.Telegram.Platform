@@ -212,7 +212,7 @@ public sealed class ReceivingUpdateHandlerTests
         services.AddTelegramHistory().Services.AddSingleton(store);
         var provider = services.BuildServiceProvider();
         var writer = provider.GetRequiredService<TelegramHistoryWriter>();
-        await writer.StartingAsync(CancellationToken.None);
+        await writer.StartedAsync(CancellationToken.None);
         return new StartedHistory(provider, writer);
     }
 

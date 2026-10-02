@@ -165,16 +165,17 @@ internal sealed class TelegramHistoryWriter(
         await flushed.Task.WaitAsync(token);
     }
 
-    public Task StartingAsync(CancellationToken cancellationToken)
-    {
-        // Not tied to the start's token: the loop runs until the queue is completed at shutdown.
-        _loop ??= Task.Run(RunAsync, CancellationToken.None);
-        return Task.CompletedTask;
-    }
+    public Task StartingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public Task StartedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    // Once every hosted service has started, e.g. migrated the store's database; until then entries wait in the
+    // queue. Not tied to the start's token: the loop runs until the queue is completed at shutdown.
+    public Task StartedAsync(CancellationToken cancellationToken)
+    {
+        _loop ??= Task.Run(RunAsync, CancellationToken.None);
+        return Task.CompletedTask;
+    }
 
     public Task StoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
