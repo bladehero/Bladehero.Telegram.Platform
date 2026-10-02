@@ -159,6 +159,28 @@ public sealed class OrderCoffeeTests
     }
 
     [Fact]
+    public async Task Coffee_WhenRetiringTheOldCardIsRefused_ShouldStillStartTheNewOrder()
+    {
+        // Arrange: a wait too long for Telegram.Bot to retry, so the refusal reaches the bot.
+        await using var bot = await StartBotAsync();
+        var nick = bot.PrivateChat("Nick");
+        await nick.SendsAsync("/coffee");
+        var first = nick.LastMessage;
+        bot.Api.Fail("editMessageReplyMarkup", BotApiError.TooManyRequests(120), times: 1);
+
+        // Act
+        await nick.SendsAsync("/coffee");
+
+        // Assert
+        using (new AssertionScope())
+        {
+            bot.Api.Calls.Count(x => x.Method == "editMessageReplyMarkup").Should().Be(1);
+            nick.Messages.Single(x => x.Id == first.Id).Buttons.Should().NotBeEmpty();
+            nick.LastMessage.ToString().Should().Be("Bot: What size? [Small] [Medium] [Large] [Cancel]");
+        }
+    }
+
+    [Fact]
     public async Task SizeButton_OnAnEarlierOrdersCard_ShouldSayItIsNoLongerActive()
     {
         // Arrange

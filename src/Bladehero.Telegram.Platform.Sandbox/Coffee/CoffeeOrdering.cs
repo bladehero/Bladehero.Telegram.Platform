@@ -1,5 +1,6 @@
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Sandbox.Coffee;
@@ -54,6 +55,13 @@ internal sealed class CoffeeOrdering(IConversation conversation, ITelegramMessag
             return;
         }
 
-        await messages.ClearKeyboardAsync(new TelegramMessageRef(chat.Id, previous.CardId), token);
+        try
+        {
+            await messages.ClearKeyboardAsync(new TelegramMessageRef(chat.Id, previous.CardId), token);
+        }
+        catch (ApiRequestException)
+        {
+            // A refusal, e.g. a 429, mustn't stop the new order; a card that's gone or bare is fine already.
+        }
     }
 }
