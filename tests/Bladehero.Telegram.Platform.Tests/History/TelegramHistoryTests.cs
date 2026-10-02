@@ -5,6 +5,9 @@ namespace Bladehero.Telegram.Platform.Tests.History;
 
 public sealed class TelegramHistoryTests
 {
+    // Only bounds a failing test's wait; not a sleep.
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
     [Fact]
     public async Task ReadAsync_ShouldIncludeEntriesRecordedBeforeIt()
     {
@@ -26,6 +29,48 @@ public sealed class TelegramHistoryTests
             whileStoring.Should().BeFalse();
             entries.Select(x => x.Text).Should().Equal("#1");
         }
+    }
+
+    [Fact]
+    public async Task ReadAsync_WhenTheStoreIsSlow_ShouldReadWhatsStoredAfterTwoSeconds()
+    {
+        // Arrange
+        await using var host = await HistoryHost.StartAsync();
+        host.Store.Close();
+        host.Writer.Record(HistoryHost.Entry(1));
+        var read = host.History.ReadAsync(new() { ChatId = HistoryHost.ChatId });
+        await host.Store.Entered;
+        var whileStoring = read.IsCompleted;
+
+        // Act
+        host.Time.Advance(TimeSpan.FromSeconds(2));
+        var entries = await read;
+
+        // Assert
+        using (new AssertionScope())
+        {
+            whileStoring.Should().BeFalse();
+            entries.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task ReadAsync_WhileTheStoreFails_ShouldNotWaitForIt()
+    {
+        // Arrange
+        await using var host = await HistoryHost.StartAsync();
+        host.Store.Failure = new InvalidOperationException("The database is down.");
+        host.Writer.Record(HistoryHost.Entry(1));
+        await host.History.FlushAsync();
+        host.Store.Failure = null;
+        host.Store.Close();
+        host.Writer.Record(HistoryHost.Entry(2));
+
+        // Act: the clock never moves, so only skipping the wait completes it.
+        var entries = await host.History.ReadAsync(new() { ChatId = HistoryHost.ChatId }).WaitAsync(Patience);
+
+        // Assert
+        entries.Should().BeEmpty();
     }
 
     [Fact]

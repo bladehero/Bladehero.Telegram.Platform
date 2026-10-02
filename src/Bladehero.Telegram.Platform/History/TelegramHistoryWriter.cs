@@ -31,11 +31,15 @@ internal sealed class TelegramHistoryWriter(
     private readonly Lock _gate = new();
     private volatile Task? _loop;
     private volatile bool _stopped;
+    private volatile bool _failing;
 
     // Recorded and not yet handed to the store.
     private int _unstored;
     private int _dropped;
     private DateTimeOffset? _lastDropWarning;
+
+    // Whether the last batch failed to be stored.
+    public bool Failing => _failing;
 
     // Queues the entry; never waits nor throws. False when it was dropped.
     public bool Record(TelegramHistoryEntry entry)
@@ -187,12 +191,14 @@ internal sealed class TelegramHistoryWriter(
             await using var scope = scopeFactory.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<ITelegramHistoryStore>();
             await store.AppendAsync(batch, _abandoned.Token);
+            _failing = false;
         }
         catch (Exception exception)
         {
             // Once shutdown gave up, what's left was reported already.
             if (!_abandoned.IsCancellationRequested)
             {
+                _failing = true;
                 logger.LogError(
                     exception,
                     "The Telegram history store failed; a batch of {Count} was dropped.",

@@ -538,7 +538,8 @@ Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a del
 ### Read it back
 
 `ITelegramHistory.ReadAsync` returns the latest `Limit` entries (100 unless set) that match every filter set, oldest
-first. A read includes everything recorded before it, so a handler sees the update it's handling and its own calls.
+first. A read waits up to 2 seconds for what was recorded before it to be stored, so a handler sees the update it's
+handling and its own calls; while the store is failing, it reads what's stored without waiting.
 
 | Query | Entries |
 | --- | --- |

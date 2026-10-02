@@ -4,7 +4,8 @@ namespace Bladehero.Telegram.Platform.History;
 public interface ITelegramHistory
 {
     /// <summary>
-    /// The entries that match <paramref name="query"/>, oldest first; every entry recorded before the call is included.
+    /// The entries that match <paramref name="query"/>, oldest first; it includes every entry recorded before the call,
+    /// waiting up to 2 seconds for them to be stored, and not at all while the store is failing.
     /// </summary>
     /// <exception cref="ArgumentException">A <c>MessageId</c> without a <c>ChatId</c>.</exception>
     /// <exception cref="ArgumentOutOfRangeException">A <c>Limit</c> below 1.</exception>
