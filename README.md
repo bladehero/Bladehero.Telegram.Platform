@@ -33,9 +33,9 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [History](#history): [entries](#whats-in-an-entry) · [read](#read-it-back) · [privacy](#privacy) · [stores](#stores)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
-  [logs](#logs) · [chat](#chat-with-it) · [taps](#tap-buttons) · [files](#send-and-read-files) ·
-  [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) · [fake Telegram](#check-and-fail-telegram) ·
-  [production apps](#test-a-production-app)
+  [logs](#logs) · [history](#read-the-history) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
+  [files](#send-and-read-files) · [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) ·
+  [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
 
@@ -831,6 +831,24 @@ action rethrows anyway isn't reported twice. It counts from when it's turned on,
 To send logs elsewhere too, such as to the test output, add a provider with `builder.Logging.AddProvider(...)` in the
 builder overload, or with `web.ConfigureLogging(logging => logging.AddProvider(...))` in an ASP.NET Core app.
 
+### Read the history
+
+With [history](#history) on, each action also waits until the bot's history is written, so `bot.History` reads
+everything the bot did, including messages sent later once they've arrived:
+
+```csharp
+await nick.SendsAsync("/coffee");
+await nick.TapsAsync("Large");
+
+var tap = (await bot.History.ReadAsync(new() { ChatId = nick.Chat.Id }))
+    .Last(x => x.Kind == "callback_query");
+(await bot.History.ReadAsync(new() { UpdateId = tap.UpdateId }))
+    .Select(x => x.Kind).Should().Equal("callback_query", "answerCallbackQuery", "editMessageText", "sendMessage");
+```
+
+A store that fails logs an error, which `FailOnErrorLogs` reports. An app that registers its own client after
+`AddTelegramHistory` fails to start in tests, as in production.
+
 ### Chat with it
 
 ```csharp
@@ -1365,6 +1383,7 @@ optionally, `Telegram:SecretToken`.
 - `Bladehero.Telegram.Platform.Receiving` now depends on `Bladehero.Telegram.Platform`.
 - With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
   interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails.
+- In component tests with history, each action also waits until the history is written.
 
 ## License
 
