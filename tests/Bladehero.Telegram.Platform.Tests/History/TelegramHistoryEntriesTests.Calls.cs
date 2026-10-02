@@ -626,6 +626,93 @@ public sealed partial class TelegramHistoryEntriesTests
         entries.Should().ContainSingle().Which.MessageId.Should().BeNull();
     }
 
+    [Fact]
+    public void FromCall_AnswerToATapUnderItsUpdate_ShouldTakeTheTapsChatAndUser()
+    {
+        // Arrange
+        var request = new AnswerCallbackQueryRequest { CallbackQueryId = "cb1", Text = "Saved" };
+
+        // Act
+        var entries = CallUnder(Parse(TapOnAMessage), request, true);
+
+        // Assert
+        entries
+            .Should()
+            .ContainSingle()
+            .Which.Should()
+            .BeEquivalentTo(
+                new
+                {
+                    UpdateId = 5,
+                    ChatId = Group,
+                    UserId = Nick,
+                    MessageId = (int?)null,
+                }
+            );
+    }
+
+    [Fact]
+    public void FromCall_InlineEditUnderAnUpdate_ShouldNotTakeTheUpdatesChat()
+    {
+        // Arrange
+        var request = new EditInlineMessageTextRequest { InlineMessageId = "AAAAinline", Text = "Done" };
+
+        // Act
+        var entries = CallUnder(Parse(TapOnAMessage), request, true);
+
+        // Assert
+        entries
+            .Should()
+            .ContainSingle()
+            .Which.Should()
+            .BeEquivalentTo(new { ChatId = (long?)null, UserId = (long?)null });
+    }
+
+    [Fact]
+    public void FromCall_ToAUsernameUnderAnUpdate_ShouldNotTakeTheUpdatesChat()
+    {
+        // Arrange
+        var request = new SendMessageRequest { ChatId = "@news", Text = "Hi" };
+
+        // Act
+        var entries = CallUnder(
+            Parse(TapOnAMessage),
+            request,
+            error: new ApiRequestException("Bad Request: chat not found", 400)
+        );
+
+        // Assert
+        entries
+            .Should()
+            .ContainSingle()
+            .Which.Should()
+            .BeEquivalentTo(new { ChatId = (long?)null, UserId = (long?)null });
+    }
+
+    [Fact]
+    public void FromCall_WithoutACause_ShouldHaveNoChatOrUser()
+    {
+        // Arrange
+        var request = new AnswerCallbackQueryRequest { CallbackQueryId = "cb1", Text = "Saved" };
+
+        // Act
+        var entries = Call(request, true);
+
+        // Assert
+        entries
+            .Should()
+            .ContainSingle()
+            .Which.Should()
+            .BeEquivalentTo(new { ChatId = (long?)null, UserId = (long?)null });
+    }
+
+    private static IReadOnlyList<TelegramHistoryEntry> CallUnder(
+        Update cause,
+        IRequest request,
+        object? result = null,
+        Exception? error = null
+    ) => TelegramHistoryEntries.FromCall(request, result, error, cause, Now, keepJson: true);
+
     private static IReadOnlyList<TelegramHistoryEntry> Call(
         IRequest request,
         object? result = null,

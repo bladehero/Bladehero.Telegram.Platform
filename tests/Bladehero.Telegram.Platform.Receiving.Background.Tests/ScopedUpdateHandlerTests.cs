@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.History;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
@@ -6,6 +7,7 @@ using Microsoft.Extensions.Time.Testing;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.Tests;
 
@@ -317,6 +319,77 @@ public sealed class ScopedUpdateHandlerTests
 
         // The clock never moved, so only the shutdown can end the wait, and without an exception.
         await polled.WaitAsync(Patience);
+    }
+
+    [Fact]
+    public async Task AnUpdateIsRecordedAndTheCommandsReplyLinkedToIt()
+    {
+        var store = new HistoryStore();
+        await using var provider = BuildProvider(new ScopeLog { Reply = "Coming up" }, configure: WithHistory(store));
+        var history = await StartHistoryAsync(provider);
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+
+        await handler.HandleUpdateAsync(RecordingClient(provider), Hi(7), CancellationToken.None);
+        await history.FlushAsync(CancellationToken.None);
+
+        var linked = store.Entries.Where(entry => entry.UpdateId == 7);
+        Assert.Equal(["message", "sendMessage"], linked.Select(entry => entry.Kind));
+    }
+
+    [Fact]
+    public async Task AnErrorHandlersReplyIsLinkedToTheFailedUpdate()
+    {
+        var store = new HistoryStore();
+        var log = new ScopeLog
+        {
+            CommandFailure = new InvalidOperationException("The database is down"),
+            Apology = "Sorry",
+        };
+        await using var provider = BuildProvider(log, configure: WithHistory(store));
+        var history = await StartHistoryAsync(provider);
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+
+        await handler.HandleUpdateAsync(RecordingClient(provider), Hi(7), CancellationToken.None);
+        await history.FlushAsync(CancellationToken.None);
+
+        var apology = Assert.Single(store.Entries, entry => entry.Kind == "sendMessage");
+        Assert.Equal("Sorry", apology.Text);
+        Assert.Equal(7, apology.UpdateId);
+    }
+
+    // A text message, whole as Telegram sends it, so the history can record it.
+    private static Update Hi(int id) =>
+        new()
+        {
+            Id = id,
+            Message = new Message
+            {
+                Id = 1,
+                Date = DateTime.UtcNow,
+                Text = "hi",
+                Chat = new Chat { Id = 7000000001, Type = ChatType.Private },
+                From = new User { Id = 7000000001, FirstName = "Nick" },
+            },
+        };
+
+    // The fake client is registered before the history, so the history records its calls.
+    private static Action<IServiceCollection> WithHistory(HistoryStore store) =>
+        services =>
+        {
+            services.AddSingleton<ITelegramBotClient>(new FakeBotClient());
+            services.AddTelegramHistory().Services.AddSingleton<ITelegramHistoryStore>(store);
+        };
+
+    private static ITelegramBotClient RecordingClient(IServiceProvider provider) =>
+        provider.GetRequiredService<ITelegramBotClient>();
+
+    // What the host does at startup: learn the bot's username, and start the writer that stores the history.
+    private static async Task<TelegramHistoryWriter> StartHistoryAsync(IServiceProvider provider)
+    {
+        await provider.GetRequiredService<ITelegramBotIdentity>().GetAsync(CancellationToken.None);
+        var writer = provider.GetRequiredService<TelegramHistoryWriter>();
+        await writer.StartingAsync(CancellationToken.None);
+        return writer;
     }
 
     private static Task PollingErrorAsync(ScopedUpdateHandler handler) =>

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Bladehero.Telegram.Platform.History;
 using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Builder;
@@ -57,8 +58,47 @@ public sealed class WebhookEndpointTests
         Assert.Equal(7, Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Error).UpdateId);
     }
 
+    [Fact]
+    public async Task TheWebhookRecordsTheUpdateAndLinksAnErrorHandlersReplyToIt()
+    {
+        var store = new HistoryStore();
+        var log = new ScopeLog { CommandFailure = new InvalidOperationException("original"), Apology = "Sorry" };
+        await using var app = await StartAsync(
+            log,
+            new LogRecorder(),
+            services =>
+            {
+                services.AddScoped<ITelegramErrorHandler, ProbeErrorHandler>();
+                services.AddTelegramHistory().Services.AddSingleton<ITelegramHistoryStore>(store);
+            }
+        );
+        using var client = app.GetTestClient();
+
+        using var response = await client.PostAsync(
+            "/telegram/updates",
+            new StringContent(PrivateUpdate, Encoding.UTF8, "application/json")
+        );
+        await app.Services.GetRequiredService<ITelegramHistory>().FlushAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var linked = store.Entries.Where(entry => entry.UpdateId == 7).ToList();
+        Assert.Equal(["message", "sendMessage"], linked.Select(entry => entry.Kind));
+        Assert.Equal("Sorry", linked[1].Text);
+    }
+
+    private const string PrivateUpdate = """
+        {"update_id":7,"message":{"message_id":1,"date":1700000000,"text":"hi",
+         "chat":{"id":7000000001,"type":"private","first_name":"Nick"},
+         "from":{"id":7000000001,"is_bot":false,"first_name":"Nick"}}}
+        """;
+
     // The ScopeLog's command and a ThrowingErrorHandler, behind UseTelegramWebhook; startup talks to a fake client.
-    private static async Task<WebApplication> StartAsync(ScopeLog log, LogRecorder logs)
+    // configure then changes the app's services, e.g. to add history after that client.
+    private static async Task<WebApplication> StartAsync(
+        ScopeLog log,
+        LogRecorder logs,
+        Action<IServiceCollection>? configure = null
+    )
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -77,6 +117,7 @@ public sealed class WebhookEndpointTests
         );
         builder.Services.Replace(ServiceDescriptor.Singleton<ITelegramBotClient>(new FakeBotClient()));
         builder.Services.AddScoped<ITelegramErrorHandler, ThrowingErrorHandler>();
+        configure?.Invoke(builder.Services);
 
         var app = builder.Build();
         app.UseTelegramWebhook();
