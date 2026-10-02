@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Telegram.Bot.Requests.Abstractions;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.History;
 
@@ -60,6 +61,27 @@ internal sealed class TelegramHistoryWriter(
         }
 
         return false;
+    }
+
+    // Records an update the bot got; never throws.
+    public void RecordUpdate(Update update)
+    {
+        if (_stopped)
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var entry in TelegramHistoryEntries.FromUpdate(update, _time.GetUtcNow(), _keepJson))
+            {
+                Record(entry);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Couldn't record update {UpdateId} in the Telegram history.", update.Id);
+        }
     }
 
     // Records a Bot API call made while handling the current update, if any; never throws.

@@ -5,6 +5,7 @@ using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Requests.Abstractions;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace Bladehero.Telegram.Platform.History;
 
@@ -24,6 +25,22 @@ internal static class TelegramHistoryEntries
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    // Request fields that say whom a call is about; a call with none of them is about its update's chat and user.
+    private static readonly string[] Targets = ["chat_id", "user_id", "inline_message_id"];
+
+    internal static IReadOnlyList<TelegramHistoryEntry> FromUpdate(Update update, DateTimeOffset time, bool keepJson)
+    {
+        var entry = Describe(update) with
+        {
+            Time = time,
+            Json = keepJson ? JsonSerializer.Serialize(update, KeptJson) : null,
+        };
+
+        return update.DeletedBusinessMessages is { MessageIds: [_, ..] ids }
+            ? [.. ids.Select(id => entry with { MessageId = id })]
+            : [entry];
+    }
+
     // Ids come from the result first, then from the request's Bot API fields.
     internal static IReadOnlyList<TelegramHistoryEntry> FromCall(
         IRequest request,
@@ -37,6 +54,7 @@ internal static class TelegramHistoryEntries
         var fields = JsonSerializer.SerializeToNode(request, request.GetType(), KeptJson) as JsonObject ?? [];
         RemoveSecrets(fields);
 
+        var origin = cause is not null && !Targets.Any(fields.ContainsKey) ? Describe(cause) : null;
         var requestJson = keepJson ? fields.ToJsonString(KeptJson) : null;
         var keepsResult = !SecretResults.Contains(request.MethodName);
 
@@ -48,8 +66,8 @@ internal static class TelegramHistoryEntries
             Direction = TelegramHistoryDirection.Outgoing,
             Kind = request.MethodName,
             UpdateId = cause?.Id,
-            ChatId = Value<long>(fields["chat_id"]),
-            UserId = Value<long>(fields["user_id"]),
+            ChatId = Value<long>(fields["chat_id"]) ?? origin?.ChatId,
+            UserId = Value<long>(fields["user_id"]) ?? origin?.UserId,
             InlineMessageId = Text(fields["inline_message_id"]),
             Text = Text(fields["text"]) ?? Text(fields["caption"]),
             ErrorCode = (error as ApiRequestException)?.ErrorCode,
@@ -64,10 +82,10 @@ internal static class TelegramHistoryEntries
 
         IReadOnlyList<TelegramHistoryEntry> entries = result switch
         {
-            Message message when changesMessages => [FromMessage(call, message, Json(message))],
+            Message message when changesMessages => [About(call, message) with { Json = Json(message) }],
             Message[] { Length: > 0 } messages when changesMessages =>
             [
-                .. messages.Select(x => FromMessage(call, x, Json(x))),
+                .. messages.Select(x => About(call, x) with { Json = Json(x) }),
             ],
             MessageId id when changesMessages => [call with { MessageId = id.Id, Json = Json(id) }],
             MessageId[] { Length: > 0 } ids when changesMessages && call.ChatId is not null =>
@@ -113,8 +131,91 @@ internal static class TelegramHistoryEntries
         }
     }
 
+    // The update's kind, ids, text and file, without its time or JSON.
+    private static TelegramHistoryEntry Describe(Update update)
+    {
+        var entry = new TelegramHistoryEntry
+        {
+            Direction = TelegramHistoryDirection.Incoming,
+            Kind = KindOf(update.Type),
+            UpdateId = update.Id,
+        };
+
+        var message =
+            update.Message
+            ?? update.EditedMessage
+            ?? update.ChannelPost
+            ?? update.EditedChannelPost
+            ?? update.BusinessMessage
+            ?? update.EditedBusinessMessage
+            ?? update.GuestMessage;
+        if (message is not null)
+        {
+            // A channel post has no sender; an anonymous admin's message is from Telegram's placeholder user.
+            return About(entry, message) with { UserId = message.From?.Id };
+        }
+
+        return update switch
+        {
+            { CallbackQuery: { } query } => entry with
+            {
+                // A tap on an inaccessible message still has the message's chat and id.
+                ChatId = query.Message?.Chat.Id,
+                UserId = query.From.Id,
+                MessageId = query.Message?.Id,
+                InlineMessageId = query.InlineMessageId,
+                Text = query.Data ?? query.GameShortName,
+            },
+            { InlineQuery: { } query } => entry with { UserId = query.From.Id, Text = query.Query },
+            { ChosenInlineResult: { } chosen } => entry with
+            {
+                UserId = chosen.From.Id,
+                InlineMessageId = chosen.InlineMessageId,
+                Text = chosen.Query,
+            },
+            { Poll: { } poll } => entry with { Text = poll.Question },
+            { PollAnswer: { } answer } => entry with { ChatId = answer.VoterChat?.Id, UserId = answer.User?.Id },
+            { MyChatMember: { } member } => entry with { ChatId = member.Chat.Id, UserId = member.From.Id },
+            { ChatMember: { } member } => entry with { ChatId = member.Chat.Id, UserId = member.From.Id },
+            { ChatJoinRequest: { } request } => entry with { ChatId = request.Chat.Id, UserId = request.From.Id },
+            { MessageReaction: { } reaction } => entry with
+            {
+                ChatId = reaction.Chat.Id,
+                UserId = reaction.User?.Id,
+                MessageId = reaction.MessageId,
+            },
+            { MessageReactionCount: { } count } => entry with { ChatId = count.Chat.Id, MessageId = count.MessageId },
+            { ChatBoost: { } boost } => entry with { ChatId = boost.Chat.Id, UserId = BoosterOf(boost.Boost.Source) },
+            { RemovedChatBoost: { } removed } => entry with { ChatId = removed.Chat.Id },
+            { BusinessConnection: { } connection } => entry with
+            {
+                ChatId = connection.UserChatId,
+                UserId = connection.User.Id,
+            },
+            { DeletedBusinessMessages: { } deleted } => entry with { ChatId = deleted.Chat.Id },
+            { ShippingQuery: { } query } => entry with { UserId = query.From.Id },
+            { PreCheckoutQuery: { } query } => entry with { UserId = query.From.Id },
+            { PurchasedPaidMedia: { } purchase } => entry with { UserId = purchase.From.Id },
+            _ => entry,
+        };
+    }
+
+    // The message's chat, id, text as Telegram shows it, and file.
+    private static TelegramHistoryEntry About(TelegramHistoryEntry entry, Message message)
+    {
+        var (fileId, fileName) = FileOf(message);
+        return entry with
+        {
+            ChatId = message.Chat.Id,
+            MessageId = message.Id,
+            Text = message.Text ?? message.Caption ?? entry.Text,
+            FileId = fileId,
+            FileName = fileName,
+        };
+    }
+
     // The file a message carries: a photo's largest size, or the one file of any other kind.
-    internal static (string? Id, string? Name) FileOf(Message message) =>
+    private static (string? Id, string? Name) FileOf(Message message) =>
         message switch
         {
             { Photo: [_, ..] photo } => (photo.MaxBy(x => (long)x.Width * x.Height)!.FileId, null),
@@ -128,19 +229,15 @@ internal static class TelegramHistoryEntries
             _ => (null, null),
         };
 
-    private static TelegramHistoryEntry FromMessage(TelegramHistoryEntry call, Message message, string? json)
-    {
-        var (fileId, fileName) = FileOf(message);
-        return call with
+    // The user behind a boost, when Telegram names one.
+    private static long? BoosterOf(ChatBoostSource source) =>
+        source switch
         {
-            ChatId = message.Chat.Id,
-            MessageId = message.Id,
-            Text = message.Text ?? message.Caption ?? call.Text,
-            FileId = fileId,
-            FileName = fileName,
-            Json = json,
+            ChatBoostSourcePremium premium => premium.User.Id,
+            ChatBoostSourceGiftCode giftCode => giftCode.User.Id,
+            ChatBoostSourceGiveaway giveaway => giveaway.User?.Id,
+            _ => null,
         };
-    }
 
     // The request's message ids, unless they have no chat to belong to, or belong to the one it forwards or copies from.
     private static IReadOnlyList<TelegramHistoryEntry> FromRequest(TelegramHistoryEntry call, JsonObject fields)
@@ -157,6 +254,10 @@ internal static class TelegramHistoryEntries
 
         return [call with { MessageId = Value<int>(fields["message_id"]) }];
     }
+
+    // The update type as the Bot API names it, such as callback_query.
+    private static string KindOf(UpdateType type) =>
+        JsonSerializer.SerializeToElement(type, JsonBotAPI.Options).GetString() ?? type.ToString();
 
     private static string Serialize(object value) => JsonSerializer.Serialize(value, value.GetType(), KeptJson);
 
