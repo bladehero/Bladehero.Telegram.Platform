@@ -513,9 +513,14 @@ makes. Telegram doesn't let a bot read a chat's past, so it has to be captured a
 services.AddTelegramHistory().UseInMemory();   // a store, see Stores
 ```
 
+Register an `ITelegramBotClient` of your own **before** `AddTelegramHistory`; startup fails otherwise. The library's
+own registrations may come before or after. Only that client's calls are recorded: not a keyed client for another bot,
+nor a `TelegramBotClient` injected by its type or built by hand.
+
 ### What's in an entry
 
-Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a deletion is an entry of its own.
+Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a deletion is an entry of its own. A call
+about several messages, such as `deleteMessages`, is an entry per message.
 
 | Field | Holds |
 | --- | --- |
@@ -534,6 +539,32 @@ Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a del
 | `Json` | The update, or the call's request and result, as Bot API JSON as Telegram.Bot serializes it, so unknown fields and defaults are left out. |
 
 `ToString()` sums an entry up in one line, e.g. `sendMessage: Hi (403 Forbidden: bot was blocked by the user)`.
+
+Polling's `getUpdates` and file downloads aren't recorded; the `getFile` before a download is.
+
+A call carries the update it was made for:
+
+- A call made while handling an update has that update's `UpdateId`.
+- Work the update started but didn't await, such as a `Task.Run`, inherits it.
+- Calls from hosted services carry none. Start long-lived loops outside updates, or with
+  `ExecutionContext.SuppressFlow()`, or each of their calls names the update that started them.
+
+### Where ids come from
+
+A call's ids come from its result when it has one, such as the message sent, and otherwise from the request.
+
+| Call | Ids |
+| --- | --- |
+| A chat given as `@username` | `ChatId` from the message sent; a call that failed keeps the name only in `Json`. |
+| `sendMediaGroup` | An entry per message sent. |
+| `copyMessage` | `MessageId` is the copy's. |
+| `copyMessages`, `forwardMessages` | An entry per message sent; one that failed has no `MessageId`, as the ids it was given are the source chat's. |
+| `deleteMessages` | An entry per message id it was given. |
+| An inline message's edit | `InlineMessageId`, and no chat; `Kind` is still the method, such as `editMessageText`. |
+| `getFile` | `FileId`. |
+
+A call Telegram refused has its `ErrorCode` and description in `Error`. One that failed otherwise, such as a timeout,
+has only the exception's message.
 
 ### Read it back
 
@@ -569,6 +600,8 @@ To page further back, read `query with { BeforeId = page[0].Id }` until a page c
 - `KeepJson = false` keeps every field but `Json`.
 - `Filter` changes or drops each entry before it's stored: return it, changed with `with` if need be, or `null` to
   drop it. Redacting `Text` alone leaves it in `Json`.
+- Secrets in requests, `secret_token` and `provider_token`, are always left out of `Json`. Files are recorded by id and
+  name, never their bytes.
 - URLs, such as `setWebhook`'s, can carry secrets of your own; drop or redact them with `Filter`.
 
 ```csharp
@@ -1299,6 +1332,8 @@ optionally, `Telegram:SecretToken`.
 ### To 10.3
 
 - History is new and off until `AddTelegramHistory`; without it nothing changes.
+- With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
+  interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails.
 
 ## License
 
