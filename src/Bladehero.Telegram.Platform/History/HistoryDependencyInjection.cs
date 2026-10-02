@@ -14,7 +14,9 @@ public static class HistoryDependencyInjection
     /// Records every update the bot gets and every Bot API call it makes, stored in the background in the store picked
     /// next.
     /// </summary>
-    /// <remarks>Startup fails without a store.</remarks>
+    /// <remarks>
+    /// Startup fails without a store. Entries are stored by a hosted service, so they need a running host.
+    /// </remarks>
     /// <param name="services">The app's services.</param>
     /// <param name="configure">Sets how the history is recorded, e.g. <c>h => h.KeepJson = false</c>.</param>
     /// <returns>A builder to pick the store with.</returns>
@@ -33,7 +35,7 @@ public static class HistoryDependencyInjection
         if (!services.Any(x => x.ServiceType == typeof(TelegramHistoryWriter)))
         {
             options
-                .Validate(x => x.QueueCapacity >= 1, "QueueCapacity must be at least 1.")
+                .Validate(x => x.QueueCapacity >= 1, "Telegram history QueueCapacity must be at least 1.")
                 .Validate<IServiceProviderIsService>((_, x) => x.IsService(typeof(ITelegramHistoryStore)), NoStore)
                 .ValidateOnStart();
             services.AddSingleton<TelegramHistoryWriter>();

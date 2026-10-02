@@ -38,7 +38,9 @@ public sealed class HistoryDependencyInjectionTests
         var act = () => host.StartAsync();
 
         // Assert
-        await act.Should().ThrowAsync<OptionsValidationException>().WithMessage("QueueCapacity must be at least 1.");
+        await act.Should()
+            .ThrowAsync<OptionsValidationException>()
+            .WithMessage("Telegram history QueueCapacity must be at least 1.");
     }
 
     [Fact]
