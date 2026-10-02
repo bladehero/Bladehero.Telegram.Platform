@@ -118,7 +118,7 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
         if (message.InlineMessageId is not null)
         {
             // The Bot API can't delete inline-mode messages.
-            await ClearKeyboardAsync(message, token);
+            await ClearKeyboardIfEditableAsync(message, token);
             return false;
         }
 
@@ -134,7 +134,7 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
         catch (ApiRequestException error) when (IsUndeletable(error))
         {
             // After 48 hours, or without the right: at least no stale buttons stay tappable.
-            await ClearKeyboardAsync(message, token);
+            await ClearKeyboardIfEditableAsync(message, token);
             return false;
         }
     }
@@ -159,6 +159,16 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
             }
         }
         catch (ApiRequestException error) when (IsNotModified(error) || IsGoneForEdit(error)) { }
+    }
+
+    // A message the bot can't edit, such as a user's, keeps what it shows.
+    private async Task ClearKeyboardIfEditableAsync(TelegramMessageRef message, CancellationToken token)
+    {
+        try
+        {
+            await ClearKeyboardAsync(message, token);
+        }
+        catch (ApiRequestException error) when (IsUneditable(error)) { }
     }
 
     // Best effort: a fresh one already shows it, so a failure here is only worth a warning.

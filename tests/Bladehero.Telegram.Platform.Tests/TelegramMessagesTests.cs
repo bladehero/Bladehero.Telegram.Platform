@@ -369,6 +369,27 @@ public sealed class TelegramMessagesTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteAsync_WhenItCanBeNeitherDeletedNorEdited_ShouldReturnFalse(bool inline)
+    {
+        // Arrange
+        _telegram
+            .Answer("deleteMessage", Refusal("message can't be deleted"))
+            .Answer("editMessageReplyMarkup", Refusal("message can't be edited"));
+
+        // Act
+        var deleted = await _sut.DeleteAsync(inline ? Inline : Card);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            deleted.Should().BeFalse();
+            _telegram.Methods.Should().EndWith("editMessageReplyMarkup");
+        }
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData(NotModified)]
     [InlineData("message to edit not found")]

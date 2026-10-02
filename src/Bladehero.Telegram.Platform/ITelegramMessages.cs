@@ -65,8 +65,8 @@ public interface ITelegramMessages
     );
 
     /// <summary>
-    /// Deletes the message, or takes its keyboard off when Telegram won't delete it (after 48 hours, or inline); true
-    /// when it's gone.
+    /// Deletes the message, or takes its keyboard off when Telegram won't delete it (after 48 hours, or inline) and it
+    /// can be edited; true when it's gone, false when it stays.
     /// </summary>
     /// <param name="message">The message to delete.</param>
     /// <param name="token">Cancels the call.</param>

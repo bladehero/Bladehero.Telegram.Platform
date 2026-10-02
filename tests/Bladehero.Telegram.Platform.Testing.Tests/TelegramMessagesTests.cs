@@ -207,6 +207,26 @@ public sealed class TelegramMessagesTests
     }
 
     [Fact]
+    public async Task DeleteAsync_OfAUsersMessageInAGroupWithoutRights_ShouldReturnFalse()
+    {
+        // Arrange
+        await using var bot = await TestBot.StartAsync();
+        var family = bot.GroupChat("Family");
+        var anna = family.Member("Anna");
+        var said = await anna.SendsAsync("/probe");
+
+        // Act
+        var deleted = await MessagesOf(bot).DeleteAsync(said.Ref);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            deleted.Should().BeFalse();
+            family.Messages.Select(x => x.ToString()).Should().Equal("Anna: /probe");
+        }
+    }
+
+    [Fact]
     public async Task ClearKeyboardAsync_Twice_ShouldSucceedBothTimes()
     {
         // Arrange
