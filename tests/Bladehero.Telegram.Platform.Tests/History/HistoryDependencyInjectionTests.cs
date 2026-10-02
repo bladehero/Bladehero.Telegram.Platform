@@ -226,31 +226,35 @@ public sealed class HistoryDependencyInjectionTests
     }
 
     [Fact]
-    public async Task TelegramSender_WithHistory_ShouldRecordItsMessage()
+    public async Task Messages_WithHistory_ShouldRecordTheirCalls()
     {
         // Arrange
         await using var host = await HistoryHost.StartAsync(services: x =>
             x.AddTelegramBot(bot => bot.Token = Token, httpClientFactory: _ => new HttpClient(new CannedTelegram()))
         );
-        var sender = host.Host.Services.GetRequiredService<ITelegramSender>();
+        var messages = host.Host.Services.GetRequiredService<ITelegramMessages>();
 
         // Act
-        await sender.SendAsync(HistoryHost.ChatId, "Hi");
+        var sent = await messages.SendAsync(HistoryHost.ChatId, "Hi");
         await host.History.FlushAsync();
 
         // Assert
-        host.Store.Entries.Should()
-            .ContainSingle()
-            .Which.Should()
-            .BeEquivalentTo(
-                new
-                {
-                    Kind = "sendMessage",
-                    ChatId = HistoryHost.ChatId,
-                    MessageId = 10,
-                    Text = "Hi",
-                }
-            );
+        using (new AssertionScope())
+        {
+            sent.Should().Be(new TelegramMessageRef(HistoryHost.ChatId, 10));
+            host.Store.Entries.Should()
+                .ContainSingle()
+                .Which.Should()
+                .BeEquivalentTo(
+                    new
+                    {
+                        Kind = "sendMessage",
+                        ChatId = HistoryHost.ChatId,
+                        MessageId = 10,
+                        Text = "Hi",
+                    }
+                );
+        }
     }
 
     private const string Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";

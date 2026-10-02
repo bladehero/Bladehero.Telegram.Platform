@@ -6,7 +6,7 @@ namespace Bladehero.Telegram.Platform.Sandbox.Barista;
 
 // Tells each customer when their coffee is ready: a message the bot sends on its own, long after the update that
 // placed the order.
-internal sealed class BaristaService(OrderQueue queue, ITelegramSender sender, ILogger<BaristaService> logger)
+internal sealed class BaristaService(OrderQueue queue, ITelegramMessages messages, ILogger<BaristaService> logger)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -17,10 +17,10 @@ internal sealed class BaristaService(OrderQueue queue, ITelegramSender sender, I
 
             try
             {
-                await sender.SendAsync(
+                await messages.SendAsync(
                     order.ChatId,
                     $"☕ Your {order.Size} coffee for {order.CupName} is ready!",
-                    cancellationToken: stoppingToken
+                    token: stoppingToken
                 );
             }
             catch (RequestException error)
