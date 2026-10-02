@@ -1,4 +1,5 @@
 using Bladehero.Configuration.Extensions;
+using Bladehero.Telegram.Platform.History;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -176,6 +177,9 @@ public static class DependencyInjection
             var options = new TelegramBotClientOptions(botConfiguration.Token);
             return new TelegramBotClient(options, httpClientFactory?.Invoke(provider));
         });
+
+        // Records the client's calls when AddTelegramHistory came first.
+        TelegramHistoryClients.Decorate(services);
         services.TryAddSingleton<ITelegramSender, TelegramSender>();
     }
 }
