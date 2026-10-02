@@ -31,7 +31,8 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation)
 - [Sending on your own](#sending-on-your-own)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
-- [History](#history): [entries](#whats-in-an-entry) · [read](#read-it-back) · [privacy](#privacy) · [stores](#stores)
+- [History](#history): [entries](#whats-in-an-entry) · [ids](#where-ids-come-from) · [read](#read-it-back) ·
+  [privacy](#privacy) · [stores](#stores) · [writing](#writing)
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
   [logs](#logs) · [history](#read-the-history) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
   [files](#send-and-read-files) · [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) ·
@@ -528,8 +529,9 @@ nor a `TelegramBotClient` injected by its type or built by hand.
 
 ### What's in an entry
 
-Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a deletion is an entry of its own. A call
-about several messages, such as `deleteMessages`, is an entry per message.
+Each event is one `TelegramHistoryEntry`. Entries never change: an edit or a deletion is an entry of its own. An update
+or call about several messages is an entry per message: `sendMediaGroup`, `copyMessages`, `forwardMessages`,
+`deleteMessages` and `deleted_business_messages`.
 
 | Field | Holds |
 | --- | --- |
@@ -568,14 +570,11 @@ A call's ids come from its result when it has one, such as the message sent, and
 | A callback query | The tapped message's chat and id; a tap on an inline-mode message has only `InlineMessageId`. |
 | A channel post | No `UserId`. |
 | A poll answer | `UserId`, or `ChatId` when a channel voted. |
-| `deleted_business_messages` | An entry per message deleted. |
 | `chat_member`, `my_chat_member` | `UserId` is whoever made the change. |
 | A guest message | No `ChatId`; a reply sent with `answerGuestQuery` has its `InlineMessageId`, but its text only in `Json`. |
 | A chat given as `@username` | `ChatId` only when the call returns the message; otherwise the name stays in `Json`, and no message ids are kept. |
-| `sendMediaGroup` | An entry per message sent. |
 | `copyMessage` | `MessageId` is the copy's. |
-| `copyMessages`, `forwardMessages` | An entry per message sent; one that failed has no `MessageId`, as the ids it was given are the source chat's. |
-| `deleteMessages` | An entry per message id it was given. |
+| `copyMessages` or `forwardMessages` that failed | No `MessageId`: the ids it was given are the source chat's. |
 | An inline message's edit | `InlineMessageId`, and no chat; `Kind` is still the method, such as `editMessageText`. |
 | `getFile` | `FileId`. |
 
@@ -587,9 +586,9 @@ has only the exception's message.
 
 ### Read it back
 
-`ITelegramHistory.ReadAsync` returns the latest `Limit` entries (100 unless set) that match every filter set, oldest
-first. A read waits up to 2 seconds for what was recorded before it to be stored, so a handler sees the update it's
-handling and its own calls; while the store is failing, it reads what's stored without waiting.
+Inject `ITelegramHistory`. `ReadAsync` returns the latest `Limit` entries (100 unless set) that match every filter set,
+oldest first. A read waits up to 2 seconds for what was recorded before it to be stored, so a handler sees the update
+it's handling and its own calls; while the store is failing, it reads what's stored without waiting.
 
 | Query | Entries |
 | --- | --- |
@@ -622,7 +621,7 @@ To page further back, read `query with { BeforeId = page[0].Id }` until a page c
 - `Filter` changes or drops each entry before it's stored: return it, changed with `with` if need be, or `null` to
   drop it. Redacting `Text` alone leaves it in `Json`.
 - Secrets in requests, `secret_token` and `provider_token`, and the bot tokens `getManagedBotToken` and
-  `replaceManagedBotToken` return, are always left out of `Json`. Files are recorded by id and name, never their bytes.
+  `replaceManagedBotToken` return, are always left out of `Json`.
 - URLs, such as `setWebhook`'s, can carry secrets of your own; drop or redact them with `Filter`.
 
 ```csharp
@@ -647,6 +646,8 @@ A store keeps the entries; pick one after `AddTelegramHistory()`, or bring your 
 
 #### In memory
 
+From `Bladehero.Telegram.Platform.History.InMemory`:
+
 ```csharp
 services.AddTelegramHistory().UseInMemory(maxEntriesPerChat: 1000);
 ```
@@ -658,7 +659,8 @@ services.AddTelegramHistory().UseInMemory(maxEntriesPerChat: 1000);
 
 #### EF Core
 
-Map the history into your own context, add a migration, and pick the store:
+From `Bladehero.Telegram.Platform.History.EntityFrameworkCore`: map the history into your own context, add a migration,
+and pick the store:
 
 ```csharp
 protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.MapTelegramHistory();
@@ -695,8 +697,8 @@ services.AddTelegramHistory().Services.AddSingleton<ITelegramHistoryStore, MySto
 
 - `AppendAsync` gets each batch oldest first and gives each entry an increasing `Id`. One writer calls it, one batch at
   a time.
-- `ReadAsync` returns the latest `Limit` entries that match every filter set, older than `BeforeId` if set, oldest
-  first; `Since` is inclusive. A write-only store may throw `NotSupportedException`.
+- `ReadAsync` answers a query as in [Read it back](#read-it-back); `Since` is inclusive, `BeforeId` exclusive. A
+  write-only store may throw `NotSupportedException`.
 - A scoped store, e.g. one over a `DbContext`, gets a scope of its own for each batch and each read.
 
 ### Writing
@@ -707,6 +709,7 @@ history needs a running host (`IHost` or `WebApplication`); without one nothing 
 - Entries wait in a bounded queue (`QueueCapacity`, 10 000) and are stored in the background, in batches.
 - When the queue is full, new entries are dropped, with a warning at most once a minute that counts them.
 - A store that fails is logged as an error; that batch is dropped and later ones are stored.
+- Storing starts once every hosted service has started; what's recorded before waits in the queue.
 - On shutdown, what's queued is stored within the host's shutdown timeout; a warning counts anything left.
 - `ITelegramHistory.FlushAsync` waits until everything recorded so far is stored.
 
@@ -1326,6 +1329,8 @@ both run, and the second answer fails the action, so give each button's data to 
   - a greeting when the bot is added to a group, next to a logger of `MyChatMember` updates;
   - a coffee order in a group, where the bot is made an admin to hear the typed cup names, and a test of what a bot
     without admin rights misses under [group privacy](#groups-and-privacy);
+  - the chat's [history](#history) in memory, with `/recent` listing what just happened, and tests that follow a tap
+    to everything it caused;
   - component tests of restarts on the same fake with and without a shared conversation store, members seeded with
     `UserIdOf` before the host starts, Telegram refusing calls to one chat or asking the bot to slow down, and a
     `FakeTimeProvider` moving the barista's clock on. The stand-ins are registered after `AddCoffeeShop`, in place of
@@ -1418,8 +1423,11 @@ optionally, `Telegram:SecretToken`.
 - History is new and off until `AddTelegramHistory`; without it nothing changes.
 - `Bladehero.Telegram.Platform.Receiving` now depends on `Bladehero.Telegram.Platform`.
 - With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
-  interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails.
-- In component tests with history, each action also waits until the history is written.
+  interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails; a test that replaces
+  the client calls `AddTelegramHistory()` again after it.
+- With history on, the bot's client is built at startup, so a malformed token fails the start.
+- In component tests with history, each action also waits for the bot's calls in flight and until the history is
+  written.
 
 ## License
 
