@@ -19,4 +19,18 @@ public sealed class DependencyInjectionTests
         using var provider = services.BuildServiceProvider();
         provider.GetRequiredService<ITelegramBotClient>().Should().BeOfType<TelegramBotClient>();
     }
+
+    [Fact]
+    public void AddTelegramBot_ShouldRegisterTheMessages()
+    {
+        // Arrange: an app that only sends, with no logging registered.
+        var services = new ServiceCollection();
+
+        // Act
+        services.AddTelegramBot(x => x.Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw");
+
+        // Assert
+        using var provider = services.BuildServiceProvider();
+        provider.GetRequiredService<ITelegramMessages>().Should().BeOfType<TelegramMessages>();
+    }
 }

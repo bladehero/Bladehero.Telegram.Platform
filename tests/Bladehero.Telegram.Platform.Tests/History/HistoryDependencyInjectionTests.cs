@@ -253,6 +253,30 @@ public sealed class HistoryDependencyInjectionTests
             );
     }
 
+    [Fact]
+    public async Task Messages_WithHistory_ShouldRecordTheirCalls()
+    {
+        // Arrange
+        await using var host = await HistoryHost.StartAsync(services: x =>
+            x.AddTelegramBot(bot => bot.Token = Token, httpClientFactory: _ => new HttpClient(new CannedTelegram()))
+        );
+        var messages = host.Host.Services.GetRequiredService<ITelegramMessages>();
+
+        // Act
+        var sent = await messages.SendAsync(HistoryHost.ChatId, "Hi");
+        await host.History.FlushAsync();
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Should().Be(new TelegramMessageRef(HistoryHost.ChatId, 10));
+            host.Store.Entries.Should()
+                .ContainSingle()
+                .Which.Should()
+                .BeEquivalentTo(new { Kind = "sendMessage", MessageId = 10 });
+        }
+    }
+
     private const string Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
 
     private static ITelegramHistoryStore Store() => Mock.Of<ITelegramHistoryStore>();
