@@ -3,6 +3,7 @@
     <PackageId>Bladehero.Telegram.Platform.History.EntityFrameworkCore</PackageId>
     <Title>Bladehero.Telegram.Platform.History.EntityFrameworkCore</Title>
     <Description>An Entity Framework Core store for the history of Telegram bots built on Bladehero.Telegram.Platform: every update and Bot API call, mapped into the app's own DbContext and written apart from its unit of work.</Description>
+    <PackageTags>telegram;telegram-bot;bot;history;audit;entity-framework-core;efcore</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
