@@ -513,6 +513,7 @@ card = card is { } old ? await messages.ReplaceAsync(old, text, keyboard, token:
 ```
 
 - It reads the chat's latest 500 entries for the newest message still showing a matching button.
+- It finds typed buttons only; hand-written data counts when a `[ButtonData]` record of the same shape decodes it.
 - It needs `KeepJson`, on by default.
 - It's best effort: a missed card just means a fresh one is sent.
 
