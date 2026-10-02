@@ -20,7 +20,7 @@ internal sealed class RecentCommand(ITelegramHistory history) : MessageCommand
     {
         var (_, message, client) = request;
         var entries = await history.ReadAsync(new() { ChatId = message.Chat.Id, Limit = 10 }, token);
-        var lines = entries.Select(x => Shorten(x.ToString().ReplaceLineEndings(" ")));
+        var lines = entries.Select(x => Shorten(x.ToString()));
 
         await client.SendMessage(
             message.Chat,
