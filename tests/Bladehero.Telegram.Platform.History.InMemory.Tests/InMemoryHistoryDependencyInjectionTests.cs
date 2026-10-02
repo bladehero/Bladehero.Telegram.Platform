@@ -49,7 +49,7 @@ public sealed class InMemoryHistoryDependencyInjectionTests
         using var host = await StartAsync(history => history.UseInMemory());
 
         // Act
-        await host.Services.GetRequiredService<ITelegramSender>().SendAsync(Group, "Hi");
+        await host.Services.GetRequiredService<ITelegramMessages>().SendAsync(Group, "Hi");
 
         // Assert
         (await host.Services.GetRequiredService<ITelegramHistory>().ReadAsync(new() { ChatId = Group }))
@@ -71,11 +71,11 @@ public sealed class InMemoryHistoryDependencyInjectionTests
     {
         // Arrange
         using var host = await StartAsync(history => history.UseInMemory(maxEntriesPerChat: 1).UseInMemory(2));
-        var sender = host.Services.GetRequiredService<ITelegramSender>();
+        var messages = host.Services.GetRequiredService<ITelegramMessages>();
 
         // Act
-        await sender.SendAsync(Group, "Hi");
-        await sender.SendAsync(Group, "Bye");
+        await messages.SendAsync(Group, "Hi");
+        await messages.SendAsync(Group, "Bye");
 
         // Assert
         (await host.Services.GetRequiredService<ITelegramHistory>().ReadAsync(new() { ChatId = Group }))
