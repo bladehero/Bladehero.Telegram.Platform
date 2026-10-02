@@ -63,12 +63,12 @@ public sealed record TelegramHistoryEntry
         var text = new StringBuilder(Kind);
         if (!string.IsNullOrEmpty(Text))
         {
-            text.Append(": ").Append(Text);
+            text.Append(": ").Append(Text.ReplaceLineEndings(" "));
         }
 
-        if (Error is not null)
+        if (Error?.ReplaceLineEndings(" ") is { } error)
         {
-            text.Append(ErrorCode is { } code ? $" ({code} {Error})" : $" ({Error})");
+            text.Append(ErrorCode is { } code ? $" ({code} {error})" : $" ({error})");
         }
 
         return text.ToString();

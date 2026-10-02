@@ -51,6 +51,25 @@ public sealed class TelegramHistoryEntryTests
     }
 
     [Fact]
+    public void ToString_OfMultiLineText_ShouldStayOnOneLine()
+    {
+        // Arrange
+        var entry = new TelegramHistoryEntry
+        {
+            Kind = "sendMessage",
+            Text = "Your order:\nA large latte",
+            ErrorCode = 400,
+            Error = "Bad Request:\r\nmessage is too long",
+        };
+
+        // Act
+        var text = entry.ToString();
+
+        // Assert
+        text.Should().Be("sendMessage: Your order: A large latte (400 Bad Request: message is too long)");
+    }
+
+    [Fact]
     public void ToString_OfAFailedCallWithoutACode_ShouldShowTheError()
     {
         // Arrange
