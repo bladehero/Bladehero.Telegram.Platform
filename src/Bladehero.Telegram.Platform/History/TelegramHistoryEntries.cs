@@ -26,18 +26,20 @@ internal static class TelegramHistoryEntries
     };
 
     // Request fields that say whom a call is about; a call with none of them is about its update's chat and user.
-    private static readonly string[] Targets = ["chat_id", "user_id", "inline_message_id"];
+    private static readonly string[] Targets = ["chat_id", "user_id", "inline_message_id", "business_connection_id"];
 
     internal static IReadOnlyList<TelegramHistoryEntry> FromUpdate(Update update, DateTimeOffset time, bool keepJson)
     {
-        var entry = Describe(update) with
+        var described = Describe(update);
+        var entry = described with
         {
             Time = time,
+            MessageId = MessageIdOf(described.MessageId),
             Json = keepJson ? JsonSerializer.Serialize(update, KeptJson) : null,
         };
 
         return update.DeletedBusinessMessages is { MessageIds: [_, ..] ids }
-            ? [.. ids.Select(id => entry with { MessageId = id })]
+            ? [.. ids.Select(id => entry with { MessageId = MessageIdOf(id) })]
             : [entry];
     }
 
@@ -103,7 +105,7 @@ internal static class TelegramHistoryEntries
     }
 
     // Telegram's 0 stands for no message.
-    internal static int? MessageIdOf(int? id) => id is 0 ? null : id;
+    private static int? MessageIdOf(int? id) => id is 0 ? null : id;
 
     private static void RemoveSecrets(JsonNode? node)
     {
@@ -147,12 +149,17 @@ internal static class TelegramHistoryEntries
             ?? update.ChannelPost
             ?? update.EditedChannelPost
             ?? update.BusinessMessage
-            ?? update.EditedBusinessMessage
-            ?? update.GuestMessage;
+            ?? update.EditedBusinessMessage;
         if (message is not null)
         {
             // A channel post has no sender; an anonymous admin's message is from Telegram's placeholder user.
             return About(entry, message) with { UserId = message.From?.Id };
+        }
+
+        if (update.GuestMessage is { } guest)
+        {
+            // Its chat id may be that of another chat of the bot's, so it's no chat to file it under.
+            return About(entry, guest) with { ChatId = null, MessageId = null, UserId = guest.From?.Id };
         }
 
         return update switch
@@ -186,7 +193,11 @@ internal static class TelegramHistoryEntries
             },
             { MessageReactionCount: { } count } => entry with { ChatId = count.Chat.Id, MessageId = count.MessageId },
             { ChatBoost: { } boost } => entry with { ChatId = boost.Chat.Id, UserId = BoosterOf(boost.Boost.Source) },
-            { RemovedChatBoost: { } removed } => entry with { ChatId = removed.Chat.Id },
+            { RemovedChatBoost: { } removed } => entry with
+            {
+                ChatId = removed.Chat.Id,
+                UserId = BoosterOf(removed.Source),
+            },
             { BusinessConnection: { } connection } => entry with
             {
                 ChatId = connection.UserChatId,
@@ -196,6 +207,8 @@ internal static class TelegramHistoryEntries
             { ShippingQuery: { } query } => entry with { UserId = query.From.Id },
             { PreCheckoutQuery: { } query } => entry with { UserId = query.From.Id },
             { PurchasedPaidMedia: { } purchase } => entry with { UserId = purchase.From.Id },
+            { Subscription: { } subscription } => entry with { UserId = subscription.User.Id },
+            { ManagedBot: { } managed } => entry with { UserId = managed.User.Id },
             _ => entry,
         };
     }

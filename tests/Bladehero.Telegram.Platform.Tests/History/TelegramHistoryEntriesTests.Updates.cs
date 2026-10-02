@@ -537,6 +537,124 @@ public sealed partial class TelegramHistoryEntriesTests
         entries.Should().ContainSingle().Which.Json.Should().Contain("\"text\":\"Кава велика\"");
     }
 
+    [Fact]
+    public void FromUpdate_GuestMessage_ShouldHaveNoChat()
+    {
+        // Arrange
+        var update = Parse(
+            """
+            {"update_id":21,"guest_message":{"message_id":3,"date":1700000000,"text":"A latte, please",
+             "chat":{"id":7000000002,"type":"private","first_name":"Anna"},
+             "from":{"id":7000000002,"is_bot":false,"first_name":"Anna"}}}
+            """
+        );
+
+        // Act
+        var entries = Incoming(update);
+
+        // Assert
+        entries
+            .Should()
+            .ContainSingle()
+            .Which.Should()
+            .BeEquivalentTo(
+                new
+                {
+                    Kind = "guest_message",
+                    ChatId = (long?)null,
+                    MessageId = (int?)null,
+                    UserId = Anna,
+                    Text = "A latte, please",
+                }
+            );
+    }
+
+    [Fact]
+    public void FromUpdate_RemovedChatBoost_ShouldRecordTheBooster()
+    {
+        // Arrange
+        var update = Parse(
+            """
+            {"update_id":22,"removed_chat_boost":{"boost_id":"b1","remove_date":1700000000,
+             "chat":{"id":-1009876543210,"type":"channel","title":"News"},
+             "source":{"source":"premium","user":{"id":7000000001,"is_bot":false,"first_name":"Nick"}}}}
+            """
+        );
+
+        // Act
+        var entries = Incoming(update);
+
+        // Assert
+        entries.Should().ContainSingle().Which.Should().BeEquivalentTo(new { ChatId = Channel, UserId = Nick });
+    }
+
+    [Fact]
+    public void FromUpdate_Subscription_ShouldRecordTheSubscriber()
+    {
+        // Arrange
+        var update = new Update
+        {
+            Id = 23,
+            Subscription = new BotSubscriptionUpdated
+            {
+                User = new User { Id = Nick, FirstName = "Nick" },
+                InvoicePayload = "monthly",
+            },
+        };
+
+        // Act
+        var entries = Incoming(update);
+
+        // Assert
+        entries.Should().ContainSingle().Which.UserId.Should().Be(Nick);
+    }
+
+    [Fact]
+    public void FromUpdate_ManagedBot_ShouldRecordItsOwner()
+    {
+        // Arrange
+        var update = new Update
+        {
+            Id = 24,
+            ManagedBot = new ManagedBotUpdated
+            {
+                User = new User { Id = Nick, FirstName = "Nick" },
+                Bot = new User
+                {
+                    Id = 7000000003,
+                    IsBot = true,
+                    FirstName = "Coffee helper",
+                },
+            },
+        };
+
+        // Act
+        var entries = Incoming(update);
+
+        // Assert
+        entries.Should().ContainSingle().Which.UserId.Should().Be(Nick);
+    }
+
+    [Fact]
+    public void FromUpdate_MessageIdZero_ShouldHaveNoMessageId()
+    {
+        // Arrange
+        var update = Parse(
+            """
+            {"update_id":25,"message_reaction":{"message_id":0,"date":1700000000,
+             "chat":{"id":-1001234567890,"type":"supergroup","title":"Family"},
+             "user":{"id":7000000001,"is_bot":false,"first_name":"Nick"},
+             "old_reaction":[],"new_reaction":[{"type":"emoji","emoji":"👍"}]}}
+            """
+        );
+
+        // Act
+        var entries = Incoming(update);
+
+        // Assert
+        entries.Should().ContainSingle().Which.MessageId.Should().BeNull();
+    }
+
     private static Update Parse(string json) => JsonSerializer.Deserialize<Update>(json, JsonBotAPI.Options)!;
 
     private static IReadOnlyList<TelegramHistoryEntry> Incoming(Update update) =>
