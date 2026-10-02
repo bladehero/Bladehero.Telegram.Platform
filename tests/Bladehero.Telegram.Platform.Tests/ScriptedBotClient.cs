@@ -15,11 +15,15 @@ internal sealed class ScriptedBotClient : ITelegramBotClient
 {
     private readonly Dictionary<string, Queue<object>> _answers = [];
     private readonly List<Call> _calls = [];
+    private readonly List<object> _requests = [];
     private int _nextMessageId = 10;
 
     public IReadOnlyList<Call> Calls => _calls;
 
     public IEnumerable<string> Methods => _calls.Select(x => x.Method);
+
+    // The requests as sent, for what Call leaves out.
+    public IEnumerable<TRequest> Sent<TRequest>() => _requests.OfType<TRequest>();
 
     // The next calls of `method` get these, in order: a result, or an exception to throw.
     public ScriptedBotClient Answer(string method, params object[] answers)
@@ -56,6 +60,7 @@ internal sealed class ScriptedBotClient : ITelegramBotClient
             fields.ContainsKey("reply_markup")
         );
         _calls.Add(call);
+        _requests.Add(request);
 
         if (_answers.TryGetValue(request.MethodName, out var queue) && queue.TryDequeue(out var answer))
         {

@@ -11,16 +11,20 @@ namespace Bladehero.Telegram.Platform;
 /// <remarks>A <c>default</c> <see cref="TelegramMessageRef"/> names no message, and every method refuses it.</remarks>
 public interface ITelegramMessages
 {
-    /// <summary>Sends <paramref name="text"/>, with a keyboard if given, and returns the message.</summary>
+    /// <summary>
+    /// Sends <paramref name="text"/>, with a keyboard or other reply markup if given, and returns the message.
+    /// </summary>
     /// <param name="chatId">The chat to send to.</param>
     /// <param name="text">The message's text.</param>
-    /// <param name="keyboard">The buttons under it, if any.</param>
+    /// <param name="replyMarkup">
+    /// An inline or reply keyboard, a <c>ForceReply</c> or a keyboard removal, if any.
+    /// </param>
     /// <param name="parseMode">How <paramref name="text"/> is formatted; plain unless set.</param>
     /// <param name="token">Cancels the call.</param>
     Task<TelegramMessageRef> SendAsync(
         ChatId chatId,
         string text,
-        InlineKeyboardMarkup? keyboard = null,
+        ReplyMarkup? replyMarkup = null,
         ParseMode parseMode = ParseMode.None,
         CancellationToken token = default
     );

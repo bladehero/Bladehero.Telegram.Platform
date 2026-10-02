@@ -2,6 +2,7 @@ using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot.Exceptions;
+using Telegram.Bot.Requests;
 using Telegram.Bot.Types.ReplyMarkups;
 using static Bladehero.Telegram.Platform.Tests.ScriptedBotClient;
 
@@ -40,6 +41,24 @@ public sealed class TelegramMessagesTests
                 .ContainSingle()
                 .Which.Should()
                 .Be(new Call("sendMessage", Nick, null, null, "You have 50 points.", true));
+        }
+    }
+
+    public static TheoryData<ReplyMarkup> ReplyMarkups =>
+        [new ReplyKeyboardMarkup("Latte", "Cappuccino"), new ForceReplyMarkup(), new ReplyKeyboardRemove()];
+
+    [Theory]
+    [MemberData(nameof(ReplyMarkups))]
+    public async Task SendAsync_WithAReplyKeyboard_ShouldSendIt(ReplyMarkup markup)
+    {
+        // Act
+        var sent = await _sut.SendAsync(Nick, "Which coffee?", markup);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            sent.Should().Be(new TelegramMessageRef(Nick, 10));
+            _telegram.Sent<SendMessageRequest>().Should().ContainSingle().Which.ReplyMarkup.Should().BeSameAs(markup);
         }
     }
 

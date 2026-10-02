@@ -19,12 +19,12 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
     public async Task<TelegramMessageRef> SendAsync(
         ChatId chatId,
         string text,
-        InlineKeyboardMarkup? keyboard = null,
+        ReplyMarkup? replyMarkup = null,
         ParseMode parseMode = ParseMode.None,
         CancellationToken token = default
     ) =>
         TelegramMessageRef.From(
-            await client.SendMessage(chatId, text, parseMode, replyMarkup: keyboard, cancellationToken: token)
+            await client.SendMessage(chatId, text, parseMode, replyMarkup: replyMarkup, cancellationToken: token)
         );
 
     public async Task<TelegramMessageRef> ShowAsync(
