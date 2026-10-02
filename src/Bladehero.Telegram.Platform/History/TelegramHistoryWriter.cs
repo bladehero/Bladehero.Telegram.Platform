@@ -255,11 +255,6 @@ internal sealed class TelegramHistoryWriter(
     // Without the dropping caller's context: the report belongs to no update and mustn't keep one alive.
     private ITimer ReportDropsIn(TimeSpan due)
     {
-        if (ExecutionContext.IsFlowSuppressed())
-        {
-            return _time.CreateTimer(_ => ReportDrops(), null, due, Timeout.InfiniteTimeSpan);
-        }
-
         using (ExecutionContext.SuppressFlow())
         {
             return _time.CreateTimer(_ => ReportDrops(), null, due, Timeout.InfiniteTimeSpan);
