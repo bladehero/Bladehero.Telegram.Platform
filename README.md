@@ -504,6 +504,18 @@ Telegram's rules are built in:
 For a message sent or tapped another way, `TelegramMessageRef.From(message)` or `From(callbackQuery)` gives its
 handle.
 
+Without a stored handle, [history](#history) can find the card by its buttons:
+
+```csharp
+var card = await history.FindLatestWithButtonAsync<Redeem>(chat.Id, x => x.OwnerId == userId, token);
+card = card is { } old ? await messages.ReplaceAsync(old, text, keyboard, token: token)
+                       : await messages.SendAsync(chat.Id, text, keyboard, token: token);
+```
+
+- It reads the chat's latest 500 entries for the newest message still showing a matching button.
+- It needs `KeepJson`, on by default.
+- It's best effort: a missed card just means a fresh one is sent.
+
 ## Errors and the HttpClient
 
 Receiver errors go to `ITelegramErrorHandler`. The default one logs every error: one from an update at Error, a
