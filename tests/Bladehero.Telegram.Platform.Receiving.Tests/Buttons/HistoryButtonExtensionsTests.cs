@@ -4,6 +4,7 @@ using Bladehero.Telegram.Platform.History;
 using Bladehero.Telegram.Platform.Receiving.Buttons;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -139,7 +140,11 @@ public sealed class HistoryButtonExtensionsTests
         var card = await _history.FindLatestWithButtonAsync<RedeemButton>(Chat);
 
         // Assert
-        card.Should().BeNull();
+        using (new AssertionScope())
+        {
+            card.Should().BeNull();
+            _history.Queries.Should().Equal(new TelegramHistoryQuery { ChatId = Chat, Limit = 500 });
+        }
     }
 
     [Fact]
@@ -227,6 +232,9 @@ public sealed class HistoryButtonExtensionsTests
     private sealed class FakeHistory : ITelegramHistory
     {
         private readonly List<TelegramHistoryEntry> _entries = [];
+        private readonly List<TelegramHistoryQuery> _queries = [];
+
+        public IReadOnlyList<TelegramHistoryQuery> Queries => _queries;
 
         public void Add(params TelegramHistoryEntry[] entries) =>
             _entries.AddRange(entries.Select((x, i) => x with { Id = _entries.Count + i + 1 }));
@@ -234,12 +242,15 @@ public sealed class HistoryButtonExtensionsTests
         public Task<IReadOnlyList<TelegramHistoryEntry>> ReadAsync(
             TelegramHistoryQuery query,
             CancellationToken token = default
-        ) =>
-            Task.FromResult<IReadOnlyList<TelegramHistoryEntry>>([
+        )
+        {
+            _queries.Add(query);
+            return Task.FromResult<IReadOnlyList<TelegramHistoryEntry>>([
                 .. _entries
                     .Where(x => x.ChatId == query.ChatId && (query.BeforeId is null || x.Id < query.BeforeId))
                     .TakeLast(query.Limit),
             ]);
+        }
 
         public Task FlushAsync(CancellationToken token = default) => Task.CompletedTask;
     }

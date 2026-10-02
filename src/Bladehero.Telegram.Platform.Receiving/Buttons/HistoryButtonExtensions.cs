@@ -6,8 +6,7 @@ namespace Bladehero.Telegram.Platform.Receiving.Buttons;
 /// <summary>Finds the bot's messages in its history by their buttons.</summary>
 public static class HistoryButtonExtensions
 {
-    private const int PageSize = 100;
-    private const int Pages = 5;
+    private const int Entries = 500;
 
     /// <summary>
     /// The newest message the bot sent to the chat that still shows a <typeparamref name="TButton"/> button (matching
@@ -17,7 +16,7 @@ public static class HistoryButtonExtensions
     /// <param name="history">The bot's history.</param>
     /// <param name="chatId">The chat to look in.</param>
     /// <param name="match">Which buttons count, e.g. only one user's; any when <c>null</c>.</param>
-    /// <param name="token">Cancels the reads.</param>
+    /// <param name="token">Cancels the read.</param>
     /// <exception cref="InvalidOperationException">
     /// The history doesn't keep JSON (<c>KeepJson</c> is off), or <typeparamref name="TButton"/> can't be button data.
     /// </exception>
@@ -34,60 +33,43 @@ public static class HistoryButtonExtensions
         // Fails at once for a type that can't be button data.
         ButtonData.TryDecode<TButton>(null, out _);
 
+        var entries = await history.ReadAsync(new TelegramHistoryQuery { ChatId = chatId, Limit = Entries }, token);
+
         // The newest successful call about a message decides it.
         var decided = new HashSet<int>();
-        long? before = null;
-        for (var pages = 0; pages < Pages; pages++)
+        foreach (var entry in entries.Reverse())
         {
-            var page = await history.ReadAsync(
-                new TelegramHistoryQuery
-                {
-                    ChatId = chatId,
-                    BeforeId = before,
-                    Limit = PageSize,
-                },
-                token
-            );
-            if (page.Count == 0)
+            if (
+                entry is not { Direction: TelegramHistoryDirection.Outgoing, Error: null, MessageId: { } messageId }
+                || decided.Contains(messageId)
+            )
             {
-                break;
+                continue;
             }
 
-            before = page[0].Id;
-            foreach (var entry in page.Reverse())
+            if (entry.Kind is "deleteMessage" or "deleteMessages")
             {
-                if (
-                    entry is not { Direction: TelegramHistoryDirection.Outgoing, Error: null, MessageId: { } messageId }
-                    || decided.Contains(messageId)
-                )
-                {
-                    continue;
-                }
-
-                if (entry.Kind is "deleteMessage" or "deleteMessages")
-                {
-                    decided.Add(messageId);
-                    continue;
-                }
-
-                if (entry.Json is null)
-                {
-                    throw new InvalidOperationException(
-                        "Finding a message by its buttons needs the history's JSON; KeepJson is off."
-                    );
-                }
-
-                // A call that returns no message, such as a reaction, leaves the keyboard as it was.
-                if (JsonNode.Parse(entry.Json)?["result"] is not JsonObject result || !result.ContainsKey("chat"))
-                {
-                    continue;
-                }
-
                 decided.Add(messageId);
-                if (Shows(result, match))
-                {
-                    return new TelegramMessageRef(chatId, messageId);
-                }
+                continue;
+            }
+
+            if (entry.Json is null)
+            {
+                throw new InvalidOperationException(
+                    "Finding a message by its buttons needs the history's JSON; KeepJson is off."
+                );
+            }
+
+            // A call that returns no message, such as a reaction, leaves the keyboard as it was.
+            if (JsonNode.Parse(entry.Json)?["result"] is not JsonObject result || !result.ContainsKey("chat"))
+            {
+                continue;
+            }
+
+            decided.Add(messageId);
+            if (Shows(result, match))
+            {
+                return new TelegramMessageRef(chatId, messageId);
             }
         }
 
