@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -11,7 +12,7 @@ internal sealed class TestDatabase : IAsyncDisposable
 
     private TestDatabase() { }
 
-    public string ConnectionString => $"Data Source={_path};Pooling=False";
+    public string ConnectionString => $"Data Source={_path}";
 
     public static async Task<TestDatabase> CreateAsync()
     {
@@ -31,8 +32,10 @@ internal sealed class TestDatabase : IAsyncDisposable
     public IServiceCollection AddTo(IServiceCollection services) =>
         services.AddDbContext<BudgetContext>(options => options.UseSqlite(ConnectionString));
 
+    // As the README's snippet: pooled connections keep the file open until the pools are cleared.
     public ValueTask DisposeAsync()
     {
+        SqliteConnection.ClearAllPools();
         foreach (var file in new[] { _path, _path + "-wal", _path + "-shm" })
         {
             File.Delete(file);
