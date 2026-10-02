@@ -1,6 +1,7 @@
 using Bladehero.Telegram.Platform.History;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Telegram.Bot;
@@ -251,13 +252,16 @@ public sealed class RecordingBotClientTests
     public async Task Dispose_ShouldDisposeAnInnerClientItBuiltButNotOneItWasGiven()
     {
         // Arrange
-        await using var host = await HistoryHost.StartAsync();
         var built = Disposable();
         var given = Disposable();
+        var withBuilt = ProviderWith(x => x.AddSingleton<ITelegramBotClient>(_ => built.Object));
+        var withGiven = ProviderWith(x => x.AddSingleton(given.Object));
+        withBuilt.GetRequiredService<ITelegramBotClient>();
+        withGiven.GetRequiredService<ITelegramBotClient>();
 
         // Act
-        await new RecordingBotClient(built.Object, host.Writer, ownsInner: true).DisposeAsync();
-        await new RecordingBotClient(given.Object, host.Writer, ownsInner: false).DisposeAsync();
+        await withBuilt.DisposeAsync();
+        await withGiven.DisposeAsync();
 
         // Assert
         using (new AssertionScope())
@@ -270,7 +274,16 @@ public sealed class RecordingBotClientTests
     }
 
     private static RecordingBotClient Recording(HistoryHost host, Mock<ITelegramBotClient> inner) =>
-        new(inner.Object, host.Writer, ownsInner: false);
+        new(inner.Object, host.Writer);
+
+    // The app's client, as `register` adds it, then the history.
+    private static ServiceProvider ProviderWith(Action<IServiceCollection> register)
+    {
+        var services = new ServiceCollection().AddLogging();
+        register(services);
+        services.AddTelegramHistory().Services.AddSingleton(Mock.Of<ITelegramHistoryStore>());
+        return services.BuildServiceProvider();
+    }
 
     private static Mock<ITelegramBotClient> Answering(Message message)
     {

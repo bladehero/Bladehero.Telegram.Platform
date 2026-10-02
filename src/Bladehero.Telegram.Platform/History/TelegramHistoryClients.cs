@@ -44,7 +44,10 @@ internal static class TelegramHistoryClients
                 { ImplementationFactory: { } factory } => ((ITelegramBotClient)factory(provider), true),
                 _ => ((ITelegramBotClient)ActivatorUtilities.CreateInstance(provider, inner.ImplementationType!), true),
             };
-            return new RecordingBotClient(client, provider.GetRequiredService<TelegramHistoryWriter>(), owned);
+            var writer = provider.GetRequiredService<TelegramHistoryWriter>();
+            return owned && client is IDisposable or IAsyncDisposable
+                ? new OwningRecordingBotClient(client, writer)
+                : new RecordingBotClient(client, writer);
         }
     }
 }

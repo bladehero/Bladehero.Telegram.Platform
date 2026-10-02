@@ -8,10 +8,8 @@ using Telegram.Bot.Types;
 namespace Bladehero.Telegram.Platform.History;
 
 // Records every Bot API call with its result or failure; polling's getUpdates and file downloads aren't recorded.
-internal sealed class RecordingBotClient(ITelegramBotClient inner, TelegramHistoryWriter writer, bool ownsInner)
-    : ITelegramBotClient,
-        IDisposable,
-        IAsyncDisposable
+// Not disposable, so the container doesn't keep a transient one alive; see OwningRecordingBotClient.
+internal class RecordingBotClient(ITelegramBotClient inner, TelegramHistoryWriter writer) : ITelegramBotClient
 {
     internal ITelegramBotClient Inner => inner;
 
@@ -58,32 +56,6 @@ internal sealed class RecordingBotClient(ITelegramBotClient inner, TelegramHisto
 
     public Task DownloadFile(TGFile file, Stream destination, CancellationToken cancellationToken = default) =>
         inner.DownloadFile(file, destination, cancellationToken);
-
-    // Only a client built for this wrapper is disposed with it; one the app gave is the app's.
-    public void Dispose()
-    {
-        if (ownsInner)
-        {
-            (inner as IDisposable)?.Dispose();
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (!ownsInner)
-        {
-            return;
-        }
-
-        if (inner is IAsyncDisposable asyncDisposable)
-        {
-            await asyncDisposable.DisposeAsync();
-        }
-        else
-        {
-            (inner as IDisposable)?.Dispose();
-        }
-    }
 
     private async Task<TResponse> RecordAsync<TResponse>(
         IRequest<TResponse> request,
