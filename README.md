@@ -29,7 +29,7 @@ No registration, no routing table: drop the class in a scanned assembly.
   [command menu](#command-menu) · [known users](#known-users) · [buttons with typed data](#buttons-with-typed-data)
 - [Execution](#execution): [priorities](#priorities) · [parallelism](#parallelism) · [scopes](#scopes)
 - [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation)
-- [Sending on your own](#sending-on-your-own)
+- [Sending on your own](#sending-on-your-own): [change messages later](#change-messages-later)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [History](#history): [entries](#whats-in-an-entry) · [ids](#where-ids-come-from) · [read](#read-it-back) ·
   [privacy](#privacy) · [stores](#stores) · [writing](#writing)
@@ -44,7 +44,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 
 | Package | Contents |
 | --- | --- |
-| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramSender`, DI wiring. |
+| [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramSender`, `ITelegramMessages`, DI wiring. |
 | [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
 | [`Bladehero.Telegram.Platform.History.InMemory`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.InMemory/) | [History](#history) kept in memory, per chat. |
@@ -477,6 +477,30 @@ library receives and replies with. To build it differently, e.g. for a local Bot
 - Register it as `ITelegramBotClient`: one registered only as `TelegramBotClient` leaves the library building a second.
 - A client for another bot goes under a key (`AddKeyedSingleton<ITelegramBotClient>("alerts", …)`), or it becomes this
   bot's client.
+
+### Change messages later
+
+`ITelegramMessages` sends the bot's messages and changes them later by `TelegramMessageRef`, a plain value to store,
+e.g. as two columns. `AddTelegramBot` registers it.
+
+```csharp
+var card = await messages.SendAsync(chatId, "Nick, you have 50 points.", keyboard, token: token);   // store it
+card = await messages.ShowAsync(card, "Nick, you have 40 points.", keyboard, token: token);   // edit, or a fresh one
+card = await messages.ReplaceAsync(card, "Nick, you have 40 points.", keyboard, token: token); // fresh at the bottom
+await messages.ClearKeyboardAsync(card, token);   // keep the text, no more taps
+await messages.DeleteAsync(card, token);          // gone, or at least no keyboard
+```
+
+Telegram's rules are built in:
+
+- "Not modified" is success.
+- A message that can't be edited any more is shown in a fresh one. A fresh message is always sent before the old one
+  is removed, so a failed send keeps the card.
+- "Already deleted" is success. After 48 hours Telegram won't delete a message, so its keyboard comes off instead.
+- Inline-mode messages can be shown and cleared, not replaced or deleted.
+
+For a message sent or tapped another way, `TelegramMessageRef.From(message)` or `From(callbackQuery)` gives its
+handle. Keep `ITelegramSender` for one-off sends.
 
 ## Errors and the HttpClient
 
@@ -1421,6 +1445,8 @@ optionally, `Telegram:SecretToken`.
 ### To 10.3
 
 - History is new and off until `AddTelegramHistory`; without it nothing changes.
+- New: `ITelegramMessages` sends, shows, replaces and deletes the bot's messages by a storable `TelegramMessageRef`,
+  with Telegram's edit and delete rules built in; `AddTelegramBot` registers it.
 - `Bladehero.Telegram.Platform.Receiving` now depends on `Bladehero.Telegram.Platform`.
 - With history on, the container's `ITelegramBotClient` is a recording wrapper, not a `TelegramBotClient`: inject the
   interface, don't cast. Register your own client before `AddTelegramHistory`, or startup fails; a test that replaces
