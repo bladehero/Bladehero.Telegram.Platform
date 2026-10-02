@@ -16,6 +16,7 @@ internal sealed class ScriptedBotClient : ITelegramBotClient
     private readonly Dictionary<string, Queue<object>> _answers = [];
     private readonly List<Call> _calls = [];
     private readonly List<object> _requests = [];
+    private readonly Dictionary<string, Action> _onCall = [];
     private int _nextMessageId = 10;
 
     public IReadOnlyList<Call> Calls => _calls;
@@ -45,11 +46,25 @@ internal sealed class ScriptedBotClient : ITelegramBotClient
     public static ApiRequestException Refusal(string description, int code = 400) =>
         new(code == 400 ? $"Bad Request: {description}" : description, code);
 
+    // Runs `action` while Telegram answers each call of `method`, e.g. to cancel the caller.
+    public ScriptedBotClient OnCall(string method, Action action)
+    {
+        _onCall[method] = action;
+        return this;
+    }
+
     public Task<TResponse> SendRequest<TResponse>(
         IRequest<TResponse> request,
         CancellationToken cancellationToken = default
     )
     {
+        // As the real client: a cancelled call never reaches Telegram.
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<TResponse>(cancellationToken);
+        }
+
+        _onCall.GetValueOrDefault(request.MethodName)?.Invoke();
         var fields = JsonSerializer.SerializeToNode(request, request.GetType(), JsonBotAPI.Options)!.AsObject();
         var call = new Call(
             request.MethodName,

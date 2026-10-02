@@ -100,6 +100,7 @@ public sealed class TelegramMessagesTests
     [Theory]
     [InlineData("message to edit not found")]
     [InlineData("MESSAGE_ID_INVALID")]
+    [InlineData("message not found")]
     public async Task ShowAsync_WhenTheMessageIsGone_ShouldSendAFreshOne(string refusal)
     {
         // Arrange
@@ -280,6 +281,24 @@ public sealed class TelegramMessagesTests
     }
 
     [Fact]
+    public async Task ReplaceAsync_CancelledAfterTheFreshSend_ShouldStillRemoveTheOldAndReturnTheFresh()
+    {
+        // Arrange: the caller gives up while Telegram answers the send.
+        using var cancellation = new CancellationTokenSource();
+        _telegram.OnCall("sendMessage", cancellation.Cancel);
+
+        // Act
+        var replaced = await _sut.ReplaceAsync(Card, "You have 40 points.", Keyboard, token: cancellation.Token);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            replaced.Should().Be(new TelegramMessageRef(Nick, 10));
+            _telegram.Methods.Should().Equal("sendMessage", "deleteMessage");
+        }
+    }
+
+    [Fact]
     public async Task ReplaceAsync_WhenTheSendFails_ShouldThrowAndKeepTheOld()
     {
         // Arrange
@@ -314,6 +333,7 @@ public sealed class TelegramMessagesTests
     [InlineData(null)]
     [InlineData("message to delete not found")]
     [InlineData("MESSAGE_ID_INVALID")]
+    [InlineData("message not found")]
     public async Task DeleteAsync_WhenDeletedOrAlreadyGone_ShouldReturnTrue(string? refusal)
     {
         // Arrange
@@ -369,9 +389,31 @@ public sealed class TelegramMessagesTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteAsync_WhenItCanBeNeitherDeletedNorEdited_ShouldReturnFalse(bool inline)
+    {
+        // Arrange
+        _telegram
+            .Answer("deleteMessage", Refusal("message can't be deleted"))
+            .Answer("editMessageReplyMarkup", Refusal("message can't be edited"));
+
+        // Act
+        var deleted = await _sut.DeleteAsync(inline ? Inline : Card);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            deleted.Should().BeFalse();
+            _telegram.Methods.Should().EndWith("editMessageReplyMarkup");
+        }
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData(NotModified)]
     [InlineData("message to edit not found")]
+    [InlineData("message not found")]
     public async Task ClearKeyboardAsync_WhenClearedUnchangedOrGone_ShouldNotThrow(string? refusal)
     {
         // Arrange
@@ -403,6 +445,54 @@ public sealed class TelegramMessagesTests
 
         // Act
         var act = () => _sut.ClearKeyboardAsync(Card);
+
+        // Assert
+        await act.Should().ThrowAsync<ApiRequestException>();
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(null, true)]
+    [InlineData(NotModified, false)]
+    [InlineData(NotModified, true)]
+    [InlineData("message to edit not found", false)]
+    public async Task ShowKeyboardAsync_WhenShownUnchangedOrGone_ShouldNotThrow(string? refusal, bool inline)
+    {
+        // Arrange
+        if (refusal is not null)
+        {
+            _telegram.Answer("editMessageReplyMarkup", Refusal(refusal));
+        }
+
+        // Act
+        var act = () => _sut.ShowKeyboardAsync(inline ? Inline : Card, Keyboard);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            await act.Should().NotThrowAsync();
+            _telegram
+                .Calls.Should()
+                .ContainSingle()
+                .Which.Should()
+                .Be(
+                    inline
+                        ? new Call("editMessageReplyMarkup", null, null, "AAAAinline", null, true)
+                        : new Call("editMessageReplyMarkup", Nick, 5, null, null, true)
+                );
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ShowKeyboardAsync_WhenItCantBeEdited_ShouldThrow(bool inline)
+    {
+        // Arrange
+        _telegram.Answer("editMessageReplyMarkup", Refusal("message can't be edited"));
+
+        // Act
+        var act = () => _sut.ShowKeyboardAsync(inline ? Inline : Card, Keyboard);
 
         // Assert
         await act.Should().ThrowAsync<ApiRequestException>();

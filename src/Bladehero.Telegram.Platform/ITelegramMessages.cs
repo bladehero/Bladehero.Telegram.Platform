@@ -65,12 +65,22 @@ public interface ITelegramMessages
     );
 
     /// <summary>
-    /// Deletes the message, or takes its keyboard off when Telegram won't delete it (after 48 hours, or inline); true
-    /// when it's gone.
+    /// Deletes the message, or takes its keyboard off when Telegram won't delete it (after 48 hours, or inline) and it
+    /// can be edited; true when it's gone, false when it stays.
     /// </summary>
     /// <param name="message">The message to delete.</param>
     /// <param name="token">Cancels the call.</param>
     Task<bool> DeleteAsync(TelegramMessageRef message, CancellationToken token = default);
+
+    /// <summary>Shows <paramref name="keyboard"/> on the message and keeps its text; one that's gone is fine.</summary>
+    /// <param name="message">The message to show it on.</param>
+    /// <param name="keyboard">The buttons to show; none when <c>null</c>.</param>
+    /// <param name="token">Cancels the call.</param>
+    Task ShowKeyboardAsync(
+        TelegramMessageRef message,
+        InlineKeyboardMarkup? keyboard,
+        CancellationToken token = default
+    );
 
     /// <summary>Takes the message's keyboard off and keeps its text; one without a keyboard, or gone, is fine.</summary>
     /// <param name="message">The message to take the keyboard off.</param>

@@ -108,7 +108,9 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
         }
 
         var fresh = await SendAsync(message.ChatId, text, keyboard, parseMode, token);
-        await RemoveAsync(message, token);
+
+        // The fresh one is sent, so the caller's cancellation mustn't strand it without a handle.
+        await RemoveAsync(message, CancellationToken.None);
         return fresh;
     }
 
@@ -118,7 +120,7 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
         if (message.InlineMessageId is not null)
         {
             // The Bot API can't delete inline-mode messages.
-            await ClearKeyboardAsync(message, token);
+            await ClearKeyboardIfEditableAsync(message, token);
             return false;
         }
 
@@ -134,31 +136,48 @@ internal sealed class TelegramMessages(ITelegramBotClient client, ILogger<Telegr
         catch (ApiRequestException error) when (IsUndeletable(error))
         {
             // After 48 hours, or without the right: at least no stale buttons stay tappable.
-            await ClearKeyboardAsync(message, token);
+            await ClearKeyboardIfEditableAsync(message, token);
             return false;
         }
     }
 
-    public async Task ClearKeyboardAsync(TelegramMessageRef message, CancellationToken token = default)
+    public async Task ShowKeyboardAsync(
+        TelegramMessageRef message,
+        InlineKeyboardMarkup? keyboard,
+        CancellationToken token = default
+    )
     {
         Guard(message);
         try
         {
             if (message.InlineMessageId is { } inlineMessageId)
             {
-                await client.EditMessageReplyMarkup(inlineMessageId, replyMarkup: null, cancellationToken: token);
+                await client.EditMessageReplyMarkup(inlineMessageId, replyMarkup: keyboard, cancellationToken: token);
             }
             else
             {
                 await client.EditMessageReplyMarkup(
                     message.ChatId,
                     message.MessageId,
-                    replyMarkup: null,
+                    replyMarkup: keyboard,
                     cancellationToken: token
                 );
             }
         }
         catch (ApiRequestException error) when (IsNotModified(error) || IsGoneForEdit(error)) { }
+    }
+
+    public Task ClearKeyboardAsync(TelegramMessageRef message, CancellationToken token = default) =>
+        ShowKeyboardAsync(message, null, token);
+
+    // A message the bot can't edit, such as a user's, keeps what it shows.
+    private async Task ClearKeyboardIfEditableAsync(TelegramMessageRef message, CancellationToken token)
+    {
+        try
+        {
+            await ClearKeyboardAsync(message, token);
+        }
+        catch (ApiRequestException error) when (IsUneditable(error)) { }
     }
 
     // Best effort: a fresh one already shows it, so a failure here is only worth a warning.
