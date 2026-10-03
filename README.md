@@ -476,9 +476,12 @@ services.AddTelegramConversations().UseEntityFrameworkCore<BudgetContext>();
 - It keeps the run id, so [bound buttons](#buttons-bound-to-a-conversation) keep working after a restart.
 - A failed save fails the update, so the error handler sees it, rather than the user silently staying at the old step.
 - `MapTelegramConversations(tableName, schema)` picks the table, `TelegramConversations` by default.
-- Startup fails when the context isn't registered or doesn't map the conversations. A missing migration fails the first
-  update that saves a conversation.
+- Startup fails when the context isn't registered or doesn't map the conversations.
+- Apply the migration before the host starts, e.g. before `app.Run()`: once any step is registered, every update from a
+  user in a chat reads the store, so a missing table fails the first one.
 - Any relational provider works; it needs EF Core 10.0.10 or later.
+- On SQLite, change the conversation after committing your own write transaction, not inside it: the store writes
+  through a connection of its own, which waits for your commit and fails once the command times out.
 
 ## Sending on your own
 
