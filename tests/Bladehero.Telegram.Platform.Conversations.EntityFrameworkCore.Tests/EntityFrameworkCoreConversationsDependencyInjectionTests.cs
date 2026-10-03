@@ -77,6 +77,33 @@ public sealed class EntityFrameworkCoreConversationsDependencyInjectionTests
             .WithMessage("BudgetContext isn't registered; add it with AddDbContext<BudgetContext>().");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Start_AfterPickingAnotherContext_ShouldCheckOnlyThatOne(bool registerTheFirst)
+    {
+        // Arrange: the first context fails a check, unmapped or unregistered.
+        var builder = Host.CreateEmptyApplicationBuilder(new());
+        if (registerTheFirst)
+        {
+            builder.Services.AddDbContext<UnmappedContext>(options => options.UseSqlite("Data Source=unused.db"));
+        }
+
+        builder.Services.AddDbContext<BudgetContext>(options => options.UseSqlite("Data Source=unused.db"));
+        builder
+            .Services.AddTelegramConversations()
+            .UseEntityFrameworkCore<UnmappedContext>()
+            .UseEntityFrameworkCore<BudgetContext>();
+        using var host = builder.Build();
+
+        // Act
+        var act = () => host.StartAsync();
+
+        // Assert
+        await act.Should().NotThrowAsync();
+        await host.StopAsync();
+    }
+
     // A context that forgot MapTelegramConversations.
     private sealed class UnmappedContext(DbContextOptions<UnmappedContext> options) : DbContext(options)
     {

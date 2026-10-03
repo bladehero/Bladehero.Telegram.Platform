@@ -36,14 +36,14 @@ public static class EntityFrameworkCoreConversationsDependencyInjection
             )
         );
 
-        // Checked at start only, in a scope of its own.
+        // Checked at start only, in a scope of its own, while this context's store is the one in use.
         if (!services.Any(x => x.ServiceType == typeof(IValidateOptions<ContextCheck<TContext>>)))
         {
             var name = typeof(TContext).Name;
             services
                 .AddOptions<ContextCheck<TContext>>()
-                .Validate<IServiceProviderIsService>(
-                    (_, registered) => registered.IsService(typeof(TContext)),
+                .Validate<IServiceProviderIsService, IServiceScopeFactory>(
+                    (_, registered, scopes) => registered.IsService(typeof(TContext)) || !InUse<TContext>(scopes),
                     $"{name} isn't registered; add it with AddDbContext<{name}>()."
                 )
                 .Validate<IServiceScopeFactory>(
@@ -63,7 +63,16 @@ public static class EntityFrameworkCoreConversationsDependencyInjection
     {
         using var scope = scopes.CreateScope();
         return scope.ServiceProvider.GetService<TContext>() is not { } context
-            || context.Model.FindEntityType(typeof(StoredConversation)) is not null;
+            || context.Model.FindEntityType(typeof(StoredConversation)) is not null
+            || !InUse<TContext>(scopes);
+    }
+
+    // A later registration replaces the store, and so its checks. In a scope, as an app's own store may be scoped.
+    private static bool InUse<TContext>(IServiceScopeFactory scopes)
+        where TContext : DbContext
+    {
+        using var scope = scopes.CreateScope();
+        return scope.ServiceProvider.GetService<IConversationStore>() is EntityFrameworkCoreConversationStore<TContext>;
     }
 
     // Carries the startup checks of TContext.
