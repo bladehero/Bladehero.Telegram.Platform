@@ -28,7 +28,8 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Commands](#commands): [typed](#typed-commands) · [raw](#raw-commands) · [slash commands](#slash-commands) ·
   [command menu](#command-menu) · [known users](#known-users) · [buttons with typed data](#buttons-with-typed-data)
 - [Execution](#execution): [priorities](#priorities) · [parallelism](#parallelism) · [scopes](#scopes)
-- [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation)
+- [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation) ·
+  [in a database](#keep-conversations-in-a-database)
 - [Sending on your own](#sending-on-your-own): [change messages later](#change-messages-later)
 - [Errors and the HttpClient](#errors-and-the-httpclient)
 - [History](#history): [entries](#whats-in-an-entry) · [ids](#where-ids-come-from) · [read](#read-it-back) ·
@@ -49,13 +50,15 @@ No registration, no routing table: drop the class in a scanned assembly.
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
 | [`Bladehero.Telegram.Platform.History.InMemory`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.InMemory/) | [History](#history) kept in memory, per chat. |
 | [`Bladehero.Telegram.Platform.History.EntityFrameworkCore`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.EntityFrameworkCore/) | [History](#history) in your database through EF Core. |
+| [`Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore/) | [Conversations](#conversations) in your database through EF Core. |
 | [`Bladehero.Telegram.Platform.Testing`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Testing/) | [Component tests](#component-tests) against an in-memory Telegram. |
 
 ```sh
-dotnet add package Bladehero.Telegram.Platform.Receiving.Background           # pulls in the other runtime packages
-dotnet add package Bladehero.Telegram.Platform.History.InMemory               # history kept in memory
-dotnet add package Bladehero.Telegram.Platform.History.EntityFrameworkCore    # history in your database
-dotnet add package Bladehero.Telegram.Platform.Testing                        # test projects
+dotnet add package Bladehero.Telegram.Platform.Receiving.Background               # pulls in the other runtime packages
+dotnet add package Bladehero.Telegram.Platform.History.InMemory                   # history kept in memory
+dotnet add package Bladehero.Telegram.Platform.History.EntityFrameworkCore        # history in your database
+dotnet add package Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore  # conversations in your database
+dotnet add package Bladehero.Telegram.Platform.Testing                            # test projects
 ```
 
 ## Quick start
@@ -413,8 +416,9 @@ public sealed class SignupNameStep(IConversation conversation, IUserRepository u
   `GetDataAsync<T>()`, all as JSON.
 - **Per user per chat:** each group member has their own conversation.
 - A change routes the **next** update, not the current one.
-- **Storage:** in memory by default, and untouched by bots without steps. Register an `IConversationStore` to persist
-  conversations, or use it to start one from a background job:
+- **Storage:** in memory by default and lost on restart; untouched by bots without steps. To keep conversations in
+  your database, see [below](#keep-conversations-in-a-database), or register an `IConversationStore` of your own. Use
+  the store to start one from a background job:
 
 ```csharp
 await store.SaveAsync(new ConversationKey(chatId, userId), new ConversationState("import", "describe"), token);
@@ -439,15 +443,42 @@ await conversation.MoveToAsync("size", order with { CardId = card.Id }, token);
   the run takes, "That button is no longer active." Nothing is edited; an `IButtonRefusalHandler` answers differently.
 - A typed button handled by a step must be bound: an unbound one never reaches the step, and a warning says so.
 - Bind the buttons of one run of a flow; pagers, lasting notices and buttons for someone else's chat stay unbound.
-- An app with its own conversation store binds nothing: it checks its card id in `CheckAsync` and refuses a stale one
-  with `ButtonCheck.Reject(…)`.
+- An app whose own store can't keep `ConversationState.Id` binds nothing: it checks its card id in `CheckAsync` and
+  refuses a stale one with `ButtonCheck.Reject(…)`.
 - **Persistence:** a store must keep `ConversationState.Id`, or bound buttons stop working after a reload. The
-  in-memory store loses it on restart, so old buttons become "no longer active".
+  in-memory store loses it on restart, so old buttons become "no longer active"; the
+  [EF Core store](#keep-conversations-in-a-database) keeps it.
 - **Background jobs:** save `new ConversationState(flow, step, data) { Id = ConversationState.NewId() }` and bind with
   `new ConversationBinding(userId, id)`.
 - **Concurrency:** within one process, bound taps on one conversation run one after another, e.g. concurrent webhook
   requests; several app instances still race.
 - A custom `ITelegramCommandExecutor` makes none of these checks.
+
+### Keep conversations in a database
+
+From `Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore`: map the conversations into your own context, add a
+migration, and pick the store:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.MapTelegramConversations();
+```
+
+```sh
+dotnet ef migrations add AddTelegramConversations
+```
+
+```csharp
+services.AddTelegramConversations().UseEntityFrameworkCore<BudgetContext>();
+```
+
+- It writes through a context instance of its own, so it never mixes with the app's changes. `AddDbContext`, a factory
+  and a pool all work.
+- It keeps the run id, so [bound buttons](#buttons-bound-to-a-conversation) keep working after a restart.
+- A failed save fails the update, so the error handler sees it, rather than the user silently staying at the old step.
+- `MapTelegramConversations(tableName, schema)` picks the table, `TelegramConversations` by default.
+- Startup fails when the context isn't registered or doesn't map the conversations. A missing migration fails the first
+  update that saves a conversation.
+- Any relational provider works; it needs EF Core 10.0.10 or later.
 
 ## Sending on your own
 
@@ -1488,6 +1519,11 @@ optionally, `Telegram:SecretToken`.
 - With history on, the bot's client is built at startup, so a malformed token fails the start.
 - In component tests with history, each action also waits for the bot's calls in flight and until the history is
   written.
+
+### To 10.4
+
+- New: `Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore` keeps conversations in your database.
+- `AddTelegramConversations()` is public and returns a builder to pick the store; the receiving setups still call it.
 
 ## License
 
