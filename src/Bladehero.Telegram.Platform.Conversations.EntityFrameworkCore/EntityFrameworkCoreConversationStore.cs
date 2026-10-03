@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Bladehero.Telegram.Platform.Receiving.Conversations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,10 +26,10 @@ internal sealed class EntityFrameworkCoreConversationStore<TContext>(IServiceSco
     {
         ArgumentNullException.ThrowIfNull(state);
 
-        // Another first save of this key may add the row in between; a fresh scope then finds it and updates it.
-        if (!await TrySaveAsync(key, state, retrying: false, token))
+        // Another save may add the row, or a removal delete it, in between; a fresh scope then finds it as it now stands.
+        if (await TrySaveAsync(key, state, race: null, token) is { } race)
         {
-            await TrySaveAsync(key, state, retrying: true, token);
+            await TrySaveAsync(key, state, race, token);
         }
     }
 
@@ -52,11 +53,11 @@ internal sealed class EntityFrameworkCoreConversationStore<TContext>(IServiceSco
         }
     }
 
-    // False when adding the row failed the first time, so the caller retries.
-    private async Task<bool> TrySaveAsync(
+    // Null once saved; otherwise how the first try may have met another save or a removal, for the retry.
+    private async Task<Race?> TrySaveAsync(
         ConversationKey key,
         ConversationState state,
-        bool retrying,
+        Race? race,
         CancellationToken token
     )
     {
@@ -64,6 +65,12 @@ internal sealed class EntityFrameworkCoreConversationStore<TContext>(IServiceSco
         var context = ContextOf(scope);
         var stored = await FindAsync(context, key, token);
         var adding = stored is null;
+        if (adding && race is { Adding: true } failedAdd)
+        {
+            // Still no row: the add met no other save, so its own error stands.
+            ExceptionDispatchInfo.Throw(failedAdd.Error);
+        }
+
         if (stored is null)
         {
             stored = new StoredConversation { ChatId = key.ChatId, UserId = key.UserId };
@@ -81,11 +88,11 @@ internal sealed class EntityFrameworkCoreConversationStore<TContext>(IServiceSco
         try
         {
             await context.SaveChangesAsync(token);
-            return true;
+            return null;
         }
-        catch (DbUpdateException) when (adding && !retrying)
+        catch (DbUpdateException exception) when (race is null && (adding || exception is DbUpdateConcurrencyException))
         {
-            return false;
+            return new Race(exception, adding);
         }
     }
 
@@ -103,4 +110,7 @@ internal sealed class EntityFrameworkCoreConversationStore<TContext>(IServiceSco
         var (chatId, userId) = key;
         return context.Set<StoredConversation>().Where(x => x.ChatId == chatId && x.UserId == userId);
     }
+
+    // A first try's failure, and whether it was adding the row or updating it.
+    private readonly record struct Race(DbUpdateException Error, bool Adding);
 }

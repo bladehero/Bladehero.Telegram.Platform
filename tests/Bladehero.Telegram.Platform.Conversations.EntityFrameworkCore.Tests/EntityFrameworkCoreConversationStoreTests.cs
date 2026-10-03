@@ -205,6 +205,46 @@ public sealed class EntityFrameworkCoreConversationStoreTests
     }
 
     [Fact]
+    public async Task SaveAsync_WhenTheRowIsRemovedMeanwhile_ShouldAddItAgain()
+    {
+        // Arrange
+        await using var database = await TestDatabase.CreateAsync();
+        var removal = new RemovalBeforeTheUpdate(database);
+        await using var provider = Provider(database, configure: x => x.AddInterceptors(removal));
+        var sut = StoreOf(provider);
+        await sut.SaveAsync(Nick, Size, CancellationToken.None);
+
+        // Act
+        await sut.SaveAsync(Nick, Size with { Step = "name" }, CancellationToken.None);
+
+        // Assert
+        var rows = await RowsAsync(database);
+        using (new AssertionScope())
+        {
+            removal.Removals.Should().Be(1);
+            rows.Should().ContainSingle().Which.Step.Should().Be("name");
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsync_WhenAnAddFailsWithoutAnotherSave_ShouldThrowItsErrorAtOnce()
+    {
+        // Arrange: a missing flow fails the add on its NOT NULL constraint.
+        await using var database = await TestDatabase.CreateAsync();
+        var failures = new FailedSaves();
+        await using var provider = Provider(database, configure: x => x.AddInterceptors(failures));
+        var sut = StoreOf(provider);
+
+        // Act
+        var error = await Record.ExceptionAsync(() =>
+            sut.SaveAsync(Nick, Size with { Flow = null! }, CancellationToken.None)
+        );
+
+        // Assert: no second add was tried.
+        failures.Errors.Should().ContainSingle().Which.Should().BeOfType<DbUpdateException>().And.BeSameAs(error);
+    }
+
+    [Fact]
     public async Task RemoveAsync_ShouldRemoveIt()
     {
         // Arrange
@@ -296,6 +336,45 @@ public sealed class EntityFrameworkCoreConversationStoreTests
 
             await _bothReady.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
             return result;
+        }
+    }
+
+    // Deletes the row as its first update is about to be saved, as a removal in between would.
+    private sealed class RemovalBeforeTheUpdate(TestDatabase database) : SaveChangesInterceptor
+    {
+        private int _removals;
+
+        public int Removals => _removals;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default
+        )
+        {
+            var entry = eventData.Context!.ChangeTracker.Entries<StoredConversation>().Single();
+            if (entry.State == EntityState.Modified && Interlocked.Increment(ref _removals) == 1)
+            {
+                await using var other = database.NewContext();
+                await other.Set<StoredConversation>().ExecuteDeleteAsync(cancellationToken);
+            }
+
+            return result;
+        }
+    }
+
+    // Records why each save failed.
+    private sealed class FailedSaves : SaveChangesInterceptor
+    {
+        public ConcurrentQueue<Exception> Errors { get; } = new();
+
+        public override Task SaveChangesFailedAsync(
+            DbContextErrorEventData eventData,
+            CancellationToken cancellationToken = default
+        )
+        {
+            Errors.Enqueue(eventData.Exception);
+            return Task.CompletedTask;
         }
     }
 
