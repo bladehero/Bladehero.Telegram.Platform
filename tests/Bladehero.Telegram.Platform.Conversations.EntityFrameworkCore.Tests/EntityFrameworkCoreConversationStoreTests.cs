@@ -90,6 +90,27 @@ public sealed class EntityFrameworkCoreConversationStoreTests
     }
 
     [Fact]
+    public async Task SaveAsync_AgainWhenTheAppsContextDoesNotDetectChanges_ShouldReplaceIt()
+    {
+        // Arrange
+        await using var database = await TestDatabase.CreateAsync();
+        var services = new ServiceCollection().AddDbContext<ManualContext>(x => x.UseSqlite(database.ConnectionString));
+        services.AddTelegramConversations().UseEntityFrameworkCore<ManualContext>();
+        await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        var sut = StoreOf(provider);
+        await sut.SaveAsync(Nick, Size, CancellationToken.None);
+        var name = Size with { Step = "name", Id = "m4p7q1zc" };
+
+        // Act
+        await sut.SaveAsync(Nick, name, CancellationToken.None);
+
+        // Assert
+        (await sut.GetAsync(Nick, CancellationToken.None))
+            .Should()
+            .Be(name);
+    }
+
+    [Fact]
     public async Task SaveAsync_ShouldStampUpdatedAtFromTheAppsClock()
     {
         // Arrange
@@ -276,5 +297,14 @@ public sealed class EntityFrameworkCoreConversationStoreTests
             await _bothReady.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
             return result;
         }
+    }
+
+    // An app's context that detects changes only when told to, on the migrated database.
+    private sealed class ManualContext : DbContext
+    {
+        public ManualContext(DbContextOptions<ManualContext> options)
+            : base(options) => ChangeTracker.AutoDetectChangesEnabled = false;
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.MapTelegramConversations();
     }
 }

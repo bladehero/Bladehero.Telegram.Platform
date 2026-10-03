@@ -75,6 +75,9 @@ internal sealed class EntityFrameworkCoreConversationStore<TContext>(IServiceSco
         stored.Data = state.Data;
         stored.RunId = state.Id;
         stored.UpdatedAt = _clock.GetUtcNow();
+
+        // Even when the app's context doesn't detect changes on its own.
+        context.ChangeTracker.DetectChanges();
         try
         {
             await context.SaveChangesAsync(token);
