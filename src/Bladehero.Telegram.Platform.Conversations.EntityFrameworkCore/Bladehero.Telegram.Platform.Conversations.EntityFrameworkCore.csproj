@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore</PackageId>
+    <Title>Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore</Title>
+    <Description>An Entity Framework Core store for the conversations of Telegram bots built on Bladehero.Telegram.Platform: each user's flow, step, data and run kept in the app's own database, written apart from its unit of work.</Description>
+    <PackageTags>telegram;telegram-bot;bot;conversations;entity-framework-core;efcore</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bladehero.Telegram.Platform.Receiving\Bladehero.Telegram.Platform.Receiving.csproj" />
+  </ItemGroup>
+</Project>
