@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Receiving.Background.Tests;
 
@@ -217,6 +218,70 @@ public sealed class LongPollingRegistrationTests
         var client = provider.GetRequiredService<ITelegramBotClient>();
 
         Assert.Equal(7654321, client.BotId);
+    }
+
+    [Fact]
+    public void TheLockIsOffUnlessTheAppTurnsItOn()
+    {
+        var webhookServices = new ServiceCollection();
+        webhookServices.AddLogging();
+        webhookServices.AddSingleton(new ScopeLog());
+        webhookServices.AddScoped<ScopedDependency>();
+        webhookServices.AddTelegramWebhookReceiving(
+            configuration =>
+            {
+                configuration.Token = Token;
+                configuration.BaseUrl = "https://bot.example.com";
+                configuration.UpdateEndpoint = "telegram/updates";
+            },
+            typeof(ProbeCommand).Assembly
+        );
+
+        using var polling = Build(FromConfiguration());
+        using var webhook = Build(webhookServices);
+
+        Assert.Null(polling.GetService<ITelegramLock>());
+        Assert.Null(webhook.GetService<ITelegramLock>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PolledUpdatesHoldTheLockWhetherItIsTurnedOnBeforeOrAfterPolling(bool turnedOnFirst)
+    {
+        var services = new ServiceCollection();
+        if (turnedOnFirst)
+        {
+            services.AddTelegramLock();
+        }
+
+        services.AddLogging();
+        services.AddSingleton(new ScopeLog());
+        services.AddScoped<ScopedDependency>();
+        services.AddSingleton<ITelegramBotClient>(new FakeBotClient());
+        services.AddTelegramLongPollingReceiving(
+            configuration => configuration.Token = Token,
+            typeof(ProbeCommand).Assembly
+        );
+
+        if (!turnedOnFirst)
+        {
+            services.AddTelegramLock();
+        }
+
+        await using var provider = Build(services);
+        var telegramLock = provider.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+
+        var update = provider
+            .GetRequiredService<ScopedUpdateHandler>()
+            .HandleUpdateAsync(new FakeBotClient(), new Update { Id = 1 }, CancellationToken.None);
+        var waiting = telegramLock.WaitingCount;
+        release.SetResult();
+        await Task.WhenAll(work, update).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, waiting);
     }
 
     private static IServiceCollection FromConfiguration()

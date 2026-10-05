@@ -18,6 +18,9 @@ namespace Bladehero.Telegram.Platform.Receiving.Tests;
 
 public sealed class ReceivingUpdateHandlerTests
 {
+    // Only bounds a failing test's wait; not a sleep.
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
+
     [Fact]
     public async Task HandleUpdateAsync_ShouldLogWithinAScopeCarryingTheUpdateId()
     {
@@ -192,9 +195,129 @@ public sealed class ReceivingUpdateHandlerTests
         executor.Verify(x => x.ExecuteAsync(It.IsAny<CommandRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task HandleUpdateAsync_WithTheLock_ShouldHoldItUntilTheUpdateIsHandled()
+    {
+        // Arrange
+        await using var provider = LockProvider();
+        var telegramLock = provider.GetRequiredService<TelegramLock>();
+        var release = Gate();
+        var executor = new Mock<ITelegramCommandExecutor>();
+        executor
+            .Setup(x => x.ExecuteAsync(It.IsAny<CommandRequest>(), It.IsAny<CancellationToken>()))
+            .Returns(release.Task);
+        var sut = Handler(executor.Object, telegramLock: telegramLock);
+        var handling = sut.HandleUpdateAsync(Mock.Of<ITelegramBotClient>(), Coffee(), CancellationToken.None);
+        var workRan = false;
+
+        // Act
+        var work = telegramLock.RunAsync(
+            (_, _) =>
+            {
+                workRan = true;
+                return Task.CompletedTask;
+            }
+        );
+        var waitedForTheUpdate = telegramLock.WaitingCount == 1 && !workRan;
+        release.SetResult();
+        await Task.WhenAll(handling, work).WaitAsync(Patience);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            waitedForTheUpdate.Should().BeTrue();
+            workRan.Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public async Task HandleUpdateAsync_WhileWorkHoldsTheLock_ShouldWaitBeforeRecordingOrRunningAnything()
+    {
+        // Arrange
+        var store = new ListStore();
+        await using var history = await StartedHistoryAsync(store);
+        await using var provider = LockProvider();
+        var telegramLock = provider.GetRequiredService<TelegramLock>();
+        var executor = new Mock<ITelegramCommandExecutor>();
+        var sut = Handler(executor.Object, history.Writer, telegramLock);
+        var release = Gate();
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+        var handling = sut.HandleUpdateAsync(Mock.Of<ITelegramBotClient>(), Coffee(), CancellationToken.None);
+        await history.Writer.FlushAsync(CancellationToken.None);
+        var whileWaiting = (
+            Waiting: telegramLock.WaitingCount,
+            Recorded: store.Entries.Count,
+            Executed: executor.Invocations.Count
+        );
+
+        // Act
+        release.SetResult();
+        await Task.WhenAll(work, handling).WaitAsync(Patience);
+        await history.Writer.FlushAsync(CancellationToken.None);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            whileWaiting.Should().Be((1, 0, 0));
+            store.Entries.Should().ContainSingle();
+            executor.Invocations.Should().ContainSingle();
+        }
+    }
+
+    [Fact]
+    public async Task HandleUpdateAsync_WhenACommandCallsRunAsync_ShouldFailWithTheReentryErrorAndRelease()
+    {
+        // Arrange
+        await using var provider = LockProvider();
+        var telegramLock = provider.GetRequiredService<TelegramLock>();
+        var executor = new Mock<ITelegramCommandExecutor>();
+        executor
+            .Setup(x => x.ExecuteAsync(It.IsAny<CommandRequest>(), It.IsAny<CancellationToken>()))
+            .Returns(
+                (CommandRequest _, CancellationToken token) =>
+                    telegramLock.RunAsync((_, _) => Task.CompletedTask, token)
+            );
+        var sut = Handler(executor.Object, telegramLock: telegramLock);
+
+        // Act
+        var act = () =>
+            sut.HandleUpdateAsync(Mock.Of<ITelegramBotClient>(), Coffee(), CancellationToken.None).WaitAsync(Patience);
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("This code already runs under the Telegram lock*ExecutionContext.SuppressFlow().");
+        telegramLock.IsHeld.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task HandleUpdateAsync_WithoutTheLock_ShouldHandleUpdatesAtOnce()
+    {
+        // Arrange
+        var release = Gate();
+        var executor = new Mock<ITelegramCommandExecutor>();
+        executor
+            .SetupSequence(x => x.ExecuteAsync(It.IsAny<CommandRequest>(), It.IsAny<CancellationToken>()))
+            .Returns(release.Task)
+            .Returns(Task.CompletedTask);
+        var sut = Handler(executor.Object);
+        var first = sut.HandleUpdateAsync(Mock.Of<ITelegramBotClient>(), Coffee(), CancellationToken.None);
+
+        // Act
+        await sut.HandleUpdateAsync(Mock.Of<ITelegramBotClient>(), Coffee(), CancellationToken.None)
+            .WaitAsync(Patience);
+        var firstStillRunning = !first.IsCompleted;
+        release.SetResult();
+        await first.WaitAsync(Patience);
+
+        // Assert
+        firstStillRunning.Should().BeTrue();
+    }
+
     private static ReceivingUpdateHandler Handler(
         ITelegramCommandExecutor executor,
-        TelegramHistoryWriter? history = null
+        TelegramHistoryWriter? history = null,
+        TelegramLock? telegramLock = null
     ) =>
         new(
             executor,
@@ -202,8 +325,13 @@ public sealed class ReceivingUpdateHandlerTests
             new Conversation(new InMemoryConversationStore()),
             Mock.Of<ITelegramBotIdentity>(),
             NullLogger<ReceivingUpdateHandler>.Instance,
-            history
+            history,
+            telegramLock
         );
+
+    private static ServiceProvider LockProvider() => new ServiceCollection().AddTelegramLock().BuildServiceProvider();
+
+    private static TaskCompletionSource Gate() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     // A running history writer over the store; disposing it stops the writer.
     private static async Task<StartedHistory> StartedHistoryAsync(ITelegramHistoryStore store)

@@ -5,6 +5,7 @@ using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -86,6 +87,185 @@ public sealed class WebhookEndpointTests
         Assert.Equal("Sorry", linked[1].Text);
     }
 
+    [Fact]
+    public async Task WithTheLockAnUpdatePostedWhileAnotherIsHandledWaitsForIt()
+    {
+        var log = new ScopeLog();
+        var first = log.Gates[1] = new UpdateGate();
+        await using var app = await StartAsync(log, new LogRecorder(), services => services.AddTelegramLock());
+        var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
+        using var client = app.GetTestClient();
+        var firstResponse = client.PostAsync("/telegram/updates", Numbered(1));
+        await first.Reached.WaitAsync(Patience);
+
+        var secondResponse = client.PostAsync("/telegram/updates", Numbered(2));
+        await telegramLock.WaitForWaitersAsync(1);
+        var askedWhileTheFirstWasHandled = log.CommandInstances.Count;
+        first.Open();
+        var responses = await Task.WhenAll(firstResponse, secondResponse).WaitAsync(Patience);
+
+        Assert.Equal(1, askedWhileTheFirstWasHandled);
+        Assert.Equal(2, log.SeenByUpdates.Count);
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+    }
+
+    [Fact]
+    public async Task WithoutTheLockUpdatesPostedAtOnceAreHandledAtOnce()
+    {
+        var log = new ScopeLog();
+        var first = log.Gates[1] = new UpdateGate();
+        await using var app = await StartAsync(log, new LogRecorder());
+        using var client = app.GetTestClient();
+        var firstResponse = client.PostAsync("/telegram/updates", Numbered(1));
+        await first.Reached.WaitAsync(Patience);
+
+        using var second = await client.PostAsync("/telegram/updates", Numbered(2)).WaitAsync(Patience);
+        var firstStillHandled = !firstResponse.IsCompleted;
+        first.Open();
+        using var firstDone = await firstResponse.WaitAsync(Patience);
+
+        Assert.True(firstStillHandled);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Null(app.Services.GetService<ITelegramLock>());
+    }
+
+    [Fact]
+    public async Task WithTheLockAnUpdateWhoseRequestIsCancelledWhileItWaitsGets503AndIsNotHandled()
+    {
+        var log = new ScopeLog();
+        var logs = new LogRecorder();
+        using var cancelRequest = new CancellationTokenSource();
+        await using var app = await StartAsync(
+            log,
+            logs,
+            services => services.AddTelegramLock(),
+            RequestsCancelledBy(cancelRequest)
+        );
+        var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+        using var client = app.GetTestClient();
+        var response = client.PostAsync("/telegram/updates", Numbered(1));
+        await telegramLock.WaitForWaitersAsync(1);
+
+        await cancelRequest.CancelAsync();
+        using var answered = await response.WaitAsync(Patience);
+        release.SetResult();
+        await work;
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, answered.StatusCode);
+        Assert.Empty(log.CommandInstances);
+        Assert.Empty(log.SeenByErrors);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Error);
+        Assert.Equal(0, telegramLock.WaitingCount);
+    }
+
+    [Fact]
+    public async Task WithTheLockAnUpdateWhoseRequestTimesOutWhileItWaitsIsNotAnswered200AndIsNotHandled()
+    {
+        var log = new ScopeLog();
+        await using var app = await StartAsync(
+            log,
+            new LogRecorder(),
+            services =>
+                services
+                    .AddTelegramLock()
+                    .AddRequestTimeouts(options =>
+                        options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromMilliseconds(500) }
+                    ),
+            pipeline => pipeline.UseRequestTimeouts()
+        );
+        var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+        using var client = app.GetTestClient();
+
+        // The lock is held until the answer arrives, so the update can't be handled first. The timeout usually fires
+        // while it waits for the lock (503), or on a cold start while its body is still read (the middleware's 504):
+        // either way it isn't 200, so Telegram sends it again.
+        using var answered = await client.PostAsync("/telegram/updates", Numbered(1)).WaitAsync(Patience);
+        release.SetResult();
+        await work;
+
+        Assert.Contains(
+            answered.StatusCode,
+            new[] { HttpStatusCode.ServiceUnavailable, HttpStatusCode.GatewayTimeout }
+        );
+        Assert.Empty(log.CommandInstances);
+        Assert.Empty(log.SeenByErrors);
+    }
+
+    [Fact]
+    public async Task WithTheLockAnUpdateWaitingAsTheAppBeginsToStopIsStillHandled()
+    {
+        var log = new ScopeLog();
+        await using var app = await StartAsync(log, new LogRecorder(), services => services.AddTelegramLock());
+        var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+        using var client = app.GetTestClient();
+        var response = client.PostAsync("/telegram/updates", Numbered(1));
+        await telegramLock.WaitForWaitersAsync(1);
+
+        app.Lifetime.StopApplication();
+        release.SetResult();
+        using var answered = await response.WaitAsync(Patience);
+        await work;
+
+        Assert.Equal(HttpStatusCode.OK, answered.StatusCode);
+        Assert.Single(log.SeenByUpdates);
+        Assert.Empty(log.SeenByErrors);
+    }
+
+    [Fact]
+    public async Task WithTheLockAnUpdateWhoseRequestIsCancelledOnceHandlingBeganGets200SoItIsNotHandledAgain()
+    {
+        var log = new ScopeLog();
+        var logs = new LogRecorder();
+        var gate = log.Gates[1] = new UpdateGate();
+        using var cancelRequest = new CancellationTokenSource();
+        await using var app = await StartAsync(
+            log,
+            logs,
+            services => services.AddTelegramLock(),
+            RequestsCancelledBy(cancelRequest)
+        );
+        using var client = app.GetTestClient();
+        var response = client.PostAsync("/telegram/updates", Numbered(1));
+        await gate.Reached.WaitAsync(Patience);
+
+        await cancelRequest.CancelAsync();
+        using var answered = await response.WaitAsync(Patience);
+
+        Assert.Equal(HttpStatusCode.OK, answered.StatusCode);
+        Assert.Single(log.CommandInstances);
+        Assert.Empty(log.SeenByErrors);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Warning);
+    }
+
+    // Only bounds a failing test's wait; not a sleep.
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
+
+    // Middleware that gives each request a token the test cancels with the connection still open, as a request
+    // timeout does.
+    private static Action<WebApplication> RequestsCancelledBy(CancellationTokenSource cancellation) =>
+        app =>
+            app.Use(
+                (context, next) =>
+                {
+                    context.RequestAborted = cancellation.Token;
+                    return next(context);
+                }
+            );
+
+    // A private message, as update `id`.
+    private static StringContent Numbered(int id) =>
+        new(
+            $$$"""{"update_id":{{{id}}},"message":{"message_id":{{{id}}},"date":0,"chat":{"id":42,"type":"private"},"text":"hi"}}""",
+            Encoding.UTF8,
+            "application/json"
+        );
+
     private const string PrivateUpdate = """
         {"update_id":7,"message":{"message_id":1,"date":1700000000,"text":"hi",
          "chat":{"id":7000000001,"type":"private","first_name":"Nick"},
@@ -93,11 +273,13 @@ public sealed class WebhookEndpointTests
         """;
 
     // The ScopeLog's command and a ThrowingErrorHandler, behind UseTelegramWebhook; startup talks to a fake client.
-    // configure then changes the app's services, e.g. to add history after that client.
+    // configure then changes the app's services, e.g. to add history after that client, and pipeline adds middleware in
+    // front of the webhook.
     private static async Task<WebApplication> StartAsync(
         ScopeLog log,
         LogRecorder logs,
-        Action<IServiceCollection>? configure = null
+        Action<IServiceCollection>? configure = null,
+        Action<WebApplication>? pipeline = null
     )
     {
         var builder = WebApplication.CreateBuilder();
@@ -120,6 +302,7 @@ public sealed class WebhookEndpointTests
         configure?.Invoke(builder.Services);
 
         var app = builder.Build();
+        pipeline?.Invoke(app);
         app.UseTelegramWebhook();
         await app.StartAsync();
         return app;

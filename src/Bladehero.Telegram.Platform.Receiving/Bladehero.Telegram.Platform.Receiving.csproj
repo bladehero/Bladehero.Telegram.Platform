@@ -2,11 +2,12 @@
   <PropertyGroup>
     <PackageId>Bladehero.Telegram.Platform.Receiving</PackageId>
     <Title>Bladehero.Telegram.Platform.Receiving</Title>
-    <Description>Command-style update handling for Telegram bots: ITelegramCommand, strongly typed per-update-type base commands, assembly scanning, a parallel command executor, multi-step conversations and a declarative command menu.</Description>
+    <Description>Command-style update handling for Telegram bots: ITelegramCommand, strongly typed per-update-type base commands, assembly scanning, a parallel command executor, multi-step conversations, a declarative command menu and an opt-in lock that runs background work one at a time with the updates.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Background" />
+    <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Background.Tests" />
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Tests" />
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Testing" />
   </ItemGroup>
