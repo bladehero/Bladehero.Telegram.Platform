@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Background" />
+    <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Background.Tests" />
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Receiving.Tests" />
     <InternalsVisibleTo Include="Bladehero.Telegram.Platform.Testing" />
   </ItemGroup>

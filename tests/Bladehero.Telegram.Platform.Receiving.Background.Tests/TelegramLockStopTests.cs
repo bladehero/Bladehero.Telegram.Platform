@@ -20,7 +20,7 @@ public sealed class TelegramLockStopTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var holder = telegramLock.RunAsync((_, _) => release.Task);
         await host.StartAsync();
-        await UntilAsync(() => telegramLock.WaitingCount == 1);
+        await telegramLock.WaitForWaitersAsync(1);
 
         await host.StopAsync().WaitAsync(Patience);
 
@@ -30,17 +30,6 @@ public sealed class TelegramLockStopTests
         Assert.Equal(0, telegramLock.WaitingCount);
         release.SetResult();
         await holder;
-    }
-
-    // No timing: yields until the condition holds.
-    private static async Task UntilAsync(Func<bool> condition)
-    {
-        using var patience = new CancellationTokenSource(Patience);
-        while (!condition())
-        {
-            patience.Token.ThrowIfCancellationRequested();
-            await Task.Yield();
-        }
     }
 
     // Waits for the lock without its stopping token, so only the lock's own link to the host's stop ends the wait.

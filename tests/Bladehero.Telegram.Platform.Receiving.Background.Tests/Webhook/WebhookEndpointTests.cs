@@ -98,7 +98,7 @@ public sealed class WebhookEndpointTests
         await first.Reached.WaitAsync(Patience);
 
         var secondResponse = client.PostAsync("/telegram/updates", Numbered(2));
-        await UntilAsync(() => telegramLock.WaitingCount == 1);
+        await telegramLock.WaitForWaitersAsync(1);
         var askedWhileTheFirstWasHandled = log.CommandInstances.Count;
         first.Open();
         var responses = await Task.WhenAll(firstResponse, secondResponse).WaitAsync(Patience);
@@ -138,17 +138,6 @@ public sealed class WebhookEndpointTests
             Encoding.UTF8,
             "application/json"
         );
-
-    // No timing: yields until the condition holds.
-    private static async Task UntilAsync(Func<bool> condition)
-    {
-        using var patience = new CancellationTokenSource(Patience);
-        while (!condition())
-        {
-            patience.Token.ThrowIfCancellationRequested();
-            await Task.Yield();
-        }
-    }
 
     private const string PrivateUpdate = """
         {"update_id":7,"message":{"message_id":1,"date":1700000000,"text":"hi",
