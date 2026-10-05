@@ -409,16 +409,18 @@ public sealed class Reminders(ITelegramLock telegramLock)
   throws. Waiters go in arrival order. The caller's token cancels the wait, and so does the host beginning to stop.
 - **Keep the work short:** every update waits behind it. Do the slow part, such as a call to an AI service, first.
 - **The work has no update,** so no `IConversation`: use `IConversationStore`. The history links its calls to no
-  update.
+  update. Its logs keep the caller's log scopes, though: in a task an update started, they still carry the update's
+  `TelegramUpdateId`, unless the task was started as below.
 - **Not from a handler.** A command, a step or another `RunAsync`'s work already holds the lock, so `RunAsync` there
   throws `InvalidOperationException` rather than wait for itself: do the work directly. A task an update starts
   without awaiting it counts as the update until the update ends, so start work meant to outlive it without the
-  update's context:
+  update's context. The update's scope is gone by then, so the work resolves what it needs in `RunAsync`'s own, as
+  `Reminders` above does (register it as a singleton):
 
 ```csharp
 using (ExecutionContext.SuppressFlow())
 {
-    _ = Task.Run(() => importer.ImportAsync(chatId, CancellationToken.None));
+    _ = Task.Run(() => reminders.RemindAsync(chatId, CancellationToken.None));
 }
 ```
 

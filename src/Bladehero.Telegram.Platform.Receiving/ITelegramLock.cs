@@ -21,7 +21,9 @@ public interface ITelegramLock
     /// </param>
     /// <param name="token">Cancels the wait; the work gets it too.</param>
     /// <remarks>
-    /// Waiters are served in arrival order. The Bot API calls the work makes aren't linked to any update in the history.
+    /// Waiters are served in arrival order. The Bot API calls the work makes aren't linked to any update in the history,
+    /// but its logs keep the caller's log scopes: in a task an update started, they carry the update's
+    /// <c>TelegramUpdateId</c> unless the task was started under <see cref="ExecutionContext.SuppressFlow"/>.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// The calling code already runs under the lock, e.g. a command or another <c>RunAsync</c>'s work, so it would
@@ -42,7 +44,9 @@ public interface ITelegramLock
     /// </param>
     /// <param name="token">Cancels the wait; the work gets it too.</param>
     /// <remarks>
-    /// Waiters are served in arrival order. The Bot API calls the work makes aren't linked to any update in the history.
+    /// Waiters are served in arrival order. The Bot API calls the work makes aren't linked to any update in the history,
+    /// but its logs keep the caller's log scopes: in a task an update started, they carry the update's
+    /// <c>TelegramUpdateId</c> unless the task was started under <see cref="ExecutionContext.SuppressFlow"/>.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// The calling code already runs under the lock, e.g. a command or another <c>RunAsync</c>'s work, so it would
