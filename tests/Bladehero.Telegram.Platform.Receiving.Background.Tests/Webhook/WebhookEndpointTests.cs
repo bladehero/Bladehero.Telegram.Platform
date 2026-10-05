@@ -139,15 +139,7 @@ public sealed class WebhookEndpointTests
             log,
             logs,
             services => services.AddTelegramLock(),
-            pipeline =>
-                pipeline.Use(
-                    (context, next) =>
-                    {
-                        // Cancelled by the test with the connection still open, as a request timeout does.
-                        context.RequestAborted = cancelRequest.Token;
-                        return next(context);
-                    }
-                )
+            RequestsCancelledBy(cancelRequest)
         );
         var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -225,8 +217,46 @@ public sealed class WebhookEndpointTests
         Assert.Empty(log.SeenByErrors);
     }
 
+    [Fact]
+    public async Task WithTheLockAnUpdateWhoseRequestIsCancelledOnceHandlingBeganGets200SoItIsNotHandledAgain()
+    {
+        var log = new ScopeLog();
+        var logs = new LogRecorder();
+        var gate = log.Gates[1] = new UpdateGate();
+        using var cancelRequest = new CancellationTokenSource();
+        await using var app = await StartAsync(
+            log,
+            logs,
+            services => services.AddTelegramLock(),
+            RequestsCancelledBy(cancelRequest)
+        );
+        using var client = app.GetTestClient();
+        var response = client.PostAsync("/telegram/updates", Numbered(1));
+        await gate.Reached.WaitAsync(Patience);
+
+        await cancelRequest.CancelAsync();
+        using var answered = await response.WaitAsync(Patience);
+
+        Assert.Equal(HttpStatusCode.OK, answered.StatusCode);
+        Assert.Single(log.CommandInstances);
+        Assert.Empty(log.SeenByErrors);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Warning);
+    }
+
     // Only bounds a failing test's wait; not a sleep.
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
+
+    // Middleware that gives each request a token the test cancels with the connection still open, as a request
+    // timeout does.
+    private static Action<WebApplication> RequestsCancelledBy(CancellationTokenSource cancellation) =>
+        app =>
+            app.Use(
+                (context, next) =>
+                {
+                    context.RequestAborted = cancellation.Token;
+                    return next(context);
+                }
+            );
 
     // A private message, as update `id`.
     private static StringContent Numbered(int id) =>

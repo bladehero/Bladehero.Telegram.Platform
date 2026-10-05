@@ -28,7 +28,9 @@ internal sealed class ScopeLog
     public ConcurrentDictionary<int, UpdateGate> Gates { get; } = new();
 }
 
-/// <summary>Holds the command at the start of one update until opened, and says when it got there.</summary>
+/// <summary>
+/// Holds the command at the start of one update until opened or the update is cancelled, and says when it got there.
+/// </summary>
 internal sealed class UpdateGate
 {
     private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -38,10 +40,10 @@ internal sealed class UpdateGate
 
     public void Open() => _opened.TrySetResult();
 
-    public Task PassAsync()
+    public Task PassAsync(CancellationToken token)
     {
         _reached.TrySetResult();
-        return _opened.Task;
+        return _opened.Task.WaitAsync(token);
     }
 }
 
@@ -70,7 +72,7 @@ internal sealed class ProbeCommand(ScopeLog log, ScopedDependency dependency) : 
     {
         if (log.Gates.TryGetValue(request.Update.Id, out var gate))
         {
-            await gate.PassAsync();
+            await gate.PassAsync(token);
         }
 
         log.SeenByUpdates.Add(dependency);
