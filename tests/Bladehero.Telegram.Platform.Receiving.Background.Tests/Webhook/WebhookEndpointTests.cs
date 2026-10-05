@@ -169,7 +169,7 @@ public sealed class WebhookEndpointTests
     }
 
     [Fact]
-    public async Task WithTheLockAnUpdateWhoseRequestTimesOutWhileItWaitsGets503AndIsNotHandled()
+    public async Task WithTheLockAnUpdateWhoseRequestTimesOutWhileItWaitsIsNotAnswered200AndIsNotHandled()
     {
         var log = new ScopeLog();
         await using var app = await StartAsync(
@@ -179,7 +179,7 @@ public sealed class WebhookEndpointTests
                 services
                     .AddTelegramLock()
                     .AddRequestTimeouts(options =>
-                        options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromMilliseconds(100) }
+                        options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromMilliseconds(500) }
                     ),
             pipeline => pipeline.UseRequestTimeouts()
         );
@@ -188,11 +188,17 @@ public sealed class WebhookEndpointTests
         var work = telegramLock.RunAsync((_, _) => release.Task);
         using var client = app.GetTestClient();
 
+        // The lock is held until the answer arrives, so the update can't be handled first. The timeout usually fires
+        // while it waits for the lock (503), or on a cold start while its body is still read (the middleware's 504):
+        // either way it isn't 200, so Telegram sends it again.
         using var answered = await client.PostAsync("/telegram/updates", Numbered(1)).WaitAsync(Patience);
         release.SetResult();
         await work;
 
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, answered.StatusCode);
+        Assert.Contains(
+            answered.StatusCode,
+            new[] { HttpStatusCode.ServiceUnavailable, HttpStatusCode.GatewayTimeout }
+        );
         Assert.Empty(log.CommandInstances);
         Assert.Empty(log.SeenByErrors);
     }
