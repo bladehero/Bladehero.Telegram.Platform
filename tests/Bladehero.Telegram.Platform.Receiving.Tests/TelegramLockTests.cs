@@ -481,18 +481,20 @@ public sealed class TelegramLockTests
     [Fact]
     public async Task RunAsync_CancelledAsTheLockIsHandedToIt_ShouldEitherRunOrBeCancelled_NeverLeakTheLock()
     {
-        // Arrange
+        // Arrange: a second waiter behind the first gets the lock only if the first lets it go, cancelled or not; the
+        // barrier lines the cancel up with the release.
         await using var provider = Provider();
         var sut = provider.GetRequiredService<TelegramLock>();
+        using var barrier = new Barrier(2);
         var outcomes = new List<string>();
 
         // Act
-        for (var round = 0; round < 200; round++)
+        for (var round = 0; round < 2000; round++)
         {
             var hold = await sut.HoldAsync(CancellationToken.None);
             using var cancellation = new CancellationTokenSource();
             var ran = false;
-            var waiting = sut.RunAsync(
+            var first = sut.RunAsync(
                 (_, _) =>
                 {
                     ran = true;
@@ -500,8 +502,21 @@ public sealed class TelegramLockTests
                 },
                 cancellation.Token
             );
-            await Task.WhenAll(Task.Run(cancellation.Cancel), Task.Run(() => hold.DisposeAsync().AsTask()));
-            var thrown = await Record.ExceptionAsync(() => waiting.WaitAsync(Patience));
+            var second = sut.RunAsync((_, _) => Task.CompletedTask);
+            await Task.WhenAll(
+                Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    cancellation.Cancel();
+                }),
+                Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    return hold.DisposeAsync().AsTask();
+                })
+            );
+            var thrown = await Record.ExceptionAsync(() => first.WaitAsync(Patience));
+            await second.WaitAsync(Patience);
             outcomes.Add(
                 thrown is OperationCanceledException && !ran ? "cancelled"
                 : thrown is null && ran ? "ran"
@@ -513,6 +528,79 @@ public sealed class TelegramLockTests
         using (new AssertionScope())
         {
             outcomes.Should().NotContain("?");
+            (sut.IsHeld, sut.WaitingCount).Should().Be((false, 0));
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_ManyCallersWithRandomCancellation_ShouldRunOneAtATime_EndEachOnce_LeaveTheLockIdle()
+    {
+        // Arrange
+        await using var provider = Provider();
+        var sut = provider.GetRequiredService<TelegramLock>();
+        const int rounds = 10;
+        const int callers = 2000;
+        var inside = 0;
+        var overlapped = false;
+        var worksRun = 0;
+        Func<IServiceProvider, CancellationToken, Task> work = async (_, _) =>
+        {
+            if (Interlocked.Increment(ref inside) > 1)
+            {
+                Volatile.Write(ref overlapped, true);
+            }
+
+            Interlocked.Increment(ref worksRun);
+            await Task.Yield();
+            Interlocked.Decrement(ref inside);
+        };
+
+        // Every other caller is cancelled at a random moment: before, while or after it waits.
+        async Task<string> CallAsync(bool cancelled)
+        {
+            using var cancellation = new CancellationTokenSource();
+            var cancelling = cancelled
+                ? Task.Run(() =>
+                {
+                    Thread.SpinWait(Random.Shared.Next(20_000));
+                    cancellation.Cancel();
+                })
+                : Task.CompletedTask;
+            try
+            {
+                await sut.RunAsync(work, cancellation.Token);
+                return "ran";
+            }
+            catch (OperationCanceledException)
+            {
+                return "cancelled";
+            }
+            finally
+            {
+                await cancelling;
+            }
+        }
+
+        // Act
+        var outcomes = new List<string>();
+        for (var round = 0; round < rounds; round++)
+        {
+            outcomes.AddRange(
+                await Task.WhenAll(
+                        Enumerable
+                            .Range(0, callers)
+                            .Select(caller => Task.Run(() => CallAsync(cancelled: caller % 2 == 0)))
+                    )
+                    .WaitAsync(Patience)
+            );
+        }
+
+        // Assert
+        using (new AssertionScope())
+        {
+            overlapped.Should().BeFalse();
+            outcomes.Should().HaveCount(rounds * callers);
+            outcomes.Count(x => x == "ran").Should().Be(worksRun);
             (sut.IsHeld, sut.WaitingCount).Should().Be((false, 0));
         }
     }
