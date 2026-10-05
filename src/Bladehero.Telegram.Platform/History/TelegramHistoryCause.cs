@@ -10,8 +10,8 @@ internal static class TelegramHistoryCause
 
     internal static Update? Current => CurrentUpdate.Value;
 
-    // Dispose restores the previous update.
-    internal static IDisposable Begin(Update update)
+    // Null for work that belongs to no update, even one that started it. Dispose restores the previous update.
+    internal static IDisposable Begin(Update? update)
     {
         var previous = CurrentUpdate.Value;
         CurrentUpdate.Value = update;

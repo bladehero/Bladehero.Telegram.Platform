@@ -15,14 +15,33 @@ internal sealed class ReceivingUpdateHandler(
     Conversation conversation,
     ITelegramBotIdentity identity,
     ILogger<ReceivingUpdateHandler> logger,
-    TelegramHistoryWriter? history = null
+    TelegramHistoryWriter? history = null,
+    TelegramLock? telegramLock = null
 ) : IUpdateHandler
 {
-    public async Task HandleUpdateAsync(
+    public Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
+    {
+        if (telegramLock is null)
+        {
+            return HandleAsync(botClient, update, cancellationToken);
+        }
+
+        // Around everything the update does, so ITelegramLock's work runs between updates, never during one.
+        return telegramLock.RunUpdateAsync(() => HandleAsync(botClient, update, cancellationToken), cancellationToken);
+    }
+
+    public Task HandleErrorAsync(
         ITelegramBotClient botClient,
-        Update update,
+        Exception exception,
+        HandleErrorSource source,
         CancellationToken cancellationToken
     )
+    {
+        var error = new TelegramError(exception, botClient);
+        return telegramErrorHandler.HandleAsync(error);
+    }
+
+    private async Task HandleAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
     {
         using var scope = UpdateLogScope.Begin(logger, update);
 
@@ -42,16 +61,5 @@ internal sealed class ReceivingUpdateHandler(
         conversation.Bind(update);
         var request = new CommandRequest(update, botClient);
         await telegramCommandExecutor.ExecuteAsync(request, cancellationToken);
-    }
-
-    public Task HandleErrorAsync(
-        ITelegramBotClient botClient,
-        Exception exception,
-        HandleErrorSource source,
-        CancellationToken cancellationToken
-    )
-    {
-        var error = new TelegramError(exception, botClient);
-        return telegramErrorHandler.HandleAsync(error);
     }
 }
