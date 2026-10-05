@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Bladehero.Telegram.Platform.Receiving.Commands;
 using Bladehero.Telegram.Platform.Receiving.Commands.Execution;
 using Bladehero.Telegram.Platform.Receiving.Errors;
@@ -22,6 +23,26 @@ internal sealed class ScopeLog
 
     /// <summary>What <see cref="ProbeErrorHandler"/> tells the failed update's chat, if anything.</summary>
     public string? Apology { get; set; }
+
+    /// <summary>Gates the command stops at before handling an update, by update id.</summary>
+    public ConcurrentDictionary<int, UpdateGate> Gates { get; } = new();
+}
+
+/// <summary>Holds the command at the start of one update until opened, and says when it got there.</summary>
+internal sealed class UpdateGate
+{
+    private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task Reached => _reached.Task;
+
+    public void Open() => _opened.TrySetResult();
+
+    public Task PassAsync()
+    {
+        _reached.TrySetResult();
+        return _opened.Task;
+    }
 }
 
 internal sealed class ScopedDependency : IDisposable
@@ -45,13 +66,23 @@ internal sealed class ProbeCommand(ScopeLog log, ScopedDependency dependency) : 
         return Task.FromResult(true);
     }
 
-    public Task HandleAsync(CommandRequest request, CancellationToken token)
+    public async Task HandleAsync(CommandRequest request, CancellationToken token)
     {
+        if (log.Gates.TryGetValue(request.Update.Id, out var gate))
+        {
+            await gate.PassAsync();
+        }
+
         log.SeenByUpdates.Add(dependency);
-        return log.CommandFailure is { } failure ? Task.FromException(failure)
-            : log.Reply is { } reply
-                ? request.Client.SendMessage(request.Update.Message!.Chat, reply, cancellationToken: token)
-            : Task.CompletedTask;
+        if (log.CommandFailure is { } failure)
+        {
+            throw failure;
+        }
+
+        if (log.Reply is { } reply)
+        {
+            await request.Client.SendMessage(request.Update.Message!.Chat, reply, cancellationToken: token);
+        }
     }
 }
 

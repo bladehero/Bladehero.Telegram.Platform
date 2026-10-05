@@ -104,6 +104,27 @@ public sealed class ScopedUpdateHandlerTests
     }
 
     [Fact]
+    public async Task WithTheLockAPolledUpdateWaitsForWorkHoldingIt()
+    {
+        var log = new ScopeLog();
+        await using var provider = BuildProvider(log, configure: services => services.AddTelegramLock());
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+        var telegramLock = provider.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+
+        var update = handler.HandleUpdateAsync(Client, new Update { Id = 1 }, CancellationToken.None);
+        var waiting = telegramLock.WaitingCount;
+        var askedWhileWorkHeldIt = log.CommandInstances.Count;
+        release.SetResult();
+        await Task.WhenAll(work, update).WaitAsync(Patience);
+
+        Assert.Equal(1, waiting);
+        Assert.Equal(0, askedWhileWorkHeldIt);
+        Assert.Single(log.SeenByUpdates);
+    }
+
+    [Fact]
     public async Task AFailingCommandIsReportedWithItsUpdate()
     {
         var log = new ScopeLog { CommandFailure = new InvalidOperationException("The database is down") };

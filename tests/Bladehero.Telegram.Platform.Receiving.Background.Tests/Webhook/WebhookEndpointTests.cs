@@ -86,6 +86,70 @@ public sealed class WebhookEndpointTests
         Assert.Equal("Sorry", linked[1].Text);
     }
 
+    [Fact]
+    public async Task WithTheLockAnUpdatePostedWhileAnotherIsHandledWaitsForIt()
+    {
+        var log = new ScopeLog();
+        var first = log.Gates[1] = new UpdateGate();
+        await using var app = await StartAsync(log, new LogRecorder(), services => services.AddTelegramLock());
+        var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
+        using var client = app.GetTestClient();
+        var firstResponse = client.PostAsync("/telegram/updates", Numbered(1));
+        await first.Reached.WaitAsync(Patience);
+
+        var secondResponse = client.PostAsync("/telegram/updates", Numbered(2));
+        await UntilAsync(() => telegramLock.WaitingCount == 1);
+        var askedWhileTheFirstWasHandled = log.CommandInstances.Count;
+        first.Open();
+        var responses = await Task.WhenAll(firstResponse, secondResponse).WaitAsync(Patience);
+
+        Assert.Equal(1, askedWhileTheFirstWasHandled);
+        Assert.Equal(2, log.SeenByUpdates.Count);
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+    }
+
+    [Fact]
+    public async Task WithoutTheLockUpdatesPostedAtOnceAreHandledAtOnce()
+    {
+        var log = new ScopeLog();
+        var first = log.Gates[1] = new UpdateGate();
+        await using var app = await StartAsync(log, new LogRecorder());
+        using var client = app.GetTestClient();
+        var firstResponse = client.PostAsync("/telegram/updates", Numbered(1));
+        await first.Reached.WaitAsync(Patience);
+
+        using var second = await client.PostAsync("/telegram/updates", Numbered(2)).WaitAsync(Patience);
+        var firstStillHandled = !firstResponse.IsCompleted;
+        first.Open();
+        using var firstDone = await firstResponse.WaitAsync(Patience);
+
+        Assert.True(firstStillHandled);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Null(app.Services.GetService<ITelegramLock>());
+    }
+
+    // Only bounds a failing test's wait; not a sleep.
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
+
+    // A private message, as update `id`.
+    private static StringContent Numbered(int id) =>
+        new(
+            $$$"""{"update_id":{{{id}}},"message":{"message_id":{{{id}}},"date":0,"chat":{"id":42,"type":"private"},"text":"hi"}}""",
+            Encoding.UTF8,
+            "application/json"
+        );
+
+    // No timing: yields until the condition holds.
+    private static async Task UntilAsync(Func<bool> condition)
+    {
+        using var patience = new CancellationTokenSource(Patience);
+        while (!condition())
+        {
+            patience.Token.ThrowIfCancellationRequested();
+            await Task.Yield();
+        }
+    }
+
     private const string PrivateUpdate = """
         {"update_id":7,"message":{"message_id":1,"date":1700000000,"text":"hi",
          "chat":{"id":7000000001,"type":"private","first_name":"Nick"},
