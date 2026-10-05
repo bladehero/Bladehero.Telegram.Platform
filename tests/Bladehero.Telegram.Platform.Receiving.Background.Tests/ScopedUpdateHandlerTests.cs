@@ -2,6 +2,7 @@ using Bladehero.Telegram.Platform.History;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Telegram.Bot;
@@ -122,6 +123,31 @@ public sealed class ScopedUpdateHandlerTests
         Assert.Equal(1, waiting);
         Assert.Equal(0, askedWhileWorkHeldIt);
         Assert.Single(log.SeenByUpdates);
+    }
+
+    [Fact]
+    public async Task WithTheLockAPolledUpdateWaitingAsTheHostBeginsToStopIsStillHandled()
+    {
+        var log = new ScopeLog();
+        using var lifetime = new StoppableLifetime();
+        await using var provider = BuildProvider(
+            log,
+            configure: services => services.AddTelegramLock().AddSingleton<IHostApplicationLifetime>(lifetime)
+        );
+        var handler = provider.GetRequiredService<ScopedUpdateHandler>();
+        var telegramLock = provider.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+        var update = handler.HandleUpdateAsync(Client, new Update { Id = 1 }, CancellationToken.None);
+        var otherWork = telegramLock.RunAsync((_, _) => Task.CompletedTask);
+
+        lifetime.StopApplication();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => otherWork.WaitAsync(Patience));
+        release.SetResult();
+        await Task.WhenAll(work, update).WaitAsync(Patience);
+
+        Assert.Single(log.SeenByUpdates);
+        Assert.Empty(log.Errors);
     }
 
     [Fact]
@@ -473,5 +499,21 @@ public sealed class ScopedUpdateHandlerTests
         return services.BuildServiceProvider(
             new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }
         );
+    }
+
+    // A host's lifetime whose stop the test begins.
+    private sealed class StoppableLifetime : IHostApplicationLifetime, IDisposable
+    {
+        private readonly CancellationTokenSource _stopping = new();
+
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+
+        public CancellationToken ApplicationStopping => _stopping.Token;
+
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+
+        public void StopApplication() => _stopping.Cancel();
+
+        public void Dispose() => _stopping.Dispose();
     }
 }

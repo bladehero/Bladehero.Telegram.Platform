@@ -197,6 +197,28 @@ public sealed class WebhookEndpointTests
         Assert.Empty(log.SeenByErrors);
     }
 
+    [Fact]
+    public async Task WithTheLockAnUpdateWaitingAsTheAppBeginsToStopIsStillHandled()
+    {
+        var log = new ScopeLog();
+        await using var app = await StartAsync(log, new LogRecorder(), services => services.AddTelegramLock());
+        var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+        using var client = app.GetTestClient();
+        var response = client.PostAsync("/telegram/updates", Numbered(1));
+        await telegramLock.WaitForWaitersAsync(1);
+
+        app.Lifetime.StopApplication();
+        release.SetResult();
+        using var answered = await response.WaitAsync(Patience);
+        await work;
+
+        Assert.Equal(HttpStatusCode.OK, answered.StatusCode);
+        Assert.Single(log.SeenByUpdates);
+        Assert.Empty(log.SeenByErrors);
+    }
+
     // Only bounds a failing test's wait; not a sleep.
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
 
