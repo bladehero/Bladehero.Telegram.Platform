@@ -1,4 +1,5 @@
 using System.Text;
+using Bladehero.Telegram.Platform.Receiving;
 using Bladehero.Telegram.Platform.Receiving.Background;
 using Bladehero.Telegram.Platform.Receiving.Background.LongPolling;
 using Bladehero.Telegram.Platform.Receiving.Buttons;
@@ -354,6 +355,50 @@ internal static class TestBot
                     await late!.Go.Task;
                     logger.LogError("Late failure for {Name}", name);
                     late.Done.TrySetResult();
+                },
+                CancellationToken.None
+            );
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // "/relock" calls RunAsync from the command, which already holds the lock; optional, so hosts without it start.
+    private sealed class RelockCommand(ITelegramLock? telegramLock = null) : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(telegramLock is not null && request.Payload.IsCommand("/relock"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            telegramLock!.RunAsync((_, _) => Task.CompletedTask, token);
+    }
+
+    // Lets "/notice"'s work run once Go is set.
+    internal sealed class NoticeWork
+    {
+        public TaskCompletionSource Go { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    // "/notice" starts work it doesn't wait for, which sends "notice" under the lock once Go is set; optional, so
+    // hosts without the lock or NoticeWork still start.
+    private sealed class NoticeCommand(ITelegramLock? telegramLock = null, NoticeWork? notice = null) : MessageCommand
+    {
+        protected override Task<bool> CanHandleAsync(TypedCommandRequest<Message> request, CancellationToken token) =>
+            Task.FromResult(telegramLock is not null && notice is not null && request.Payload.IsCommand("/notice"));
+
+        protected override Task HandleAsync(TypedCommandRequest<Message> request, CancellationToken token)
+        {
+            var chatId = request.Payload.Chat.Id;
+            _ = Task.Run(
+                async () =>
+                {
+                    await notice!.Go.Task;
+                    await telegramLock!.RunAsync(
+                        (services, workToken) =>
+                            services
+                                .GetRequiredService<ITelegramMessages>()
+                                .SendAsync(chatId, "notice", token: workToken)
+                    );
                 },
                 CancellationToken.None
             );
