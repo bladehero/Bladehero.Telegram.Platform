@@ -479,7 +479,7 @@ public sealed class TelegramLockTests
     }
 
     [Fact]
-    public async Task RunAsync_CancelledAsTheLockIsHandedToIt_ShouldEitherRunOrGiveUp_NeverLeakTheLock()
+    public async Task RunAsync_CancelledAsTheLockIsHandedToIt_ShouldEitherRunOrBeCancelled_NeverLeakTheLock()
     {
         // Arrange
         await using var provider = Provider();
@@ -503,7 +503,7 @@ public sealed class TelegramLockTests
             await Task.WhenAll(Task.Run(cancellation.Cancel), Task.Run(() => hold.DisposeAsync().AsTask()));
             var thrown = await Record.ExceptionAsync(() => waiting.WaitAsync(Patience));
             outcomes.Add(
-                thrown is OperationCanceledException && !ran ? "gave up"
+                thrown is OperationCanceledException && !ran ? "cancelled"
                 : thrown is null && ran ? "ran"
                 : "?"
             );

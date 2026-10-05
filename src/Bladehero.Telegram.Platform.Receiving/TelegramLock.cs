@@ -133,7 +133,7 @@ internal sealed class TelegramLock(IServiceScopeFactory scopeFactory, IHostAppli
             CountWaiters();
         }
 
-        await using (token.Register(() => GiveUp(waiter, token)))
+        await using (token.Register(() => CancelWait(waiter, token)))
         {
             await waiter.Value.Task;
         }
@@ -142,7 +142,7 @@ internal sealed class TelegramLock(IServiceScopeFactory scopeFactory, IHostAppli
     }
 
     // Leaves the line, unless the waiter was handed the lock first and so goes ahead with it.
-    private void GiveUp(LinkedListNode<TaskCompletionSource> waiter, CancellationToken token)
+    private void CancelWait(LinkedListNode<TaskCompletionSource> waiter, CancellationToken token)
     {
         lock (_gate)
         {
