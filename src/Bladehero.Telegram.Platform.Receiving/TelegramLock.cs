@@ -4,7 +4,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Bladehero.Telegram.Platform.Receiving;
 
-// One lock for the whole bot. SemaphoreSlim serves its async waiters in arrival order, so work can't starve updates.
+// One lock for the whole bot, handed to its waiters in arrival order, so work can't starve updates.
 internal sealed class TelegramLock(IServiceScopeFactory scopeFactory, IHostApplicationLifetime? lifetime = null)
     : ITelegramLock
 {
@@ -13,23 +13,40 @@ internal sealed class TelegramLock(IServiceScopeFactory scopeFactory, IHostAppli
         + "wait for itself. Do the work directly here. Work started for later must not inherit the update's context: "
         + "start it with ExecutionContext.SuppressFlow().";
 
-    private readonly SemaphoreSlim _gate = new(1, 1);
-
     // Cancelled once the host begins to stop, so work still waiting doesn't hold up the stop.
     private readonly CancellationToken _stopping = lifetime?.ApplicationStopping ?? CancellationToken.None;
 
     // The lease the current flow runs under; work it starts without awaiting inherits it.
     private readonly AsyncLocal<Lease?> _current = new();
 
-    private int _waiting;
-    private TaskCompletionSource _changed = NewSignal();
+    private readonly Lock _gate = new();
 
-    public bool IsHeld => _gate.CurrentCount == 0;
+    // Under _gate: the waiters, first in line first.
+    private readonly LinkedList<TaskCompletionSource> _waiters = [];
+
+    // Written under _gate.
+    private bool _held;
+    private int _waiting;
+
+    // Under _gate: completed at the next change, and created only while someone watches for one.
+    private TaskCompletionSource? _changed;
+
+    public bool IsHeld => Volatile.Read(ref _held);
 
     public int WaitingCount => Volatile.Read(ref _waiting);
 
     // Completes at the next change to IsHeld or WaitingCount; read it before checking them, so no change is missed.
-    internal Task Changed => Volatile.Read(ref _changed).Task;
+    internal Task Changed
+    {
+        get
+        {
+            lock (_gate)
+            {
+                _changed ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                return _changed.Task;
+            }
+        }
+    }
 
     public async Task RunAsync(Func<IServiceProvider, CancellationToken, Task> work, CancellationToken token = default)
     {
@@ -87,40 +104,82 @@ internal sealed class TelegramLock(IServiceScopeFactory scopeFactory, IHostAppli
 
     private async Task<Lease> EnterAsync(CancellationToken token)
     {
-        if (!_gate.Wait(0, token))
+        token.ThrowIfCancellationRequested();
+
+        LinkedListNode<TaskCompletionSource> waiter;
+        lock (_gate)
         {
-            await WaitInLineAsync(token);
+            if (!_held)
+            {
+                Volatile.Write(ref _held, true);
+                OnChanged();
+                return new Lease(this);
+            }
+
+            waiter = _waiters.AddLast(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+            CountWaiters();
         }
 
-        OnChanged();
+        await using (token.Register(() => GiveUp(waiter, token)))
+        {
+            await waiter.Value.Task;
+        }
+
         return new Lease(this);
     }
 
-    // Counted in WaitingCount until it has the lock or gives up.
-    private async Task WaitInLineAsync(CancellationToken token)
+    // Leaves the line, unless the waiter was handed the lock first and so goes ahead with it.
+    private void GiveUp(LinkedListNode<TaskCompletionSource> waiter, CancellationToken token)
     {
-        Interlocked.Increment(ref _waiting);
-        OnChanged();
-        try
+        lock (_gate)
         {
-            await _gate.WaitAsync(token);
+            if (waiter.List is null)
+            {
+                return;
+            }
+
+            _waiters.Remove(waiter);
+            CountWaiters();
         }
-        finally
-        {
-            Interlocked.Decrement(ref _waiting);
-            OnChanged();
-        }
+
+        waiter.Value.TrySetCanceled(token);
     }
 
+    // Hands the lock straight to the first waiter, so it stops counting as waiting at once and the lock stays held.
     private void Release()
     {
-        _gate.Release();
+        TaskCompletionSource? next;
+        lock (_gate)
+        {
+            next = _waiters.First?.Value;
+            if (next is null)
+            {
+                Volatile.Write(ref _held, false);
+                OnChanged();
+            }
+            else
+            {
+                _waiters.RemoveFirst();
+                CountWaiters();
+            }
+        }
+
+        next?.TrySetResult();
+    }
+
+    // Under _gate.
+    private void CountWaiters()
+    {
+        Volatile.Write(ref _waiting, _waiters.Count);
         OnChanged();
     }
 
-    private void OnChanged() => Interlocked.Exchange(ref _changed, NewSignal()).TrySetResult();
-
-    private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // Under _gate.
+    private void OnChanged()
+    {
+        _changed?.TrySetResult();
+        _changed = null;
+    }
 
     // Releases the lock once. Flows that inherited it stop counting as holders then.
     private sealed class Lease(TelegramLock owner) : IAsyncDisposable

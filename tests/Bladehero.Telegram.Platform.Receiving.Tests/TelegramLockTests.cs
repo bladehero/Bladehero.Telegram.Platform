@@ -458,6 +458,87 @@ public sealed class TelegramLockTests
     }
 
     [Fact]
+    public async Task Release_ToAWaiter_ShouldCountItAsHoldingAtOnce()
+    {
+        // Arrange
+        await using var provider = Provider();
+        var sut = provider.GetRequiredService<TelegramLock>();
+        var hold = await sut.HoldAsync(CancellationToken.None);
+        var release = Gate();
+        var first = sut.RunAsync((_, _) => release.Task);
+        var second = sut.RunAsync((_, _) => Task.CompletedTask);
+
+        // Act
+        await hold.DisposeAsync();
+        var rightAfter = (sut.IsHeld, sut.WaitingCount);
+        release.SetResult();
+        await Task.WhenAll(first, second).WaitAsync(Patience);
+
+        // Assert
+        rightAfter.Should().Be((true, 1));
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelledAsTheLockIsHandedToIt_ShouldEitherRunOrGiveUp_NeverLeakTheLock()
+    {
+        // Arrange
+        await using var provider = Provider();
+        var sut = provider.GetRequiredService<TelegramLock>();
+        var outcomes = new List<string>();
+
+        // Act
+        for (var round = 0; round < 200; round++)
+        {
+            var hold = await sut.HoldAsync(CancellationToken.None);
+            using var cancellation = new CancellationTokenSource();
+            var ran = false;
+            var waiting = sut.RunAsync(
+                (_, _) =>
+                {
+                    ran = true;
+                    return Task.CompletedTask;
+                },
+                cancellation.Token
+            );
+            await Task.WhenAll(Task.Run(cancellation.Cancel), Task.Run(() => hold.DisposeAsync().AsTask()));
+            var thrown = await Record.ExceptionAsync(() => waiting.WaitAsync(Patience));
+            outcomes.Add(
+                thrown is OperationCanceledException && !ran ? "gave up"
+                : thrown is null && ran ? "ran"
+                : "?"
+            );
+        }
+
+        // Assert
+        using (new AssertionScope())
+        {
+            outcomes.Should().NotContain("?");
+            (sut.IsHeld, sut.WaitingCount).Should().Be((false, 0));
+        }
+    }
+
+    [Fact]
+    public async Task Changed_ShouldCompleteAtTheNextChangeOnly()
+    {
+        // Arrange
+        await using var provider = Provider();
+        var sut = provider.GetRequiredService<TelegramLock>();
+        var changed = sut.Changed;
+        var unchangedAtFirst = !changed.IsCompleted;
+
+        // Act
+        await using var hold = await sut.HoldAsync(CancellationToken.None);
+        await changed.WaitAsync(Patience);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            unchangedAtFirst.Should().BeTrue();
+            sut.Changed.IsCompleted.Should().BeFalse();
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_StartedWhileAnUpdateIsTheHistorysCause_ShouldLinkTheWorksCallsToNoUpdate()
     {
         // Arrange
