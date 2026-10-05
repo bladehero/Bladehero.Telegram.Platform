@@ -635,7 +635,9 @@ polls keep failing. The wait uses the app's `TimeProvider` when one is registere
 
 The webhook endpoint answers 200 once handling has started, even if a command or the error handler fails, so Telegram
 doesn't deliver the update again. It answers otherwise only with 401 without the secret token, 400 for a body that
-isn't an update, or 500 when the update handler can't be built.
+isn't an update, or 500 when the update handler can't be built. With the
+[Telegram lock](#one-update-at-a-time-and-background-work) on, an update whose request ends while it waits for the
+lock, e.g. on a request timeout, gets 503: nothing of it ran, so Telegram sends it again.
 
 `AddTelegramBot` and the `IConfiguration` overloads of the receiving methods take an `httpClientFactory` for proxies,
 IPv4, retries or logging. It builds the library's client, so it doesn't apply to a client you register yourself:

@@ -80,19 +80,32 @@ internal sealed class TelegramLock(IServiceScopeFactory scopeFactory, IHostAppli
         return await work(scope.ServiceProvider, token);
     }
 
-    // Holds the lock while an update is handled. Only the update's token ends the wait: at shutdown, a webhook update
-    // cancelled here would still be answered 200 and lost, and a polling update's token is cancelled anyway.
+    // Holds the lock while an update is handled. Only the update's token ends the wait, not the host stopping: a webhook
+    // update is left to finish as the server drains, and a polling update's token is cancelled at stop anyway.
     internal async Task RunUpdateAsync(Func<Task> handle, CancellationToken token)
     {
         ThrowIfReentered();
 
-        await using var lease = await EnterAsync(token);
+        await using var lease = await EnterBeforeHandlingAsync(token);
         _current.Value = lease;
         await handle();
     }
 
     // Holds the lock until disposed, for the Testing package to stage races.
     internal async Task<IAsyncDisposable> HoldAsync(CancellationToken token) => await EnterAsync(token);
+
+    // A wait cancelled here leaves the update unhandled, which the webhook answers so that Telegram sends it again.
+    private async Task<Lease> EnterBeforeHandlingAsync(CancellationToken token)
+    {
+        try
+        {
+            return await EnterAsync(token);
+        }
+        catch (OperationCanceledException exception)
+        {
+            throw new WaitCanceledException(exception);
+        }
+    }
 
     private void ThrowIfReentered()
     {
@@ -180,6 +193,14 @@ internal sealed class TelegramLock(IServiceScopeFactory scopeFactory, IHostAppli
         _changed?.TrySetResult();
         _changed = null;
     }
+
+    // An update's wait for the lock was cancelled, so nothing of it ran.
+    internal sealed class WaitCanceledException(OperationCanceledException cancelled)
+        : OperationCanceledException(
+            "The update wasn't handled: its wait for the Telegram lock was cancelled.",
+            cancelled,
+            cancelled.CancellationToken
+        );
 
     // Releases the lock once. Flows that inherited it stop counting as holders then.
     private sealed class Lease(TelegramLock owner) : IAsyncDisposable

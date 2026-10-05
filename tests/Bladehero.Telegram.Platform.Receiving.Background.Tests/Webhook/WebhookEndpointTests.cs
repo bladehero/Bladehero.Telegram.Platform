@@ -5,6 +5,7 @@ using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -128,6 +129,74 @@ public sealed class WebhookEndpointTests
         Assert.Null(app.Services.GetService<ITelegramLock>());
     }
 
+    [Fact]
+    public async Task WithTheLockAnUpdateWhoseRequestIsCancelledWhileItWaitsGets503AndIsNotHandled()
+    {
+        var log = new ScopeLog();
+        var logs = new LogRecorder();
+        using var cancelRequest = new CancellationTokenSource();
+        await using var app = await StartAsync(
+            log,
+            logs,
+            services => services.AddTelegramLock(),
+            pipeline =>
+                pipeline.Use(
+                    (context, next) =>
+                    {
+                        // Cancelled by the test with the connection still open, as a request timeout does.
+                        context.RequestAborted = cancelRequest.Token;
+                        return next(context);
+                    }
+                )
+        );
+        var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+        using var client = app.GetTestClient();
+        var response = client.PostAsync("/telegram/updates", Numbered(1));
+        await telegramLock.WaitForWaitersAsync(1);
+
+        await cancelRequest.CancelAsync();
+        using var answered = await response.WaitAsync(Patience);
+        release.SetResult();
+        await work;
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, answered.StatusCode);
+        Assert.Empty(log.CommandInstances);
+        Assert.Empty(log.SeenByErrors);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Error);
+        Assert.Equal(0, telegramLock.WaitingCount);
+    }
+
+    [Fact]
+    public async Task WithTheLockAnUpdateWhoseRequestTimesOutWhileItWaitsGets503AndIsNotHandled()
+    {
+        var log = new ScopeLog();
+        await using var app = await StartAsync(
+            log,
+            new LogRecorder(),
+            services =>
+                services
+                    .AddTelegramLock()
+                    .AddRequestTimeouts(options =>
+                        options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromMilliseconds(100) }
+                    ),
+            pipeline => pipeline.UseRequestTimeouts()
+        );
+        var telegramLock = app.Services.GetRequiredService<ITelegramLock>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = telegramLock.RunAsync((_, _) => release.Task);
+        using var client = app.GetTestClient();
+
+        using var answered = await client.PostAsync("/telegram/updates", Numbered(1)).WaitAsync(Patience);
+        release.SetResult();
+        await work;
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, answered.StatusCode);
+        Assert.Empty(log.CommandInstances);
+        Assert.Empty(log.SeenByErrors);
+    }
+
     // Only bounds a failing test's wait; not a sleep.
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
 
@@ -146,11 +215,13 @@ public sealed class WebhookEndpointTests
         """;
 
     // The ScopeLog's command and a ThrowingErrorHandler, behind UseTelegramWebhook; startup talks to a fake client.
-    // configure then changes the app's services, e.g. to add history after that client.
+    // configure then changes the app's services, e.g. to add history after that client, and pipeline adds middleware in
+    // front of the webhook.
     private static async Task<WebApplication> StartAsync(
         ScopeLog log,
         LogRecorder logs,
-        Action<IServiceCollection>? configure = null
+        Action<IServiceCollection>? configure = null,
+        Action<WebApplication>? pipeline = null
     )
     {
         var builder = WebApplication.CreateBuilder();
@@ -173,6 +244,7 @@ public sealed class WebhookEndpointTests
         configure?.Invoke(builder.Services);
 
         var app = builder.Build();
+        pipeline?.Invoke(app);
         app.UseTelegramWebhook();
         await app.StartAsync();
         return app;

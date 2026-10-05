@@ -27,7 +27,8 @@ public static class WebhookDependencyInjection
     /// Maps <c>POST {UpdateEndpoint}</c>, where Telegram posts the updates. With a <c>SecretToken</c> configured, a
     /// request without it gets 401 before anything is read; a body that isn't an update gets 400, and 500 means the
     /// update handler couldn't be built. Once handling has started the answer is 200, even when a command or the error
-    /// handler fails, so Telegram doesn't deliver the update again.
+    /// handler fails, so Telegram doesn't deliver the update again. With the Telegram lock on, an update whose request
+    /// ends while it waits for the lock gets 503, so Telegram does.
     /// </summary>
     public static void UseTelegramWebhook(this IEndpointRouteBuilder builder)
     {
@@ -64,6 +65,16 @@ public static class WebhookDependencyInjection
                     logger.LogDebug("Received webhook update: {@Update}", update);
                     await handler.HandleUpdateAsync(client, update, token);
                 }
+                catch (TelegramLock.WaitCanceledException)
+                {
+                    // Nothing of it ran, e.g. the request timed out behind the Telegram lock: Telegram sends it again.
+                    logger.LogWarning(
+                        "Update {UpdateId} wasn't handled: its request ended while it waited for the Telegram lock. "
+                            + "Answered 503, so Telegram sends it again.",
+                        update.Id
+                    );
+                    return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+                }
                 catch (Exception exception)
                     when (exception is not OperationCanceledException || !token.IsCancellationRequested)
                 {
@@ -71,7 +82,8 @@ public static class WebhookDependencyInjection
                 }
                 catch (OperationCanceledException)
                 {
-                    // The request is gone or the app is stopping, as at the end of polling: nothing to report.
+                    // The request was cancelled once handling had begun: nothing to report, and sending the update
+                    // again could handle it twice.
                 }
 
                 // Once handling has started, anything but 200 would only make Telegram deliver the update again.
