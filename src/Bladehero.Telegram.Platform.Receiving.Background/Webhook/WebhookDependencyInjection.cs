@@ -69,8 +69,8 @@ public static class WebhookDependencyInjection
                 {
                     // Nothing of it ran, e.g. the request timed out behind the Telegram lock: Telegram sends it again.
                     logger.LogWarning(
-                        "Update {UpdateId} wasn't handled: its request ended while it waited for the Telegram lock. "
-                            + "Answered 503, so Telegram sends it again.",
+                        "Update {UpdateId} wasn't handled: its request was cancelled while it waited for the Telegram "
+                            + "lock. It isn't answered 200, so Telegram sends it again.",
                         update.Id
                     );
                     return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
