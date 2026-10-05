@@ -116,7 +116,10 @@ public sealed partial class TelegramTestHostTests
         // Assert
         await act.Should()
             .ThrowAsync<TimeoutException>()
-            .WithMessage("The Telegram lock wasn't free within 50 ms: WaitingCount is 0 and IsHeld is true.*");
+            .WithMessage(
+                "The Telegram lock wasn't free within 50 ms: WaitingCount is 0 and IsHeld is true. Is an update or a "
+                    + "RunAsync's work hanging, or was an earlier hold not disposed?"
+            );
         await first.DisposeAsync();
         telegramLock.IsHeld.Should().BeFalse();
     }

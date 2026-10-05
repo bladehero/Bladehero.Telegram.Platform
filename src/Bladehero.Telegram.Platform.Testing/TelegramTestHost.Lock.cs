@@ -32,8 +32,8 @@ public sealed partial class TelegramTestHost
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
             throw new TimeoutException(
-                $"The Telegram lock wasn't free within {Describe(UpdateTimeout)}: {StateOf(telegramLock)}. "
-                    + MayBeHanging
+                $"The Telegram lock wasn't free within {Describe(UpdateTimeout)}: {StateOf(telegramLock)}. Is an "
+                    + "update or a RunAsync's work hanging, or was an earlier hold not disposed?"
             );
         }
     }
