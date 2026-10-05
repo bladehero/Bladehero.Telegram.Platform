@@ -27,7 +27,8 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Quick start](#quick-start): [long polling](#long-polling) · [webhook](#webhook) · [configuration](#configuration)
 - [Commands](#commands): [typed](#typed-commands) · [raw](#raw-commands) · [slash commands](#slash-commands) ·
   [command menu](#command-menu) · [known users](#known-users) · [buttons with typed data](#buttons-with-typed-data)
-- [Execution](#execution): [priorities](#priorities) · [parallelism](#parallelism) · [scopes](#scopes)
+- [Execution](#execution): [priorities](#priorities) · [parallelism](#parallelism) · [scopes](#scopes) ·
+  [background work](#one-update-at-a-time-and-background-work)
 - [Conversations](#conversations): [bound buttons](#buttons-bound-to-a-conversation) ·
   [in a database](#keep-conversations-in-a-database)
 - [Sending on your own](#sending-on-your-own): [change messages later](#change-messages-later)
@@ -37,7 +38,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 - [Component tests](#component-tests): [start](#start-the-bot) · [configure](#configure-the-app-under-test) ·
   [logs](#logs) · [history](#read-the-history) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
   [files](#send-and-read-files) · [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) ·
-  [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
+  [races](#stage-a-race) · [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
 
@@ -46,7 +47,7 @@ No registration, no routing table: drop the class in a scanned assembly.
 | Package | Contents |
 | --- | --- |
 | [`Bladehero.Telegram.Platform`](https://www.nuget.org/packages/Bladehero.Telegram.Platform/) | Bot configuration, `ITelegramMessages`, DI wiring. |
-| [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling. |
+| [`Bladehero.Telegram.Platform.Receiving`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving/) | Commands, scanning, execution, conversations, command menu, error handling, the Telegram lock. |
 | [`Bladehero.Telegram.Platform.Receiving.Background`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.Receiving.Background/) | Long-polling and webhook hosting; startup sync of webhook and menu. |
 | [`Bladehero.Telegram.Platform.History.InMemory`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.InMemory/) | [History](#history) kept in memory, per chat. |
 | [`Bladehero.Telegram.Platform.History.EntityFrameworkCore`](https://www.nuget.org/packages/Bladehero.Telegram.Platform.History.EntityFrameworkCore/) | [History](#history) in your database through EF Core. |
@@ -376,6 +377,58 @@ owns [conversation](#conversations) routing too.
 Each update gets its own DI scope, shared by its commands. With a non-thread-safe scoped dependency such as a
 `DbContext`, set `ParallelCount` to `1` or create a scope inside the command.
 
+### One update at a time, and background work
+
+A polling bot handles one update at a time, so its commands can read and then write the app's state without racing
+each other. Background work, such as a timer or a queue consumer, breaks that: it can change the same state, through
+`IConversationStore`, `ITelegramMessages` or the app's own data, between an update's read and its write. The Telegram
+lock runs such work as if it were an update:
+
+```csharp
+services.AddTelegramLock();
+```
+
+```csharp
+public sealed class Reminders(ITelegramLock telegramLock)
+{
+    public Task RemindAsync(long chatId, CancellationToken token) =>
+        telegramLock.RunAsync(async (services, workToken) =>
+        {
+            var conversations = services.GetRequiredService<IConversationStore>();
+            if (await conversations.GetAsync(new ConversationKey(chatId, chatId), workToken) is null)   // not mid-flow
+            {
+                await services.GetRequiredService<ITelegramMessages>()
+                    .SendAsync(chatId, "Time to log today's spending", token: workToken);
+            }
+        }, token);
+}
+```
+
+- **Every update holds it** once it's on, polled or posted to the webhook, for the whole of its handling.
+- **`RunAsync`** waits for the lock, runs the work in a DI scope of its own, and releases the lock even when the work
+  throws. Waiters go in arrival order. The caller's token cancels the wait, and so does the host beginning to stop.
+- **Keep the work short:** every update waits behind it. Do the slow part, such as a call to an AI service, first.
+- **The work has no update,** so no `IConversation`: use `IConversationStore`. The history links its calls to no
+  update.
+- **Not from a handler.** A command, a step or another `RunAsync`'s work already holds the lock, so `RunAsync` there
+  throws `InvalidOperationException` rather than wait for itself: do the work directly. A task an update starts
+  without awaiting it counts as the update until the update ends, so start work meant to outlive it without the
+  update's context:
+
+```csharp
+using (ExecutionContext.SuppressFlow())
+{
+    _ = Task.Run(() => importer.ImportAsync(chatId, CancellationToken.None));
+}
+```
+
+- **Webhook bots** handle one update at a time too once it's on. Leave it off to keep concurrent updates; taps on
+  [bound buttons](#buttons-bound-to-a-conversation) of one conversation still run one after another.
+- **An error handler** runs after the failed update has released the lock, so it can't rely on it.
+- `IsHeld` and `WaitingCount` show the lock's state, e.g. for a health check.
+
+Without `AddTelegramLock()` nothing changes, and `ITelegramLock` isn't registered.
+
 ## Conversations
 
 Multi-step flows: a **conversation** remembers the flow, the step and the data; a **step** is a command that runs only
@@ -418,7 +471,8 @@ public sealed class SignupNameStep(IConversation conversation, IUserRepository u
 - A change routes the **next** update, not the current one.
 - **Storage:** in memory by default and lost on restart; untouched by bots without steps. To keep conversations in
   your database, see [below](#keep-conversations-in-a-database), or register an `IConversationStore` of your own. Use
-  the store to start one from a background job:
+  the store to start one from a background job, under the [Telegram lock](#one-update-at-a-time-and-background-work)
+  when the user's updates could change it meanwhile:
 
 ```csharp
 await store.SaveAsync(new ConversationKey(chatId, userId), new ConversationState("import", "describe"), token);
@@ -642,6 +696,8 @@ A call carries the update it was made for:
 
 - A call made while handling an update has that update's `UpdateId`.
 - Work the update started but didn't await, such as a `Task.Run`, inherits it.
+- Work run through [`ITelegramLock.RunAsync`](#one-update-at-a-time-and-background-work) carries none, even when an
+  update started it.
 - An error handler's calls are linked to the failed update.
 - Calls from hosted services carry none. Start long-lived loops outside updates, or with
   `ExecutionContext.SuppressFlow()`, or each of their calls names the update that started them.
@@ -1176,6 +1232,27 @@ A timer must exist before the test moves the clock: start it while the update is
 starts). One a background loop creates later may miss the move and wait for the next. Long polling's wait after a
 failed poll runs on the same clock, so with a `FakeTimeProvider` it too lasts until the test moves the clock on.
 
+### Stage a race
+
+With the [Telegram lock](#one-update-at-a-time-and-background-work) on, a test can hold it to line updates and
+background work up in an exact order, without sleeps:
+
+```csharp
+var hold = await bot.HoldLockAsync();         // every update and RunAsync now waits
+var sending = nick.SendsAsync("/coffee");     // not awaited: it can't finish while the test holds the lock
+await bot.WaitForLockWaitersAsync(1);         // the update is queued
+var reminding = reminders.RemindAsync(nick.Chat.Id, CancellationToken.None);
+await bot.WaitForLockWaitersAsync(2);         // and the reminder behind it
+
+await hold.DisposeAsync();
+await Task.WhenAll(sending, reminding);
+```
+
+- `WaitForLockWaitersAsync(count)` returns once at least `count` updates or `RunAsync` calls wait. After its timeout,
+  `UpdateTimeout` by default, it fails naming `WaitingCount` and `IsHeld`.
+- `HoldLockAsync` waits at most `UpdateTimeout` for the lock.
+- Both throw when the app doesn't call `AddTelegramLock()`.
+
 ### Check and fail Telegram
 
 | `bot.Api` | |
@@ -1527,6 +1604,12 @@ optionally, `Telegram:SecretToken`.
 
 - New: `Bladehero.Telegram.Platform.Conversations.EntityFrameworkCore` keeps conversations in your database.
 - `AddTelegramConversations()` is public and returns a builder to pick the store; the receiving setups still call it.
+
+### To 10.5
+
+- New: [`AddTelegramLock()`](#one-update-at-a-time-and-background-work) and `ITelegramLock`, to run background work
+  one at a time with the updates. It's off until the app calls it, so nothing changes otherwise.
+- New in component tests: [`HoldLockAsync` and `WaitForLockWaitersAsync`](#stage-a-race).
 
 ## License
 
