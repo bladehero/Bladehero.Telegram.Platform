@@ -39,6 +39,7 @@ No registration, no routing table: drop the class in a scanned assembly.
   [logs](#logs) · [history](#read-the-history) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
   [files](#send-and-read-files) · [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) ·
   [races](#stage-a-race) · [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
+- [Behind a hub](#behind-a-hub)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
 
@@ -991,6 +992,15 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(
 var chat = bot.PrivateChat("Nick");   // open it before the bot writes to Nick
 ```
 
+**An app behind a hub** (see [Behind a hub](#behind-a-hub)) says who `getHubPeople` answers with. A fake's `HubApp` is the
+manifest the app last sent, and `TopicsEnabled` is the bot's Threaded Mode, for `createForumTopic` and the threads of
+what's sent:
+
+```csharp
+var api = new FakeBotApi();
+api.SetHubPeople((nick, "Ник"), (kate, "Катя"));
+```
+
 **A service in front of Telegram**, which calls the Bot API itself instead of through a bot client, gets the fake as an
 HTTP handler. Its calls count in `Calls` and can fail like a client's, but `Sent<TRequest>` doesn't have them, since it
 reads a client's requests. It reads parameters from the body, as JSON or a form, not from the URL. Telegram only knows
@@ -1485,6 +1495,34 @@ the older host's next action fails with it.
 response timeout expired or query ID is invalid" (`BotApiError.QueryTooOld`). When two commands claim the same button
 both run, and the second answer fails the action, so give each button's data to exactly one command.
 [Typed buttons](#buttons-with-typed-data) are checked for this at startup.
+
+## Behind a hub
+
+A hub is a service that owns the bot and answers each app as if it were the Bot API, so several apps share one bot. To an
+app it stays Telegram: commands, buttons, conversations and component tests don't change. Point the bot at it with two
+settings, the key the hub gave this app as `Token`, and the hub's address as `ApiBaseUrl`.
+
+`AddTelegramHub` adds what a hub knows and Telegram doesn't:
+
+```csharp
+services.AddTelegramHub(hub =>
+{
+    hub.Title = "Питание";                   // the app's topic, and its line in the hub's list of apps
+    hub.Site = "https://nutrition.example";
+    hub.TakesSignInCodes = true;             // /start <prefix>-<code> reaches this app, from anyone
+    hub.UnlistedCommands = ["password"];     // commands it answers that its menu doesn't list
+});
+```
+
+The app's manifest goes to the hub on every start and every few minutes, so a hub that lost its file finds out again.
+
+**`ITelegramHub`** has the app's people and its sign-in links:
+
+| | |
+|---|---|
+| `People`, `FindPerson(id)` | The latest copy of who the hub lists for this app, read every five minutes. It stays while the hub is down. |
+| `KnowsPeople` | Whether a list has arrived since the app started. Start waits up to 30 seconds for one. Until then, keep signed-in people signed in and refuse new sign-ins. |
+| `SignInLinkAsync(code)` | `https://t.me/<bot>?start=<prefix>-<code>`. The hub takes the prefix off, so the app's `/start` command gets the plain code. |
 
 ## Samples
 

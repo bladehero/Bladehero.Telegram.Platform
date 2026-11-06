@@ -59,6 +59,8 @@ public sealed partial class FakeBotApi
         "deleteWebhook",
         "getMyCommands",
         "setMyCommands",
+        "setHubApp",
+        "getHubPeople",
     };
 
     private readonly object _gate = new();
@@ -473,9 +475,21 @@ public sealed partial class FakeBotApi
         ThrowIfBlocked(method, parameters);
         method = AnsweredMethods.TryGetValue(method, out var name) ? name : method;
 
+        ThrowIfNoSuchThread(parameters);
+
+        return InThreadOf(parameters, AnswerAs(method, parameters, attachments));
+    }
+
+    private JsonNode AnswerAs(string method, JsonObject parameters, IReadOnlyDictionary<string, Attachment> attachments)
+    {
         return method switch
         {
-            "getMe" => Bot(),
+            "getMe" => Me(),
+            "setHubApp" => SetHubApp(parameters),
+            "getHubPeople" => GetHubPeople(),
+            "createForumTopic" => CreateForumTopic(parameters),
+            "editForumTopic" => ChangeForumTopic(parameters, delete: false),
+            "deleteForumTopic" => ChangeForumTopic(parameters, delete: true),
             "sendMessage" => Send(parameters),
             "sendPhoto" => SendFile(parameters, attachments, FileKind.Photo),
             "sendDocument" => SendFile(parameters, attachments, FileKind.Document),
@@ -540,6 +554,15 @@ public sealed partial class FakeBotApi
             ["first_name"] = "Test Bot",
             ["username"] = "test_bot",
         };
+
+    // Only getMe says these.
+    private JsonObject Me()
+    {
+        var me = Bot();
+        me["has_topics_enabled"] = TopicsEnabled;
+        me["allows_users_to_create_topics"] = false;
+        return me;
+    }
 
     private JsonObject Send(JsonObject parameters)
     {
