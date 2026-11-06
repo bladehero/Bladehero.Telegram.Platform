@@ -1523,7 +1523,7 @@ what's waiting, whatever `DropPendingUpdates` says.
 | | |
 |---|---|
 | `People`, `FindPerson(id)` | The latest copy of who the hub lists for this app, read every five minutes. It stays while the hub is down. |
-| `KnowsPeople` | Whether a list has arrived since the app started. Start waits up to 30 seconds for one. Until then, keep signed-in people signed in and refuse new sign-ins. |
+| `KnowsPeople` | Whether a list with anyone on it has arrived since the app started. Start waits up to 30 seconds for one. Until then, keep signed-in people signed in and refuse new sign-ins. |
 | `SignInLinkAsync(code)` | `https://t.me/<bot>?start=<prefix>-<code>`. The hub takes the prefix off, so the app's `/start` command gets the plain code. |
 
 ## Samples

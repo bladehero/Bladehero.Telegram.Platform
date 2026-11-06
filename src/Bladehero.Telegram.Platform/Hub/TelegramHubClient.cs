@@ -49,10 +49,18 @@ internal sealed partial class TelegramHubClient(
         );
     }
 
-    internal async Task ReadPeopleAsync(CancellationToken cancellationToken)
+    // Whether the hub listed anyone. Nobody at all is a mistake in its settings, not a household: acting on it would sign
+    // everyone out, so it counts as no answer.
+    internal async Task<bool> ReadPeopleAsync(CancellationToken cancellationToken)
     {
         var people = await client.SendRequest(new GetHubPeopleRequest(), cancellationToken);
+        if (people.Length == 0)
+        {
+            return false;
+        }
+
         _people = people.Select(person => new TelegramHubPerson(person.Id, person.Name)).ToArray();
+        return true;
     }
 
     [GeneratedRegex("^[0-9]+:(?<slug>[a-z0-9-]+)_[0-9a-f]+$", RegexOptions.CultureInvariant)]

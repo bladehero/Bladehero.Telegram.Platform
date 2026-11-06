@@ -176,10 +176,33 @@ public sealed class TelegramWebhookInitializerTests
         await Assert.ThrowsAsync<HttpRequestException>(() => initializer.RepeatAsync(CancellationToken.None));
     }
 
+    [Fact]
+    public async Task AnHttpAddressOnTelegramItselfLeavesTheWorkingWebhookAlone()
+    {
+        var client = new FakeBotClient(Url);
+
+        await InitializerFor(client, baseUrl: "http://app:8080").StartingAsync(CancellationToken.None);
+
+        Assert.Empty(client.Requests);
+    }
+
+    [Fact]
+    public async Task AnHttpAddressBehindAHubIsSet()
+    {
+        var client = new FakeBotClient();
+
+        await InitializerFor(client, baseUrl: "http://app:8080", apiBaseUrl: "http://hub:8080")
+            .StartingAsync(CancellationToken.None);
+
+        Assert.Equal("http://app:8080/telegram/updates", client.SetWebhook?.Url);
+    }
+
     private static TelegramWebhookInitializer InitializerFor(
         ITelegramBotClient client,
         string? secretToken = null,
-        bool dropPendingUpdates = false
+        bool dropPendingUpdates = false,
+        string baseUrl = "https://bot.example.com",
+        string? apiBaseUrl = null
     ) =>
         new(
             client,
@@ -187,10 +210,11 @@ public sealed class TelegramWebhookInitializerTests
                 new TelegramWebhookConfiguration
                 {
                     Token = "unused",
-                    BaseUrl = "https://bot.example.com",
+                    BaseUrl = baseUrl,
                     UpdateEndpoint = "telegram/updates",
                     SecretToken = secretToken,
                     DropPendingUpdates = dropPendingUpdates,
+                    ApiBaseUrl = apiBaseUrl,
                 }
             ),
             NullLogger<TelegramWebhookInitializer>.Instance,

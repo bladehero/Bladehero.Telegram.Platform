@@ -19,6 +19,13 @@ internal sealed class TelegramWebhookInitializer(
     public async Task StartingAsync(CancellationToken cancellationToken)
     {
         var configuration = options.Value;
+        if (configuration.ApiBaseUrlIfSet is null && configuration.WebhookUri.Scheme != Uri.UriSchemeHttps)
+        {
+            // Telegram refuses it, and by then the working webhook would be gone. Such an address is for a hub.
+            logger.LogCritical("BaseUrl isn't https and ApiBaseUrl isn't set: the bot's webhook is left as it is");
+            return;
+        }
+
         try
         {
             logger.LogDebug("Starting webhook initializer");

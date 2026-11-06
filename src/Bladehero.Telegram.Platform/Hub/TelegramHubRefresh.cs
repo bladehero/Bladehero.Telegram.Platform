@@ -91,7 +91,11 @@ internal sealed class TelegramHubRefresh(
             // RepeatRegistrationsAsync does the same for the webhook and the commands.
             await hub.SendManifestAsync(cancellationToken);
             _manifestSent = true;
-            await hub.ReadPeopleAsync(cancellationToken);
+            if (!await hub.ReadPeopleAsync(cancellationToken))
+            {
+                logger.LogWarning("The hub lists nobody for this app: check its settings. The last list stays");
+            }
+
             return true;
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)

@@ -80,6 +80,43 @@ public sealed class TelegramHubTests
     }
 
     [Fact]
+    public async Task AHubListingNobody_ShouldCountAsNoAnswer()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        await using var provider = Provider(api);
+
+        // Act
+        await StartAsync(provider);
+
+        // Assert
+        provider.GetRequiredService<ITelegramHub>().KnowsPeople.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AHubListingNobodyLater_ShouldKeepTheLastCopy()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        api.SetHubPeople((111, "Ник"));
+        await using var provider = Provider(api, x => x.RefreshEvery = TimeSpan.FromMilliseconds(20));
+        await StartAsync(provider);
+        var mark = api.Calls.Count;
+
+        // Act
+        api.SetHubPeople();
+        await WaitUntilAsync(() => api.Calls.Count > mark + 2);
+
+        // Assert
+        var hub = provider.GetRequiredService<ITelegramHub>();
+        using (new AssertionScope())
+        {
+            hub.KnowsPeople.Should().BeTrue();
+            hub.FindPerson(111).Should().NotBeNull();
+        }
+    }
+
+    [Fact]
     public async Task HubDownLater_ShouldKeepTheLastCopy()
     {
         // Arrange

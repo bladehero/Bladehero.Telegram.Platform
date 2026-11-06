@@ -8,6 +8,7 @@ public interface ITelegramHub
     /// Whether the hub's list of people has arrived since the app started. Until it has, <see cref="People"/> is empty
     /// because nobody knows yet, not because nobody is allowed: keep signed-in people signed in, and refuse new sign-ins.
     /// </summary>
+    /// <remarks>A list with nobody on it counts as none: it's a mistake in the hub's settings, and the last copy stays.</remarks>
     bool KnowsPeople { get; }
 
     /// <summary>The latest copy of the people the hub lists for this app. It stays while the hub is down.</summary>
