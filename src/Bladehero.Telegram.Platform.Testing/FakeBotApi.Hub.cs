@@ -28,6 +28,20 @@ public sealed partial class FakeBotApi
         }
     }
 
+    /// <summary>Opens a private chat with this id, for code that calls the Bot API without a test host.</summary>
+    public long OpenPrivateChat(long id, string firstName) =>
+        PrivateChatWith(
+            new JsonObject
+            {
+                ["id"] = id,
+                ["is_bot"] = false,
+                ["first_name"] = firstName,
+            }
+        );
+
+    /// <summary>Opens a group, for code that calls the Bot API without a test host, and gives its id.</summary>
+    public long OpenGroup(string title) => Group(title);
+
     /// <summary>The topics open in a chat, by thread id.</summary>
     public IReadOnlyCollection<long> TopicsIn(long chatId)
     {
