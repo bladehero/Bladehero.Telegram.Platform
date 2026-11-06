@@ -192,9 +192,16 @@ public static class DependencyInjection
 
     private sealed class ApiBaseUrlValidator : IValidateOptions<TelegramBotConfiguration>
     {
-        public ValidateOptionsResult Validate(string? name, TelegramBotConfiguration options) =>
-            options.ApiBaseUrlIsValid
+        public ValidateOptionsResult Validate(string? name, TelegramBotConfiguration options)
+        {
+            if (!options.ApiBaseUrlIsValid)
+            {
+                return ValidateOptionsResult.Fail(TelegramBotConfiguration.ApiBaseUrlRule);
+            }
+
+            return options.HubKeyHasAnAddress
                 ? ValidateOptionsResult.Success
-                : ValidateOptionsResult.Fail(TelegramBotConfiguration.ApiBaseUrlRule);
+                : ValidateOptionsResult.Fail(TelegramBotConfiguration.HubKeyRule);
+        }
     }
 }

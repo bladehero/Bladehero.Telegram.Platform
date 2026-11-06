@@ -161,6 +161,21 @@ public sealed class TelegramHubTests
     }
 
     [Fact]
+    public void AKeyWithoutTheHubsAddress_ShouldBeRefused()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramBot(x => x.Token = Key);
+        using var provider = services.BuildServiceProvider();
+
+        // Act
+        var read = () => provider.GetRequiredService<ITelegramBotClient>();
+
+        // Assert
+        read.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>().WithMessage("*hub's key*");
+    }
+
+    [Fact]
     public void AddTelegramHub_WithoutATitle_ShouldBeRefusedOnStart()
     {
         // Arrange
@@ -229,7 +244,11 @@ public sealed class TelegramHubTests
         var services = new ServiceCollection();
         services.AddSingleton(typeof(Microsoft.Extensions.Logging.ILogger<>), typeof(NullLogger<>));
         services.AddSingleton<ITelegramBotClient>(api.CreateClient());
-        services.AddTelegramBot(x => x.Token = token);
+        services.AddTelegramBot(x =>
+        {
+            x.Token = token;
+            x.ApiBaseUrl = token == Key ? "http://hub:8080" : null;
+        });
         services.AddTelegramHub(x =>
         {
             x.Title = "Питание";

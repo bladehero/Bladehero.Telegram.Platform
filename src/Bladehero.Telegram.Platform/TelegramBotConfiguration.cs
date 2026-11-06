@@ -6,6 +6,9 @@ public class TelegramBotConfiguration
     internal const string ApiBaseUrlRule =
         "ApiBaseUrl must be an http or https URL with only a host and port, such as http://hub:8080, or empty for Telegram's.";
 
+    internal const string HubKeyRule =
+        "Token is a hub's key, which Telegram doesn't know: set ApiBaseUrl to the hub's address, such as http://hub:8080.";
+
     /// <summary>The token @BotFather gave the bot, such as <c>123456:ABC-DEF...</c>. Required.</summary>
     public required string Token { get; set; }
 
@@ -22,6 +25,9 @@ public class TelegramBotConfiguration
 
     // Empty as well as null: a blank environment variable, as a compose file leaves one, means not set.
     internal string? ApiBaseUrlIfSet => string.IsNullOrWhiteSpace(ApiBaseUrl) ? null : ApiBaseUrl;
+
+    // Only a hub takes its keys. Sent to Telegram, a key gets 401 for as long as the app runs, and the app looks healthy.
+    internal bool HubKeyHasAnAddress => ApiBaseUrlIfSet is not null || Hub.TelegramHubClient.SlugOf(Token) is null;
 
     // Nothing but scheme, host and port: Telegram.Bot would drop the rest without a word.
     internal bool ApiBaseUrlIsValid =>
