@@ -292,7 +292,11 @@ public static class WebhookDependencyInjection
     )
     {
         services.AddTelegramBot<IOptions<TelegramWebhookConfiguration>>(
-            (bot, webhook) => bot.Token = webhook.Value.Token,
+            (bot, webhook) =>
+            {
+                bot.Token = webhook.Value.Token;
+                bot.ApiBaseUrl = webhook.Value.ApiBaseUrlIfSet ?? bot.ApiBaseUrl;
+            },
             httpClientFactory
         );
         services.AddTelegramReceiving(assemblies);

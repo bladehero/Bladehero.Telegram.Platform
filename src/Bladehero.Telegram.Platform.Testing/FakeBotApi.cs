@@ -22,12 +22,14 @@ namespace Bladehero.Telegram.Platform.Testing;
 /// </remarks>
 public sealed partial class FakeBotApi
 {
-    internal const string Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
+    /// <summary>The bot's token: the only one this fake accepts, as Telegram accepts only a bot's own.</summary>
+    public const string Token = "1234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
 
     private const long BotId = 1234567;
     private const long FirstPersonId = 7_000_000_001;
     private const long FirstGroupId = -1000000000001;
     private const string DefaultScope = """{"type":"default"}""";
+    private const string MethodPathPrefix = $"/bot{Token}/";
     private const string FilePathPrefix = $"/file/bot{Token}/";
     private const int DownloadLimit = 20 * 1024 * 1024;
 
@@ -127,6 +129,16 @@ public sealed partial class FakeBotApi
         client.OnMakingApiRequest += RecordRequestAsync;
         return client;
     }
+
+    /// <summary>
+    /// This fake as an HTTP handler, for code that calls the Bot API itself rather than through a bot client, such as a
+    /// service in front of Telegram: <c>new HttpClient(api.CreateHandler())</c>, with <see cref="Token"/> in its URLs.
+    /// </summary>
+    /// <remarks>
+    /// Its calls count in <see cref="Calls"/> and can fail like a client's. <see cref="Sent{TRequest}"/> doesn't have
+    /// them, since it reads a client's requests. Parameters are read from the body, as JSON or a form, not from the URL.
+    /// </remarks>
+    public HttpMessageHandler CreateHandler() => new Transport(this);
 
     /// <summary>The command menu the bot set for <paramref name="scope"/>; the default scope when null.</summary>
     public IReadOnlyList<BotCommand> CommandMenu(BotCommandScope? scope = null, string? languageCode = null)
@@ -705,6 +717,11 @@ public sealed partial class FakeBotApi
         if (request.RequestUri!.AbsolutePath.StartsWith(FilePathPrefix, StringComparison.Ordinal))
         {
             return Download(request.RequestUri.AbsolutePath[FilePathPrefix.Length..]);
+        }
+
+        if (!request.RequestUri.AbsolutePath.StartsWith(MethodPathPrefix, StringComparison.Ordinal))
+        {
+            return Respond(new BotApiError(401, "Unauthorized"));
         }
 
         var method = request.RequestUri.Segments[^1];

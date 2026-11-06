@@ -168,7 +168,11 @@ public static class LongPollingDependencyInjection
     )
     {
         services.AddTelegramBot<IOptions<TelegramReceiverConfiguration>>(
-            (bot, receiver) => bot.Token = receiver.Value.Token,
+            (bot, receiver) =>
+            {
+                bot.Token = receiver.Value.Token;
+                bot.ApiBaseUrl = receiver.Value.ApiBaseUrlIfSet ?? bot.ApiBaseUrl;
+            },
             httpClientFactory
         );
         services.AddTelegramReceiving(assemblies);

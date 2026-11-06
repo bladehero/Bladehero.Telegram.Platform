@@ -133,6 +133,7 @@ services.AddTelegramLongPollingReceiving<ISecrets>(
 | Property | Mode | |
 | --- | --- | --- |
 | `Token` | both | Bot token from [@BotFather](https://t.me/BotFather). **Required.** |
+| `ApiBaseUrl` | both | Where the Bot API is, when it isn't Telegram's: your own Bot API server, or a service that answers for one, such as `http://hub:8080`. Only a host and port. Empty means Telegram's. Requests and file downloads both go there. A wrong address is reported when the client is first built, which for a receiving bot is on start. A client you register yourself keeps its own address. |
 | `AllowedUpdates` | both | `UpdateType`s to receive. Unset asks for Telegram's default set (all but `ChatMember` and reactions) explicitly, so a list an earlier deployment set doesn't linger. |
 | `DropPendingUpdates` | both | Discard updates queued while the bot was down. |
 | `SyncCommandMenu` | both | Publish the [command menu](#command-menu) on startup. Default `true`. |
@@ -988,6 +989,18 @@ await using var bot = await TelegramTestHost.ForLongPollingAsync<Program>(
     api);
 
 var chat = bot.PrivateChat("Nick");   // open it before the bot writes to Nick
+```
+
+**A service in front of Telegram**, which calls the Bot API itself instead of through a bot client, gets the fake as an
+HTTP handler. Its calls count in `Calls` and can fail like a client's, but `Sent<TRequest>` doesn't have them, since it
+reads a client's requests. It reads parameters from the body, as JSON or a form, not from the URL. Telegram only knows
+`FakeBotApi.Token`, so a key that wasn't swapped for it gets a 401:
+
+```csharp
+var api = new FakeBotApi();
+var telegram = new HttpClient(api.CreateHandler());
+
+var me = await telegram.PostAsync($"https://api.telegram.org/bot{FakeBotApi.Token}/getMe", content: null);
 ```
 
 ### Logs

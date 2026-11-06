@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace Bladehero.Telegram.Platform.Testing;
 
@@ -190,39 +191,83 @@ public sealed partial class FakeBotApi
         CancellationToken token
     )
     {
+        var parameters = new JsonObject();
+        var attachments = new Dictionary<string, Attachment>();
+
         if (content is MultipartFormDataContent form)
         {
-            var parameters = new JsonObject();
-            var attachments = new Dictionary<string, Attachment>();
-
             foreach (var part in form)
             {
-                var disposition = part.Headers.ContentDisposition;
-                if (disposition?.Name?.Trim('"') is not { } name)
-                {
-                    continue;
-                }
+                AddPart(
+                    part.Headers.ContentDisposition,
+                    await part.ReadAsByteArrayAsync(token),
+                    parameters,
+                    attachments
+                );
+            }
 
-                if (FileNameOf(disposition) is { } fileName)
-                {
-                    attachments[name] = new Attachment(fileName, await part.ReadAsByteArrayAsync(token));
-                }
-                else
-                {
-                    var text = await part.ReadAsStringAsync(token);
-                    parameters[name] = JsonFormFields.Contains(name) ? JsonNode.Parse(text) : text;
-                }
+            return (parameters, attachments);
+        }
+
+        // A service in front of Telegram may pass a form on as the bytes it got, rather than as a form object.
+        var mediaType = content?.Headers.ContentType;
+        if (mediaType?.MediaType == "multipart/form-data")
+        {
+            var boundary = mediaType.Parameters.First(parameter => parameter.Name == "boundary").Value!.Trim('"');
+            var reader = new MultipartReader(boundary, await content!.ReadAsStreamAsync(token));
+            while (await reader.ReadNextSectionAsync(token) is { } section)
+            {
+                using var bytes = new MemoryStream();
+                await section.Body.CopyToAsync(bytes, token);
+                AddPart(
+                    ContentDispositionHeaderValue.Parse(section.ContentDisposition!),
+                    bytes.ToArray(),
+                    parameters,
+                    attachments
+                );
             }
 
             return (parameters, attachments);
         }
 
         var body = content is null ? "" : await content.ReadAsStringAsync(token);
-        return (
-            string.IsNullOrWhiteSpace(body) ? [] : JsonNode.Parse(body)!.AsObject(),
-            new Dictionary<string, Attachment>()
-        );
+        if (mediaType?.MediaType == "application/x-www-form-urlencoded")
+        {
+            foreach (var (name, value) in QueryHelpers.ParseQuery(body))
+            {
+                AddField(name, value.ToString(), parameters);
+            }
+
+            return (parameters, attachments);
+        }
+
+        return (string.IsNullOrWhiteSpace(body) ? parameters : JsonNode.Parse(body)!.AsObject(), attachments);
     }
+
+    private static void AddPart(
+        ContentDispositionHeaderValue? disposition,
+        byte[] body,
+        JsonObject parameters,
+        Dictionary<string, Attachment> attachments
+    )
+    {
+        if (disposition?.Name?.Trim('"') is not { } name)
+        {
+            return;
+        }
+
+        if (FileNameOf(disposition) is { } fileName)
+        {
+            attachments[name] = new Attachment(fileName, body);
+        }
+        else
+        {
+            AddField(name, Encoding.UTF8.GetString(body), parameters);
+        }
+    }
+
+    private static void AddField(string name, string text, JsonObject parameters) =>
+        parameters[name] = JsonFormFields.Contains(name) ? JsonNode.Parse(text) : text;
 
     // Telegram.Bot writes a name's UTF-8 bytes one char per byte, which is UTF-8 on the wire; decode them the same way.
     // The raw parameter is read because FileName would also decode RFC 2047-looking names.
