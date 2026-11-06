@@ -8,6 +8,7 @@ namespace Bladehero.Telegram.Platform.Hub;
 // hub: whatever fails here is logged and tried again, and the last copy keeps working.
 internal sealed class TelegramHubRefresh(
     TelegramHubClient hub,
+    IEnumerable<ITelegramHubRegistration> registrations,
     IOptions<TelegramHubConfiguration> configuration,
     ILogger<TelegramHubRefresh> logger,
     TimeProvider time
@@ -73,7 +74,7 @@ internal sealed class TelegramHubRefresh(
                         ? settings.RefreshEvery
                         : settings.RetryEvery;
                 await Task.Delay(wait, time, stopping);
-                succeeded = await RefreshAsync(stopping);
+                succeeded = await RefreshAsync(stopping) && await RepeatRegistrationsAsync(stopping);
             }
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested)
@@ -86,15 +87,35 @@ internal sealed class TelegramHubRefresh(
     {
         try
         {
-            // Every time, so a hub that lost its file learns about this app again without a restart.
+            // Every time, so a hub that lost its file learns about this app again without a restart. The loop's
+            // RepeatRegistrationsAsync does the same for the webhook and the commands.
             await hub.SendManifestAsync(cancellationToken);
             _manifestSent = true;
             await hub.ReadPeopleAsync(cancellationToken);
             return true;
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(exception, "Failed to reach the hub");
+            return false;
+        }
+    }
+
+    // Not at the start, where the receivers are about to do it themselves.
+    private async Task<bool> RepeatRegistrationsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var registration in registrations)
+            {
+                await registration.RepeatAsync(cancellationToken);
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Failed to tell the hub about the webhook or the commands");
             return false;
         }
     }

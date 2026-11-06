@@ -1515,6 +1515,8 @@ services.AddTelegramHub(hub =>
 ```
 
 The app's manifest goes to the hub on every start and every few minutes, so a hub that lost its file finds out again.
+So do the receiver's webhook and commands, if the hub missed them or has forgotten them, and that repeat never drops
+what's waiting, whatever `DropPendingUpdates` says.
 
 **`ITelegramHub`** has the app's people and its sign-in links:
 

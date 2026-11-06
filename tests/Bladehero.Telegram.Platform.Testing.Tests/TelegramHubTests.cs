@@ -1,6 +1,8 @@
 using Bladehero.Telegram.Platform.Hub;
+using Bladehero.Telegram.Platform.Receiving.Background.Webhook;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -135,6 +137,50 @@ public sealed class TelegramHubTests
 
         // Assert
         read.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
+    }
+
+    [Fact]
+    public async Task AHubThatMissedTheWebhook_ShouldHearItAtTheNextRefresh_WithNothingDropped()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        api.Fail("getWebhookInfo", new BotApiError(502, "Bad Gateway"), times: 1);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["TelegramWebhookConfiguration:Token"] = FakeBotApi.Token,
+                    ["TelegramWebhookConfiguration:BaseUrl"] = "https://nutrition.example",
+                    ["TelegramWebhookConfiguration:UpdateEndpoint"] = "telegram/updates",
+                    ["TelegramWebhookConfiguration:DropPendingUpdates"] = "true",
+                }
+            )
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddTelegramWebhookReceiving(
+            configuration,
+            httpClientFactory: _ => new HttpClient(api.CreateHandler()),
+            assemblies: typeof(TelegramHubTests).Assembly
+        );
+        services.AddTelegramHub(x =>
+        {
+            x.Title = "Питание";
+            x.RefreshEvery = TimeSpan.FromMilliseconds(20);
+        });
+        await using var provider = services.BuildServiceProvider();
+        var mark = api.Mark();
+
+        // Act
+        await StartAsync(provider);
+
+        // Assert
+        var call = await api.WaitForCallAsync("setWebhook", after: mark);
+        using (new AssertionScope())
+        {
+            call.Parameters["url"]!.GetValue<string>().Should().Be("https://nutrition.example/telegram/updates");
+            (call.Parameters["drop_pending_updates"]?.GetValue<bool>() ?? false).Should().BeFalse();
+        }
     }
 
     private static ServiceProvider Provider(

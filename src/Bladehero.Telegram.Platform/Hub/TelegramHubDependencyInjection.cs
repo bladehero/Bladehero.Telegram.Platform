@@ -13,7 +13,8 @@ public static class TelegramHubDependencyInjection
     /// <remarks>
     /// The bot itself is registered as usual, with the app's key as its token and the hub as its <c>ApiBaseUrl</c>. Start
     /// waits up to <see cref="TelegramHubConfiguration.StartWait"/> for the first list. A hub that's down never stops the
-    /// app: see <see cref="ITelegramHub.KnowsPeople"/>.
+    /// app: see <see cref="ITelegramHub.KnowsPeople"/>. Each refresh also tells it about the receiver's webhook and commands
+    /// again, if it missed them or has forgotten them.
     /// </remarks>
     /// <param name="services">The app's services.</param>
     /// <param name="configure">Sets what the app says about itself, at least its title.</param>

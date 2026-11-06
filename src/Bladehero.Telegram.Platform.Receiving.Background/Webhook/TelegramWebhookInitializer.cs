@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.Hub;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -10,8 +11,11 @@ internal sealed class TelegramWebhookInitializer(
     IOptions<TelegramWebhookConfiguration> options,
     ILogger<TelegramWebhookInitializer> logger,
     ITelegramBotIdentity identity
-) : IHostedLifecycleService
+) : IHostedLifecycleService, ITelegramHubRegistration
 {
+    // Whether this start got its webhook out. The hub showing the same address doesn't say, as nothing shows the secret.
+    private bool _applied;
+
     public async Task StartingAsync(CancellationToken cancellationToken)
     {
         var configuration = options.Value;
@@ -32,6 +36,7 @@ internal sealed class TelegramWebhookInitializer(
             if (!changed && !configuration.HasSecretToken)
             {
                 logger.LogInformation("No webhook changes detected, keeping as it was...");
+                _applied = true;
                 return;
             }
 
@@ -51,12 +56,40 @@ internal sealed class TelegramWebhookInitializer(
                 cancellationToken: cancellationToken
             );
 
+            _applied = true;
             logger.LogInformation("Webhook has been applied with the latest changes");
         }
         catch (Exception ex)
         {
             logger.LogCritical(ex, "Failed to initialize webhook");
         }
+    }
+
+    public async Task RepeatAsync(CancellationToken cancellationToken)
+    {
+        var configuration = options.Value;
+        var webhook = await client.GetWebhookInfo(cancellationToken);
+        var known = string.Equals(
+            webhook.Url,
+            configuration.WebhookUri.AbsoluteUri,
+            StringComparison.OrdinalIgnoreCase
+        );
+        if (_applied && known)
+        {
+            return;
+        }
+
+        // What the settings say about dropping updates is about a start. These waited for a webhook to go to.
+        await client.SetWebhook(
+            configuration.WebhookUri.AbsoluteUri,
+            allowedUpdates: configuration.AllowedUpdates ?? [],
+            dropPendingUpdates: false,
+            secretToken: configuration.HasSecretToken ? configuration.SecretToken : null,
+            cancellationToken: cancellationToken
+        );
+
+        _applied = true;
+        logger.LogInformation("The hub has been told about the webhook again");
     }
 
     #region Ignored

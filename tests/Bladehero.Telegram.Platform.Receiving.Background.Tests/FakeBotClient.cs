@@ -18,6 +18,8 @@ internal sealed class FakeBotClient(
     UpdateType[]? webhookAllowedUpdates = null
 ) : ITelegramBotClient
 {
+    public bool Unreachable { get; set; } = unreachable;
+
     public List<string> Requests { get; } = [];
 
     public bool? DroppedPendingUpdates { get; private set; }
@@ -33,7 +35,7 @@ internal sealed class FakeBotClient(
         CancellationToken cancellationToken = default
     )
     {
-        if (unreachable)
+        if (Unreachable)
         {
             throw new HttpRequestException("Telegram is unreachable");
         }

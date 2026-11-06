@@ -128,7 +128,59 @@ public sealed class TelegramWebhookInitializerTests
         return services.BuildServiceProvider().GetRequiredService<IOptions<TelegramWebhookConfiguration>>();
     }
 
-    private static TelegramWebhookInitializer InitializerFor(ITelegramBotClient client, string? secretToken = null) =>
+    [Fact]
+    public async Task AHubThatHasForgottenTheWebhookHearsItAgainAndNothingIsDropped()
+    {
+        var client = new FakeBotClient();
+        var initializer = InitializerFor(client, secretToken: "s3cret", dropPendingUpdates: true);
+        await initializer.StartingAsync(CancellationToken.None);
+
+        await initializer.RepeatAsync(CancellationToken.None);
+
+        Assert.Equal(2, client.Requests.Count(x => x == "setWebhook"));
+        Assert.False(client.SetWebhook!.DropPendingUpdates);
+        Assert.Equal("s3cret", client.SetWebhook.SecretToken);
+    }
+
+    [Fact]
+    public async Task AHubThatRemembersTheWebhookIsLeftAlone()
+    {
+        var client = new FakeBotClient(Url);
+        var initializer = InitializerFor(client, secretToken: "s3cret", dropPendingUpdates: true);
+        await initializer.StartingAsync(CancellationToken.None);
+
+        await initializer.RepeatAsync(CancellationToken.None);
+
+        Assert.Equal(1, client.Requests.Count(x => x == "setWebhook"));
+    }
+
+    [Fact]
+    public async Task AStartThatFailedIsMadeUpForOnceEvenIfTheHubShowsTheSameAddress()
+    {
+        var client = new FakeBotClient(Url, unreachable: true);
+        var initializer = InitializerFor(client);
+        await initializer.StartingAsync(CancellationToken.None);
+        client.Unreachable = false;
+
+        await initializer.RepeatAsync(CancellationToken.None);
+        await initializer.RepeatAsync(CancellationToken.None);
+
+        Assert.Equal(1, client.Requests.Count(x => x == "setWebhook"));
+    }
+
+    [Fact]
+    public async Task ARepeatThatFailsSaysSoSoTheRefreshCanTryAgainSoon()
+    {
+        var initializer = InitializerFor(new FakeBotClient(unreachable: true));
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => initializer.RepeatAsync(CancellationToken.None));
+    }
+
+    private static TelegramWebhookInitializer InitializerFor(
+        ITelegramBotClient client,
+        string? secretToken = null,
+        bool dropPendingUpdates = false
+    ) =>
         new(
             client,
             Options.Create(
@@ -138,6 +190,7 @@ public sealed class TelegramWebhookInitializerTests
                     BaseUrl = "https://bot.example.com",
                     UpdateEndpoint = "telegram/updates",
                     SecretToken = secretToken,
+                    DropPendingUpdates = dropPendingUpdates,
                 }
             ),
             NullLogger<TelegramWebhookInitializer>.Instance,

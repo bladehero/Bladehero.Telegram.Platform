@@ -93,6 +93,44 @@ public sealed class TelegramCommandMenuInitializerTests
         Assert.Null(exception);
     }
 
+    [Fact]
+    public async Task AHubThatHasForgottenTheMenuHearsItAgain()
+    {
+        var client = new FakeBotClient();
+
+        await InitializerFor(client).RepeatAsync(CancellationToken.None);
+
+        Assert.Equal(["start", "help"], client.SentMenu!.Select(x => x.Command));
+    }
+
+    [Fact]
+    public async Task AHubThatRemembersTheMenuIsLeftAlone()
+    {
+        var client = new FakeBotClient(menu: [Start, Help]);
+
+        await InitializerFor(client).RepeatAsync(CancellationToken.None);
+
+        Assert.Null(client.SentMenu);
+    }
+
+    [Fact]
+    public async Task WithSyncTurnedOffARepeatDoesNotAsk()
+    {
+        var client = new FakeBotClient();
+
+        await InitializerFor(client, sync: false).RepeatAsync(CancellationToken.None);
+
+        Assert.Empty(client.Requests);
+    }
+
+    [Fact]
+    public async Task ARepeatThatFailsSaysSo()
+    {
+        var initializer = InitializerFor(new FakeBotClient(unreachable: true));
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => initializer.RepeatAsync(CancellationToken.None));
+    }
+
     private static TelegramCommandMenuInitializer<TelegramReceiverConfiguration> InitializerFor(
         ITelegramBotClient client,
         BotCommand[]? declared = null,

@@ -179,7 +179,7 @@ public static class LongPollingDependencyInjection
         services.AddSingleton<ScopedUpdateHandler>();
         services.AddHostedService<TelegramBotIdentityInitializer>();
         services.AddHostedService<TelegramLongPollingInitializer>();
-        services.AddHostedService<TelegramCommandMenuInitializer<TelegramReceiverConfiguration>>();
+        services.AddRepeatedForTheHub<TelegramCommandMenuInitializer<TelegramReceiverConfiguration>>();
         services.AddHostedService<TelegramLongPollingBackgroundService>();
     }
 }
