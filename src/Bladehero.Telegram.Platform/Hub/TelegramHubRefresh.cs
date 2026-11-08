@@ -30,7 +30,8 @@ internal sealed class TelegramHubRefresh(
                 await Task.Delay(TimeSpan.FromSeconds(1), time, waiting.Token);
             }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        // Not only a cancellation: Telegram.Bot reports a call cut short while its answer is read as a RequestException.
+        catch (Exception) when (waiting.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(
                 "The hub didn't answer within {Wait}: signed-in people stay, and new sign-ins wait for it",
@@ -77,9 +78,9 @@ internal sealed class TelegramHubRefresh(
                 succeeded = await RefreshAsync(stopping) && await RepeatRegistrationsAsync(stopping);
             }
         }
-        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        catch (Exception) when (stopping.IsCancellationRequested)
         {
-            // The app is stopping.
+            // The app is stopping, whatever the call it cut short threw.
         }
     }
 
