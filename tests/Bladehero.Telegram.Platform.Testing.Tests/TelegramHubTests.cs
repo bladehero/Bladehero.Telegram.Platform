@@ -7,6 +7,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Telegram.Bot;
+using Telegram.Bot.Args;
+using Telegram.Bot.Exceptions;
+using Telegram.Bot.Requests.Abstractions;
+using Telegram.Bot.Types;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
@@ -235,15 +239,53 @@ public sealed class TelegramHubTests
         }
     }
 
+    [Fact]
+    public async Task ACallCutShortWhileStopping_ShouldEndTheRefreshQuietly()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        api.SetHubPeople((111, "Ник"));
+        var client = new CutShortClient(api.CreateClient());
+        await using var provider = Provider(api, x => x.RefreshEvery = TimeSpan.FromMilliseconds(20), client: client);
+        await StartAsync(provider);
+        client.CutShort("getHubPeople");
+        await client.Reached.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Act
+        var stop = () => StopAsync(provider);
+
+        // Assert
+        await stop.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task ACallCutShortWhenTheStartWaitEnds_ShouldStartAnyway()
+    {
+        // Arrange
+        var api = new FakeBotApi();
+        api.SetHubPeople((111, "Ник"));
+        var client = new CutShortClient(api.CreateClient());
+        client.CutShort("setHubApp");
+        await using var provider = Provider(api, x => x.StartWait = TimeSpan.FromMilliseconds(200), client: client);
+
+        // Act
+        var start = () => StartAsync(provider);
+
+        // Assert
+        await start.Should().NotThrowAsync();
+        provider.GetRequiredService<ITelegramHub>().KnowsPeople.Should().BeFalse();
+    }
+
     private static ServiceProvider Provider(
         FakeBotApi api,
         Action<TelegramHubConfiguration>? configure = null,
-        string token = Key
+        string token = Key,
+        ITelegramBotClient? client = null
     )
     {
         var services = new ServiceCollection();
         services.AddSingleton(typeof(Microsoft.Extensions.Logging.ILogger<>), typeof(NullLogger<>));
-        services.AddSingleton<ITelegramBotClient>(api.CreateClient());
+        services.AddSingleton<ITelegramBotClient>(client ?? api.CreateClient());
         services.AddTelegramBot(x =>
         {
             x.Token = token;
@@ -269,6 +311,14 @@ public sealed class TelegramHubTests
         }
     }
 
+    private static async Task StopAsync(ServiceProvider provider)
+    {
+        foreach (var service in provider.GetServices<IHostedService>().OfType<IHostedLifecycleService>())
+        {
+            await service.StoppingAsync(CancellationToken.None);
+        }
+    }
+
     private static async Task WaitUntilAsync(Func<bool> done)
     {
         for (var i = 0; i < 200 && !done(); i++)
@@ -277,5 +327,74 @@ public sealed class TelegramHubTests
         }
 
         done().Should().BeTrue();
+    }
+
+    // Telegram.Bot itself, when a call is cut short while its answer is read: a RequestException, not a cancellation.
+    private sealed class CutShortClient(ITelegramBotClient inner) : ITelegramBotClient
+    {
+        private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile string? _method;
+
+        public Task Reached => _reached.Task;
+
+        public bool LocalBotServer => inner.LocalBotServer;
+
+        public long BotId => inner.BotId;
+
+        public TimeSpan Timeout
+        {
+            get => inner.Timeout;
+            set => inner.Timeout = value;
+        }
+
+        public IExceptionParser ExceptionsParser
+        {
+            get => inner.ExceptionsParser;
+            set => inner.ExceptionsParser = value;
+        }
+
+        public event AsyncEventHandler<ApiRequestEventArgs>? OnMakingApiRequest
+        {
+            add => inner.OnMakingApiRequest += value;
+            remove => inner.OnMakingApiRequest -= value;
+        }
+
+        public event AsyncEventHandler<ApiResponseEventArgs>? OnApiResponseReceived
+        {
+            add => inner.OnApiResponseReceived += value;
+            remove => inner.OnApiResponseReceived -= value;
+        }
+
+        public void CutShort(string method) => _method = method;
+
+        public async Task<TResponse> SendRequest<TResponse>(
+            IRequest<TResponse> request,
+            CancellationToken cancellationToken = default
+        )
+        {
+            if (request.MethodName != _method)
+            {
+                return await inner.SendRequest(request, cancellationToken);
+            }
+
+            _reached.TrySetResult();
+            try
+            {
+                await Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
+                throw new InvalidOperationException("Never reached");
+            }
+            catch (TaskCanceledException cancelled)
+            {
+                throw new RequestException("There was an exception during deserialization of the response", cancelled);
+            }
+        }
+
+        public Task<bool> TestApi(CancellationToken cancellationToken = default) => inner.TestApi(cancellationToken);
+
+        public Task DownloadFile(string filePath, Stream destination, CancellationToken cancellationToken = default) =>
+            inner.DownloadFile(filePath, destination, cancellationToken);
+
+        public Task DownloadFile(TGFile file, Stream destination, CancellationToken cancellationToken = default) =>
+            inner.DownloadFile(file, destination, cancellationToken);
     }
 }
