@@ -1,3 +1,4 @@
+using Bladehero.Telegram.Platform.Hub;
 using Bladehero.Telegram.Platform.Receiving.CommandMenu;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,7 +13,7 @@ internal sealed class TelegramCommandMenuInitializer<TConfiguration>(
     IBotCommandMenu menu,
     IOptions<TConfiguration> options,
     ILogger<TelegramCommandMenuInitializer<TConfiguration>> logger
-) : IHostedLifecycleService
+) : IHostedLifecycleService, ITelegramHubRegistration
     where TConfiguration : TelegramReceiverConfiguration
 {
     public async Task StartingAsync(CancellationToken cancellationToken)
@@ -22,8 +23,7 @@ internal sealed class TelegramCommandMenuInitializer<TConfiguration>(
             return;
         }
 
-        var configuration = options.Value;
-        if (!configuration.SyncCommandMenu)
+        if (!options.Value.SyncCommandMenu)
         {
             logger.LogInformation("Command menu sync is turned off, so the menu Telegram shows is left as it is");
             return;
@@ -31,22 +31,39 @@ internal sealed class TelegramCommandMenuInitializer<TConfiguration>(
 
         try
         {
-            var scope = ScopeOf(configuration.CommandMenuScope);
-            var shown = await client.GetMyCommands(scope, cancellationToken: cancellationToken);
-
-            if (Matches(shown))
-            {
-                logger.LogInformation("Command menu is up to date: {Count} commands", shown.Length);
-                return;
-            }
-
-            await client.SetMyCommands(menu.Commands, scope, cancellationToken: cancellationToken);
-            logger.LogInformation("Command menu updated: {Count} commands", menu.Commands.Count);
+            logger.LogInformation(
+                await SyncAsync(cancellationToken)
+                    ? "Command menu updated: {Count} commands"
+                    : "Command menu is up to date: {Count} commands",
+                menu.Commands.Count
+            );
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to update the command menu");
         }
+    }
+
+    public async Task RepeatAsync(CancellationToken cancellationToken)
+    {
+        if (menu.Commands.Count > 0 && options.Value.SyncCommandMenu && await SyncAsync(cancellationToken))
+        {
+            logger.LogInformation("The hub has been told about the {Count} commands again", menu.Commands.Count);
+        }
+    }
+
+    // Whether the menu had to change.
+    private async Task<bool> SyncAsync(CancellationToken cancellationToken)
+    {
+        var scope = ScopeOf(options.Value.CommandMenuScope);
+        var shown = await client.GetMyCommands(scope, cancellationToken: cancellationToken);
+        if (Matches(shown))
+        {
+            return false;
+        }
+
+        await client.SetMyCommands(menu.Commands, scope, cancellationToken: cancellationToken);
+        return true;
     }
 
     private bool Matches(IReadOnlyList<BotCommand> shown) =>

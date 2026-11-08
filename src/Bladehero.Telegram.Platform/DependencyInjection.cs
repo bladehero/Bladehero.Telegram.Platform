@@ -170,16 +170,38 @@ public static class DependencyInjection
         Func<IServiceProvider, HttpClient>? httpClientFactory
     )
     {
+        // Says what's wrong rather than Telegram.Bot's bare UriFormatException. When the client is first built, not on
+        // start: checking on start would build these options, and their dependencies, earlier than apps are used to.
+        // Once, however many times the bot is added: OptionsBuilder.Validate would repeat the rule in the message.
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<TelegramBotConfiguration>, ApiBaseUrlValidator>()
+        );
+
         // One client per bot: a client the app registers itself, before or after, is the one the library uses too.
         services.TryAddSingleton<ITelegramBotClient>(provider =>
         {
             var botConfiguration = provider.GetRequiredService<IOptions<TelegramBotConfiguration>>().Value;
-            var options = new TelegramBotClientOptions(botConfiguration.Token);
+            var options = new TelegramBotClientOptions(botConfiguration.Token, botConfiguration.ApiBaseUrlIfSet);
             return new TelegramBotClient(options, httpClientFactory?.Invoke(provider));
         });
 
         // Records the client's calls when AddTelegramHistory came first.
         TelegramHistoryClients.Decorate(services);
         services.TryAddSingleton<ITelegramMessages, TelegramMessages>();
+    }
+
+    private sealed class ApiBaseUrlValidator : IValidateOptions<TelegramBotConfiguration>
+    {
+        public ValidateOptionsResult Validate(string? name, TelegramBotConfiguration options)
+        {
+            if (!options.ApiBaseUrlIsValid)
+            {
+                return ValidateOptionsResult.Fail(TelegramBotConfiguration.ApiBaseUrlRule);
+            }
+
+            return options.HubKeyHasAnAddress
+                ? ValidateOptionsResult.Success
+                : ValidateOptionsResult.Fail(TelegramBotConfiguration.HubKeyRule);
+        }
     }
 }

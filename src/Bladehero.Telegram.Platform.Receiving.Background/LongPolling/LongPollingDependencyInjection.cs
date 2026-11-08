@@ -168,14 +168,18 @@ public static class LongPollingDependencyInjection
     )
     {
         services.AddTelegramBot<IOptions<TelegramReceiverConfiguration>>(
-            (bot, receiver) => bot.Token = receiver.Value.Token,
+            (bot, receiver) =>
+            {
+                bot.Token = receiver.Value.Token;
+                bot.ApiBaseUrl = receiver.Value.ApiBaseUrlIfSet ?? bot.ApiBaseUrl;
+            },
             httpClientFactory
         );
         services.AddTelegramReceiving(assemblies);
         services.AddSingleton<ScopedUpdateHandler>();
         services.AddHostedService<TelegramBotIdentityInitializer>();
         services.AddHostedService<TelegramLongPollingInitializer>();
-        services.AddHostedService<TelegramCommandMenuInitializer<TelegramReceiverConfiguration>>();
+        services.AddRepeatedForTheHub<TelegramCommandMenuInitializer<TelegramReceiverConfiguration>>();
         services.AddHostedService<TelegramLongPollingBackgroundService>();
     }
 }

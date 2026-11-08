@@ -292,7 +292,11 @@ public static class WebhookDependencyInjection
     )
     {
         services.AddTelegramBot<IOptions<TelegramWebhookConfiguration>>(
-            (bot, webhook) => bot.Token = webhook.Value.Token,
+            (bot, webhook) =>
+            {
+                bot.Token = webhook.Value.Token;
+                bot.ApiBaseUrl = webhook.Value.ApiBaseUrlIfSet ?? bot.ApiBaseUrl;
+            },
             httpClientFactory
         );
         services.AddTelegramReceiving(assemblies);
@@ -302,8 +306,8 @@ public static class WebhookDependencyInjection
             .Validate(configuration => configuration.BaseUrlIsValid, TelegramWebhookConfiguration.BaseUrlRule)
             .ValidateOnStart();
         services.AddHostedService<TelegramBotIdentityInitializer>();
-        services.AddHostedService<TelegramWebhookInitializer>();
-        services.AddHostedService<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>();
+        services.AddRepeatedForTheHub<TelegramWebhookInitializer>();
+        services.AddRepeatedForTheHub<TelegramCommandMenuInitializer<TelegramWebhookConfiguration>>();
     }
 
     /// <summary>
