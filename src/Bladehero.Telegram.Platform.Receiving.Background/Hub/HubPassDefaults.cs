@@ -22,6 +22,23 @@ public static class HubPassDefaults
     public const string HubAppClaim = "hub_app";
 
     /// <summary>
+    /// The person a person pass acted for, by Telegram id: present only on a principal made from one. See
+    /// <c>ClaimsPrincipal.HubPerson()</c>.
+    /// </summary>
+    public const string HubPersonClaim = "hub_person";
+
+    /// <summary>The delegate a person pass came through, such as <c>home</c>: present only beside <see cref="HubPersonClaim"/>.</summary>
+    public const string HubViaClaim = "hub_via";
+
+    /// <summary>
+    /// The id this app gives a person's connection at a delegate: <see cref="ClientIdOf"/> of <c>&lt;via&gt;:&lt;connection
+    /// id&gt;</c>, so Home's connection <c>8b1e…</c> is <c>ClientIdOf("home:8b1e…")</c> everywhere.
+    /// </summary>
+    /// <param name="via">The delegate's slug.</param>
+    /// <param name="connection">The connection's id at the delegate.</param>
+    public static Guid ConnectionIdOf(string via, Guid connection) => ClientIdOf($"{via}:{connection:D}");
+
+    /// <summary>
     /// The id a caller gets as <see cref="ClientIdClaim"/> unless <see cref="HubPassOptions.ClientIds"/> names another:
     /// the same for the same slug everywhere, so what it writes stays its own across restarts.
     /// </summary>

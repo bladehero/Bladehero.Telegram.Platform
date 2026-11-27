@@ -11,7 +11,8 @@ namespace Bladehero.Telegram.Platform.Hub;
 
 // Checks a pass on Authorization: Bearer, in the plan's order: the door, the algorithm, the key, the signature, the issuer,
 // the audience, the time. What it may do is the route's to check, by scope. Anything that isn't shaped like a pass is left
-// to the app's other schemes, so its keys and passes share one header.
+// to the app's other schemes, so its keys and passes share one header. A pass naming a person is checked further, then
+// made into the principal the app's own People callback gives.
 internal sealed class HubPassAuthentication(
     IOptionsMonitor<HubPassOptions> options,
     ILoggerFactory logger,
@@ -23,6 +24,10 @@ internal sealed class HubPassAuthentication(
 ) : AuthenticationHandler<HubPassOptions>(options, logger, encoder)
 {
     private const string Bearer = "Bearer ";
+
+    // A person pass's own claims: whom it acts for, and the connection at the delegate it came through.
+    private const string PersonClaim = "person";
+    private const string ConnectionClaim = "cnx";
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -112,10 +117,16 @@ internal sealed class HubPassAuthentication(
             return AuthenticateResult.Fail("The hub pass names no caller.");
         }
 
-        // Passes that act for a person come later, from callers allowed to ask for them; until then they're refused.
-        if (pass.Claims.ContainsKey("person"))
+        // A delegate acts only for a person, and only a delegate does: the two kinds of pass never stand in for each other.
+        var isDelegate = Options.Delegates.Contains(caller, StringComparer.Ordinal);
+        if (pass.Claims.ContainsKey(PersonClaim))
         {
-            return AuthenticateResult.Fail("A pass that acts for a person isn't taken here.");
+            return await PersonAsync(pass, caller, isDelegate);
+        }
+
+        if (isDelegate)
+        {
+            return AuthenticateResult.Fail("A delegate's pass acts for a person, and this one names none.");
         }
 
         var principal = HubPassPrincipal.For(
@@ -125,6 +136,80 @@ internal sealed class HubPassAuthentication(
             Options.ClientIds.TryGetValue(caller, out var known) ? known : HubPassDefaults.ClientIdOf(caller)
         );
         return AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
+    }
+
+    // The app's own callback makes the principal its own key would give the person, from what's left after these checks.
+    private async Task<AuthenticateResult> PersonAsync(ReadPass pass, string caller, bool isDelegate)
+    {
+        if (Options.People is not { } people)
+        {
+            return AuthenticateResult.Fail("This app takes no pass that acts for a person.");
+        }
+
+        if (!isDelegate)
+        {
+            return AuthenticateResult.Fail(
+                "The hub pass acts for a person, and its caller isn't one this app lets do that."
+            );
+        }
+
+        if (!Options.PeoplePaths.Any(path => Request.Path.StartsWithSegments(path, StringComparison.OrdinalIgnoreCase)))
+        {
+            return AuthenticateResult.Fail("A pass that acts for a person doesn't count on this path.");
+        }
+
+        if (Number(pass.Claims, PersonClaim) is not { } person || person <= 0)
+        {
+            return AuthenticateResult.Fail("The hub pass names no person.");
+        }
+
+        if (
+            pass.Claims[ConnectionClaim] is not JsonObject connection
+            || !Guid.TryParseExact(Text(connection, "id"), "D", out var connectionId)
+            || connectionId == Guid.Empty
+            || Text(connection, "name") is not { } connectionName
+            || !TelegramHubPersonConnection.IsName(connectionName)
+        )
+        {
+            return AuthenticateResult.Fail("The hub pass names no connection it came through.");
+        }
+
+        // What people may grant here, as this app says it: a hub that gave more doesn't widen it.
+        var forPeople = hub
+            .Value.Scopes.Where(scope => scope.ForPeople)
+            .Select(scope => scope.Scope)
+            .ToHashSet(StringComparer.Ordinal);
+        string[] scopes =
+        [
+            .. (Text(pass.Claims, "scope") ?? "")
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(forPeople.Contains)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        if (scopes.Length == 0)
+        {
+            return AuthenticateResult.Fail("The hub pass carries nothing a person may grant here.");
+        }
+
+        var given = await people(
+            new HubPassPerson(
+                person,
+                caller,
+                HubPassDefaults.ConnectionIdOf(caller, connectionId),
+                connectionName,
+                scopes,
+                Context.RequestServices
+            ),
+            Context.RequestAborted
+        );
+        if (given is null)
+        {
+            return AuthenticateResult.Fail("This app doesn't know the person the hub pass acts for.");
+        }
+
+        return AuthenticateResult.Success(
+            new AuthenticationTicket(HubPassPrincipal.ForPerson(given, person, caller, scopes), Scheme.Name)
+        );
     }
 
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)
@@ -160,10 +245,49 @@ internal sealed class HubPassAuthentication(
         json[name] is JsonValue value && value.TryGetValue<long>(out var number) ? number : null;
 }
 
-// One shape for every caller: what an app's own key gives (client_id, client_name, scope), plus hub_app. A pass that acts
-// for a person will add the person to the same principal.
+// One shape for every caller: what an app's own key gives (client_id, client_name, scope), plus hub_app. A person pass
+// gives the principal the app's own callback made, as the person's key would, plus hub_person and hub_via: never hub_app,
+// which means an app acting for itself.
 internal static class HubPassPrincipal
 {
+    public static ClaimsPrincipal ForPerson(
+        ClaimsPrincipal given,
+        long person,
+        string via,
+        IReadOnlyList<string> scopes
+    )
+    {
+        List<ClaimsIdentity> identities =
+        [
+            .. given.Identities.Select(identity => new ClaimsIdentity(
+                identity.Claims.Where(claim =>
+                    !claim.Type.StartsWith("hub_", StringComparison.Ordinal)
+                    && (
+                        claim.Type != HubPassDefaults.ScopeClaim || scopes.Contains(claim.Value, StringComparer.Ordinal)
+                    )
+                ),
+                identity.AuthenticationType ?? HubPassDefaults.Scheme,
+                identity.NameClaimType,
+                identity.RoleClaimType
+            )),
+        ];
+        if (identities.Count == 0)
+        {
+            identities.Add(new ClaimsIdentity(HubPassDefaults.Scheme));
+        }
+
+        identities[0]
+            .AddClaim(
+                new Claim(
+                    HubPassDefaults.HubPersonClaim,
+                    person.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ClaimValueTypes.Integer64
+                )
+            );
+        identities[0].AddClaim(new Claim(HubPassDefaults.HubViaClaim, via));
+        return new ClaimsPrincipal(identities);
+    }
+
     public static ClaimsPrincipal For(string caller, string? name, IEnumerable<string> scopes, Guid clientId) =>
         new(
             new ClaimsIdentity(

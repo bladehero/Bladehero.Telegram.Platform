@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Http;
 
 namespace Bladehero.Telegram.Platform.Hub;
 
@@ -31,6 +33,32 @@ public sealed class HubPassOptions : AuthenticationSchemeOptions
     /// connection before, so what it wrote stays its own.
     /// </summary>
     public IDictionary<string, Guid> ClientIds { get; set; } = new Dictionary<string, Guid>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Turns a person pass into the principal this app's own key would give that person, or <c>null</c> to refuse it (a
+    /// person the app doesn't know and won't admit). Without it, no person pass is taken, as before 10.8.
+    /// </summary>
+    /// <remarks>
+    /// Called only for a pass that has passed every check: from a caller in <see cref="Delegates"/>, on a path in
+    /// <see cref="PeoplePaths"/>, its scopes already cut to the ones this app marks <see cref="TelegramHubScope.ForPeople"/>,
+    /// at least one left. The principal then gets <see cref="HubPassDefaults.HubPersonClaim"/> and
+    /// <see cref="HubPassDefaults.HubViaClaim"/>; any <c>hub_*</c> claim it had, and any <c>scope</c> claim outside
+    /// <see cref="HubPassPerson.Scopes"/>, are taken off.
+    /// </remarks>
+    public Func<HubPassPerson, CancellationToken, Task<ClaimsPrincipal?>>? People { get; set; }
+
+    /// <summary>
+    /// The callers whose person passes count here: <c>home</c> by default. The hub gives person passes to its own
+    /// delegates only; this says it again here, so a mistake there doesn't open this app. A delegate's pass that names no
+    /// person is refused: it never acts as itself.
+    /// </summary>
+    public IList<string> Delegates { get; set; } = ["home"];
+
+    /// <summary>
+    /// The paths a person pass counts on, each with whatever is below it: <c>/mcp</c> by default. Anywhere else, such as
+    /// <c>/internal/*</c>, <c>/api/*</c> or a route with <c>RequireHubScope</c>, it gets 401.
+    /// </summary>
+    public IList<PathString> PeoplePaths { get; set; } = [new PathString("/mcp")];
 
     /// <summary>How far the clocks may differ on <c>nbf</c> and <c>exp</c>. 30 seconds by default.</summary>
     public TimeSpan ClockSkew { get; set; } = TimeSpan.FromSeconds(30);

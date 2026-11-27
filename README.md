@@ -39,7 +39,7 @@ No registration, no routing table: drop the class in a scanned assembly.
   [logs](#logs) · [history](#read-the-history) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
   [files](#send-and-read-files) · [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) ·
   [races](#stage-a-race) · [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
-- [Behind a hub](#behind-a-hub): [passes between apps](#calling-another-app-with-a-pass)
+- [Behind a hub](#behind-a-hub): [passes between apps](#calling-another-app-with-a-pass), [passes for a person](#passes-for-a-person)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
 
@@ -1606,6 +1606,67 @@ good; after that a request fails with `TelegramHubPassUnavailableException`, an 
 callee, whose keys `TelegramTestHost` serves from the fake. A callee whose test token isn't a hub key sets its slug:
 `services.Configure<HubPassOptions>(HubPassDefaults.Scheme, o => o.Audience = "familybudget")`.
 
+### Passes for a person
+
+A **delegate** app (Home, which connects a person's Claude to the apps they use) gets passes that act for one person
+through one of their connections: `sub` is the delegate, and the pass adds `person` (their Telegram id) and `cnx` (`id`,
+`name`). The hub gives one only to an app in its `Hub__Delegates`, only for a person on its list who may use both the
+delegate and the callee, with the scopes that are in the owner's cap (`Hub__Grants__home__<callee>`), in the callee's
+scopes for people, and in what was asked. A delegate gets no pass for itself, and no other app gets one for a person.
+
+**The callee** marks the scopes a person may grant, and turns a person pass into the principal that person's own key
+would give, so every tool and scope check works unchanged:
+
+```csharp
+services.AddTelegramHub(hub => hub.Scopes =
+[
+    new("people:read", "Люди"),                                   // for apps only, as before
+    new("read", "Видеть тренировки", ForPeople: true),             // a person may grant it through Home
+    new("workouts:write", "Записывать тренировки", ForPeople: true),
+]);
+
+services.AddAuthentication().AddHubPasses(o => o.People = async (person, cancellationToken) =>
+{
+    // person.TelegramId, person.Via ("home"), person.ConnectionId (fixed: HubPassDefaults.ConnectionIdOf("home", cnx)),
+    // person.ConnectionName, person.Scopes (cut to this app's ForPeople scopes), person.Services (the request's)
+    var users = person.Services.GetRequiredService<Users>();
+    var user = await users.FindOrAdmitAsync(person.TelegramId, cancellationToken);
+    return user is null ? null : KeyPrincipal(person.ConnectionId, person.ConnectionName, user, person.Scopes);
+});
+```
+
+- **Only with the callback.** Without `People`, a person pass is refused, as before 10.8.
+- **Only on `/mcp`** (`PeoplePaths`, each with what's below it). Anywhere else, `/internal/*`, `/api/*`, is 401, and a
+  `RequireHubScope` route is never open to one (403): a person reads what their MCP key reads, never an app's feed.
+- **Only from a delegate** (`Delegates`, `["home"]` by default), checked again here. A delegate's pass naming no person
+  is refused everywhere.
+- **Scopes are cut here too**, to the ones marked `ForPeople`; nothing left is 401. The callback returning `null` (a
+  person the app won't admit) is 401.
+- **The principal** is the callback's, plus `hub_person` and `hub_via`, without any `hub_*` claim of its own and without
+  a `scope` claim outside `person.Scopes`. It has no `hub_app`, so `HasHubScope` is false and code that tells passes
+  from keys by `HubApp()` treats it as a key. `User.HubPerson()` and `User.HubVia()` read the two.
+- The connection's id is the same everywhere for the same connection, so a client's retry with the same request id
+  answers the first save, and a renamed connection keeps what it wrote.
+
+**The delegate** asks through `ITelegramHubPersonPasses`, registered by `AddTelegramHubPasses()`:
+
+```csharp
+var apps = await people.GetAppsAsync(telegramId, token);         // getHubApps: slug, title, site, scopes for people
+var connection = new TelegramHubPersonConnection(id, "Claude · Ник");
+var pass = await people.GetAsync("gym", telegramId, connection, ["read", "workouts:write"], token);
+people.Forget(connection.Id);                                      // when the connection is deleted
+```
+
+A person pass is kept per person, connection, audience and scopes asked, so one person's is never handed out for
+another, and renewed five minutes before its end. While the hub is down the last one serves; when the hub refuses (the
+person was taken off that app, the cap went), the kept one is dropped at once and the call fails with
+`TelegramHubPassUnavailableException`. `GetAppsAsync` isn't cached.
+
+**In component tests:** `Api.IssuePersonPass("home", "gym", 123, new(id, "Claude · Ник"), "read")` for a request to a
+callee; for the delegate, `Api.HubSlug = "home"`, `Api.GrantPersonPass(123, "gym", "read")` and
+`Api.DescribeHubApp("gym", "Gym", "https://gym.example", scopes)`. `Api.HubDelegates` is `["home"]` by default; with
+`HubSlug` outside it, the fake refuses a person as the hub does.
+
 ## Samples
 
 - [`Sandbox`](src/Bladehero.Telegram.Platform.Sandbox): a long-polling coffee shop, composed in one `AddCoffeeShop` that
@@ -1757,6 +1818,13 @@ optionally, `Telegram:SecretToken`.
 - The manifest always carries `scopes`, empty unless set; a hub older than passes ignores it.
 - New: [`ClaimPatterns` and `FallbackFor`](#behind-a-hub) in the manifest, for a hub that keeps every app in one chat.
   Both are sent always, empty unless set; an older hub ignores them.
+
+### To 10.8
+
+- New: [passes for a person](#passes-for-a-person). `TelegramHubScope` gains `ForPeople` (sent as `people`, left out
+  when false, so a manifest without it is the one sent before). A callee opts in with `HubPassOptions.People`; until it
+  does, person passes are refused as before. A delegate gets `ITelegramHubPersonPasses` from `AddTelegramHubPasses()`.
+- A hub pass from a delegate (`HubPassOptions.Delegates`, `home` by default) that names no person is now refused.
 
 ## License
 

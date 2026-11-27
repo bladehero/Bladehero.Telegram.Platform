@@ -63,6 +63,7 @@ public sealed partial class FakeBotApi
         "setHubApp",
         "getHubPeople",
         "getHubPass",
+        "getHubApps",
     };
 
     private readonly object _gate = new();
@@ -490,6 +491,7 @@ public sealed partial class FakeBotApi
             "setHubApp" => SetHubApp(parameters),
             "getHubPeople" => GetHubPeople(),
             "getHubPass" => GetHubPass(parameters),
+            "getHubApps" => GetHubApps(parameters),
             "createForumTopic" => CreateForumTopic(parameters),
             "editForumTopic" => ChangeForumTopic(parameters, delete: false),
             "deleteForumTopic" => ChangeForumTopic(parameters, delete: true),

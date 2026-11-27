@@ -22,7 +22,8 @@ public static class HubPassAuthenticationExtensions
     /// hub is down the last ones serve; an app whose bot isn't behind a hub reads none and takes no pass. A request that
     /// carried <c>X-Forwarded-For</c>, <c>X-Original-For</c> or <c>Forwarded</c>, or came for a public host, gets no
     /// pass in, whatever a forwarded-headers middleware did to it. A route says what it needs with
-    /// <see cref="RequireHubScope{TBuilder}"/>.
+    /// <see cref="RequireHubScope{TBuilder}"/>. A pass a delegate such as Home got for a person counts only where
+    /// <see cref="HubPassOptions.People"/> is set, on <see cref="HubPassOptions.PeoplePaths"/>.
     /// </remarks>
     /// <param name="builder">The app's authentication.</param>
     /// <param name="configure">Changes the defaults, which suit an app behind the hub.</param>
@@ -72,7 +73,10 @@ public static class HubPassAuthenticationExtensions
     /// <c>app.MapGet("/internal/income/credits", …).RequireHubScope("credits:read")</c>. On a group and on a route in it,
     /// both are required.
     /// </summary>
-    /// <remarks>Without a pass the answer is 401, and with a pass that lacks the scope, 403.</remarks>
+    /// <remarks>
+    /// Without a pass the answer is 401, and with a pass that lacks the scope, 403. A person pass is never let in here: it
+    /// is a key the person made, not an app calling.
+    /// </remarks>
     /// <param name="builder">The route or group.</param>
     /// <param name="scope">The scope, one this app declares in its manifest's <c>Scopes</c>.</param>
     /// <typeparam name="TBuilder">The route's or group's builder.</typeparam>
@@ -93,8 +97,28 @@ public static class HubPassAuthenticationExtensions
     public static bool HasHubScope(this ClaimsPrincipal principal, string scope) =>
         principal.HubApp() is not null && principal.HasClaim(HubPassDefaults.ScopeClaim, scope);
 
-    /// <summary>The calling app's slug when it came with a hub pass, else <c>null</c>.</summary>
+    /// <summary>
+    /// The calling app's slug when it came with a hub pass for itself, else <c>null</c>: a person pass has none, as a
+    /// person's own key has none.
+    /// </summary>
     /// <param name="principal">The request's user.</param>
     public static string? HubApp(this ClaimsPrincipal principal) =>
         principal.FindFirst(HubPassDefaults.HubAppClaim)?.Value;
+
+    /// <summary>The Telegram id of the person a person pass acted for, else <c>null</c>.</summary>
+    /// <param name="principal">The request's user.</param>
+    public static long? HubPerson(this ClaimsPrincipal principal) =>
+        long.TryParse(
+            principal.FindFirst(HubPassDefaults.HubPersonClaim)?.Value,
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var person
+        )
+            ? person
+            : null;
+
+    /// <summary>The delegate a person pass came through, such as <c>home</c>, else <c>null</c>.</summary>
+    /// <param name="principal">The request's user.</param>
+    public static string? HubVia(this ClaimsPrincipal principal) =>
+        principal.FindFirst(HubPassDefaults.HubViaClaim)?.Value;
 }

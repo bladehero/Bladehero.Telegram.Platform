@@ -40,6 +40,12 @@ public sealed class TelegramHubTests
             api.HubApp["unlisted_commands"]![0]!.GetValue<string>().Should().Be("password");
             api.HubApp["scopes"]![0]!["scope"]!.GetValue<string>().Should().Be("plan:read");
             api.HubApp["scopes"]![0]!["label"]!.GetValue<string>().Should().Be("План");
+            api.HubApp["scopes"]![0]!
+                .AsObject()
+                .ContainsKey("people")
+                .Should()
+                .BeFalse("an app scope is sent as before");
+            api.HubApp["scopes"]![1]!["people"]!.GetValue<bool>().Should().BeTrue();
             api.HubApp["claim_patterns"]![0]!.GetValue<string>().Should().Be("^\\d{1,5}$");
             api.HubApp["fallback_for"]!
                 .AsArray()
@@ -355,7 +361,7 @@ public sealed class TelegramHubTests
             x.Site = "https://nutrition.example";
             x.TakesSignInCodes = true;
             x.UnlistedCommands = ["password"];
-            x.Scopes = [new("plan:read", "План")];
+            x.Scopes = [new("plan:read", "План"), new("read", "Видеть план", ForPeople: true)];
             x.ClaimPatterns = ["^\\d{1,5}$"];
             x.FallbackFor = HubFallback.Photo | HubFallback.Text;
             configure?.Invoke(x);

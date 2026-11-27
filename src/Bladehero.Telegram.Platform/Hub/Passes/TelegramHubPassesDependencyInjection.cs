@@ -11,13 +11,20 @@ public static class TelegramHubPassesDependencyInjection
     /// Registers <see cref="ITelegramHubPasses"/>, for a caller that sets the header itself, such as an MCP client that
     /// opens a session.
     /// </summary>
-    /// <remarks>The bot is registered as usual, with the app's hub key as its token and the hub as its address.</remarks>
+    /// <remarks>
+    /// The bot is registered as usual, with the app's hub key as its token and the hub as its address. It registers
+    /// <see cref="ITelegramHubPersonPasses"/> too, which only a delegate app such as Home gets anything from.
+    /// </remarks>
     /// <param name="services">The app's services.</param>
     /// <returns><paramref name="services"/>, for chaining.</returns>
     public static IServiceCollection AddTelegramHubPasses(this IServiceCollection services)
     {
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<ITelegramHubPasses, TelegramHubPasses>();
+        services.TryAddSingleton<TelegramHubPasses>();
+        services.TryAddSingleton<ITelegramHubPasses>(provider => provider.GetRequiredService<TelegramHubPasses>());
+        services.TryAddSingleton<ITelegramHubPersonPasses>(provider =>
+            provider.GetRequiredService<TelegramHubPasses>()
+        );
         return services;
     }
 
