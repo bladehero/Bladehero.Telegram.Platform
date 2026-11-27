@@ -44,6 +44,10 @@ internal sealed partial class TelegramHubClient(
                 TakesGroups = manifest.TakesGroups,
                 TakesSignInCodes = manifest.TakesSignInCodes,
                 UnlistedCommands = manifest.UnlistedCommands,
+                Scopes =
+                [
+                    .. manifest.Scopes.Select(scope => new HubScopeDto { Scope = scope.Scope, Label = scope.Label }),
+                ],
             },
             cancellationToken
         );

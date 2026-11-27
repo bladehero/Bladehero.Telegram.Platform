@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Bladehero.Telegram.Platform.Hub;
 using Bladehero.Telegram.Platform.Receiving.Commands.Typed.Messages;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -61,6 +62,7 @@ public sealed partial class FakeBotApi
         "setMyCommands",
         "setHubApp",
         "getHubPeople",
+        "getHubPass",
     };
 
     private readonly object _gate = new();
@@ -487,6 +489,7 @@ public sealed partial class FakeBotApi
             "getMe" => Me(),
             "setHubApp" => SetHubApp(parameters),
             "getHubPeople" => GetHubPeople(),
+            "getHubPass" => GetHubPass(parameters),
             "createForumTopic" => CreateForumTopic(parameters),
             "editForumTopic" => ChangeForumTopic(parameters, delete: false),
             "deleteForumTopic" => ChangeForumTopic(parameters, delete: true),
@@ -740,6 +743,11 @@ public sealed partial class FakeBotApi
         if (request.RequestUri!.AbsolutePath.StartsWith(FilePathPrefix, StringComparison.Ordinal))
         {
             return Download(request.RequestUri.AbsolutePath[FilePathPrefix.Length..]);
+        }
+
+        if (request.RequestUri.AbsolutePath == HubPassFormat.KeysPath && request.Method == HttpMethod.Get)
+        {
+            return HubKeys();
         }
 
         if (!request.RequestUri.AbsolutePath.StartsWith(MethodPathPrefix, StringComparison.Ordinal))

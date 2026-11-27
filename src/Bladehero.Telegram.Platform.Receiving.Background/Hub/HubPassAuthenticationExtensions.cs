@@ -1,0 +1,90 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+
+namespace Bladehero.Telegram.Platform.Hub;
+
+/// <summary>Lets other apps call this one with the hub's passes, each route asking for its own scope.</summary>
+public static class HubPassAuthenticationExtensions
+{
+    /// <summary>
+    /// Adds the <see cref="HubPassDefaults.Scheme"/> scheme: a pass on <c>Authorization: Bearer</c>, checked offline
+    /// against the hub's keys, and only on a request from inside the network.
+    /// </summary>
+    /// <remarks>
+    /// It answers nothing for a bearer token that isn't shaped like a pass, so an app's own keys keep working on the same
+    /// header under their own scheme. The keys are read at the start, every hour, and for a key id not seen yet; while the
+    /// hub is down the last ones serve. A route says what it needs with <see cref="RequireHubScope{TBuilder}"/>.
+    /// </remarks>
+    /// <param name="builder">The app's authentication.</param>
+    /// <param name="configure">Changes the defaults, which suit an app behind the hub.</param>
+    /// <returns><paramref name="builder"/>, for chaining.</returns>
+    public static AuthenticationBuilder AddHubPasses(
+        this AuthenticationBuilder builder,
+        Action<HubPassOptions>? configure = null
+    )
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton(TimeProvider.System);
+        builder.Services.AddHttpClient(HubPassFormat.KeysClient, client => client.Timeout = TimeSpan.FromSeconds(10));
+        builder.Services.TryAddSingleton<HubPassKeys>();
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, HubPassKeysRefresh>());
+
+        return builder.AddScheme<HubPassOptions, HubPassAuthentication>(HubPassDefaults.Scheme, configure);
+    }
+
+    /// <summary>
+    /// Requires a hub pass that carries <paramref name="scope"/>. Called again, it requires each scope named.
+    /// </summary>
+    /// <param name="policy">The policy, such as one an app's own keys take too.</param>
+    /// <param name="scope">The scope, one this app declares in its manifest's <c>Scopes</c>.</param>
+    /// <returns><paramref name="policy"/>, for chaining.</returns>
+    public static AuthorizationPolicyBuilder RequireHubScope(this AuthorizationPolicyBuilder policy, string scope)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+
+        if (!policy.AuthenticationSchemes.Contains(HubPassDefaults.Scheme))
+        {
+            policy.AddAuthenticationSchemes(HubPassDefaults.Scheme);
+        }
+
+        return policy.RequireClaim(HubPassDefaults.HubAppClaim).RequireClaim(HubPassDefaults.ScopeClaim, scope);
+    }
+
+    /// <summary>
+    /// Lets this route or group in only for a hub pass carrying <paramref name="scope"/>:
+    /// <c>app.MapGet("/internal/income/credits", …).RequireHubScope("credits:read")</c>. On a group and on a route in it,
+    /// both are required.
+    /// </summary>
+    /// <remarks>Without a pass the answer is 401, and with a pass that lacks the scope, 403.</remarks>
+    /// <param name="builder">The route or group.</param>
+    /// <param name="scope">The scope, one this app declares in its manifest's <c>Scopes</c>.</param>
+    /// <typeparam name="TBuilder">The route's or group's builder.</typeparam>
+    /// <returns><paramref name="builder"/>, for chaining.</returns>
+    public static TBuilder RequireHubScope<TBuilder>(this TBuilder builder, string scope)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        return builder.RequireAuthorization(policy => policy.RequireHubScope(scope));
+    }
+
+    /// <summary>
+    /// Whether this caller came with a hub pass carrying <paramref name="scope"/>, for a check inside one route that
+    /// does several things, such as an MCP tool.
+    /// </summary>
+    /// <param name="principal">The request's user.</param>
+    /// <param name="scope">The scope.</param>
+    public static bool HasHubScope(this ClaimsPrincipal principal, string scope) =>
+        principal.HubApp() is not null && principal.HasClaim(HubPassDefaults.ScopeClaim, scope);
+
+    /// <summary>The calling app's slug when it came with a hub pass, else <c>null</c>.</summary>
+    /// <param name="principal">The request's user.</param>
+    public static string? HubApp(this ClaimsPrincipal principal) =>
+        principal.FindFirst(HubPassDefaults.HubAppClaim)?.Value;
+}

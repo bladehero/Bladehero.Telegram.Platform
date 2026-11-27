@@ -18,6 +18,16 @@ public sealed class TelegramHubConfiguration
     /// <summary>Commands this app answers that its menu doesn't list, without the slash.</summary>
     public IReadOnlyList<string> UnlistedCommands { get; set; } = [];
 
+    /// <summary>
+    /// What other apps may be granted here, in this app's own words, each with a label for people, such as
+    /// <c>new("credits:read", "Поступления")</c>. The hub gives a caller a pass only for scopes listed here.
+    /// </summary>
+    /// <remarks>
+    /// A scope is lower-case letters, digits and <c>: . _ -</c>, up to 64. Each route or tool that another app may call
+    /// requires one, with <c>RequireHubScope</c>.
+    /// </remarks>
+    public IReadOnlyList<TelegramHubScope> Scopes { get; set; } = [];
+
     /// <summary>How often the list of people is read again, and this manifest sent again. Five minutes by default.</summary>
     public TimeSpan RefreshEvery { get; set; } = TimeSpan.FromMinutes(5);
 

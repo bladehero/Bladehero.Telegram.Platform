@@ -31,6 +31,15 @@ public static class TelegramHubDependencyInjection
                 configuration => !string.IsNullOrWhiteSpace(configuration.Title),
                 "The hub needs the app's Title."
             )
+            .Validate(
+                configuration =>
+                    configuration.Scopes.All(scope =>
+                        TelegramHubScope.IsValid(scope.Scope) && !string.IsNullOrWhiteSpace(scope.Label)
+                    )
+                    && configuration.Scopes.Select(scope => scope.Scope).Distinct(StringComparer.Ordinal).Count()
+                        == configuration.Scopes.Count,
+                "Each of the hub's Scopes is lower-case letters, digits and : . _ -, up to 64, listed once, with a label."
+            )
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);

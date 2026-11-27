@@ -38,6 +38,8 @@ public sealed class TelegramHubTests
             api.HubApp["takes_sign_in_codes"]!.GetValue<bool>().Should().BeTrue();
             api.HubApp.ContainsKey("takes_groups").Should().BeFalse("a false value is left out");
             api.HubApp["unlisted_commands"]![0]!.GetValue<string>().Should().Be("password");
+            api.HubApp["scopes"]![0]!["scope"]!.GetValue<string>().Should().Be("plan:read");
+            api.HubApp["scopes"]![0]!["label"]!.GetValue<string>().Should().Be("План");
             hub.KnowsPeople.Should().BeTrue();
             hub.People.Should().HaveCount(2);
             hub.FindPerson(222)!.Name.Should().Be("Катя");
@@ -297,6 +299,7 @@ public sealed class TelegramHubTests
             x.Site = "https://nutrition.example";
             x.TakesSignInCodes = true;
             x.UnlistedCommands = ["password"];
+            x.Scopes = [new("plan:read", "План")];
             configure?.Invoke(x);
         });
         return services.BuildServiceProvider();

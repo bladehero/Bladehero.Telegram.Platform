@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Bladehero.Telegram.Platform.History;
+using Bladehero.Telegram.Platform.Hub;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -482,6 +483,9 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
         {
             TelegramHistoryClients.Decorate(services);
         }
+
+        // The hub's keys, for an app that checks passes: the fake signs them, so it serves them too.
+        services.AddHttpClient(HubPassFormat.KeysClient).ConfigurePrimaryHttpMessageHandler(() => api.CreateHandler());
 
         // Added last, so the app's ClearProviders can't remove it, with a rule its own filters can't override.
         services.AddSingleton<ILoggerProvider>(errors.Logs);

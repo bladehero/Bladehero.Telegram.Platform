@@ -39,7 +39,7 @@ No registration, no routing table: drop the class in a scanned assembly.
   [logs](#logs) · [history](#read-the-history) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
   [files](#send-and-read-files) · [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) ·
   [races](#stage-a-race) · [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
-- [Behind a hub](#behind-a-hub)
+- [Behind a hub](#behind-a-hub): [passes between apps](#calling-another-app-with-a-pass)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
 
@@ -1526,6 +1526,61 @@ what's waiting, whatever `DropPendingUpdates` says.
 | `KnowsPeople` | Whether a list with anyone on it has arrived since the app started. Start waits up to 30 seconds for one. Until then, keep signed-in people signed in and refuse new sign-ins. |
 | `SignInLinkAsync(code)` | `https://t.me/<bot>?start=<prefix>-<code>`. The hub takes the prefix off, so the app's `/start` command gets the plain code. |
 
+### Calling another app with a pass
+
+Apps behind one hub call each other inside their network with **passes**: short-lived tokens the hub signs, naming the
+caller (from its key), the callee and the scopes the caller was granted there. Nobody makes or copies a key. The callee
+declares what can be granted, the hub's env grants it (`Hub__Grants__<caller>__<callee>=<scopes>`), and each route asks
+for its own scope.
+
+**The callee** declares its scopes in its manifest, adds the scheme, and puts a scope on each route:
+
+```csharp
+services.AddTelegramHub(hub =>
+{
+    hub.Title = "Expenses";
+    hub.Scopes = [new("credits:read", "Поступления"), new("spending:read", "Траты по людям")];
+});
+
+services.AddAuthentication().AddHubPasses();   // checks passes; Bladehero.Telegram.Platform.Receiving.Background
+services.AddAuthorization();
+
+app.MapGet("/internal/income/credits", ReadCredits).RequireHubScope("credits:read");
+app.MapGroup("/internal/income").RequireHubScope("credits:read");         // or a whole group; both are required
+
+// Inside one route that does several things, such as an MCP tool:
+if (!http.User.HasHubScope("spending:read")) { /* refuse, naming the scope */ }
+```
+
+A pass counts only on a request that didn't come through the edge: one with `X-Forwarded-For` or `X-Original-For`, or
+for the host of the app's `Site` (or `PublicHosts`), is refused before anything else. Then `alg` must be `ES256`, `kid`
+one of the hub's keys, the signature good, `iss` the hub, `aud` this app's slug (from its key), and the time within 30
+seconds of `nbf` and `exp`. The principal carries what an app's key gives: `client_id` (a fixed UUID per caller,
+`HubPassDefaults.ClientIdOf(slug)`, or one from `ClientIds`), `client_name`, a `scope` claim per scope, and `hub_app`, the
+caller's slug. Anything on the header that isn't shaped like a pass (three dot-separated parts) is left to the app's other
+schemes, so its own keys keep working beside passes under one policy:
+`policy.AddAuthenticationSchemes(HubPassDefaults.Scheme, "ApiKey")`. The hub's keys are read from `/hub/keys` at its
+address at the start, every hour, and for a key id not seen yet; while the hub is down the last ones serve.
+
+**The caller** puts passes on a named client, one per audience, or asks for them itself:
+
+```csharp
+services.AddHttpClient("expenses", c => c.BaseAddress = new("http://familybudget:8080")).AddHubPass("familybudget");
+services.AddHttpClient("nutrition", c => c.BaseAddress = new("http://nutrition:8080")).AddHubPass("nutrition");
+
+// Or for a client that sets its own header, such as an MCP session:
+services.AddTelegramHubPasses();
+var pass = await passes.GetAsync("familybudget", cancellationToken: token);   // ITelegramHubPasses
+```
+
+A pass is kept per audience and renewed five minutes before its end. With the hub down, the last one serves while it's
+good; after that a request fails with `TelegramHubPassUnavailableException`, an `HttpRequestException`, before it is sent.
+
+**In component tests** the fake Telegram is the hub too: `Api.GrantHubPass("familybudget", "credits:read")` and
+`Api.HubSlug = "income"` for a caller; `Api.IssueHubPass("income", "familybudget", "credits:read")` for a request to a
+callee, whose keys `TelegramTestHost` serves from the fake. A callee whose test token isn't a hub key sets its slug:
+`services.Configure<HubPassOptions>(HubPassDefaults.Scheme, o => o.Audience = "familybudget")`.
+
 ## Samples
 
 - [`Sandbox`](src/Bladehero.Telegram.Platform.Sandbox): a long-polling coffee shop, composed in one `AddCoffeeShop` that
@@ -1667,6 +1722,14 @@ optionally, `Telegram:SecretToken`.
 - New: [`AddTelegramLock()`](#one-update-at-a-time-and-background-work) and `ITelegramLock`, to run background work
   one at a time with the updates. It's off until the app calls it, so nothing changes otherwise.
 - New in component tests: [`HoldLockAsync` and `WaitForLockWaitersAsync`](#stage-a-race).
+
+### To 10.7
+
+- New: [passes between apps behind a hub](#calling-another-app-with-a-pass): `AddHubPass` and `ITelegramHubPasses` for a
+  caller, `AddHubPasses` and `RequireHubScope` for a callee, and `TelegramHubConfiguration.Scopes` in the manifest. A hub
+  without passes answers `getHubPass` with an error, which a caller gets as `TelegramHubPassUnavailableException`.
+- `Bladehero.Telegram.Platform` now depends on `Microsoft.Extensions.Http`.
+- The manifest always carries `scopes`, empty unless set; a hub older than passes ignores it.
 
 ## License
 

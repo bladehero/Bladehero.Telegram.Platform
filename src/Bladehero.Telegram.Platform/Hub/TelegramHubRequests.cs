@@ -20,6 +20,40 @@ internal sealed class SetHubAppRequest() : RequestBase<bool>("setHubApp")
 
     [JsonPropertyName("unlisted_commands")]
     public required IReadOnlyList<string> UnlistedCommands { get; init; }
+
+    [JsonPropertyName("scopes")]
+    public required IReadOnlyList<HubScopeDto> Scopes { get; init; }
+}
+
+internal sealed class HubScopeDto
+{
+    [JsonPropertyName("scope")]
+    public required string Scope { get; init; }
+
+    [JsonPropertyName("label")]
+    public required string Label { get; init; }
+}
+
+internal sealed class GetHubPassRequest() : RequestBase<HubPassDto>("getHubPass")
+{
+    [JsonPropertyName("audience")]
+    public required string Audience { get; init; }
+
+    [JsonPropertyName("scopes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Scopes { get; init; }
+}
+
+internal sealed class HubPassDto
+{
+    [JsonPropertyName("pass")]
+    public string Pass { get; set; } = "";
+
+    [JsonPropertyName("expires_at")]
+    public long ExpiresAt { get; set; }
+
+    [JsonPropertyName("scope")]
+    public string Scope { get; set; } = "";
 }
 
 internal sealed class GetHubPeopleRequest() : RequestBase<HubPersonDto[]>("getHubPeople");
