@@ -23,6 +23,12 @@ internal sealed class SetHubAppRequest() : RequestBase<bool>("setHubApp")
 
     [JsonPropertyName("scopes")]
     public required IReadOnlyList<HubScopeDto> Scopes { get; init; }
+
+    [JsonPropertyName("claim_patterns")]
+    public required IReadOnlyList<string> ClaimPatterns { get; init; }
+
+    [JsonPropertyName("fallback_for")]
+    public required IReadOnlyList<string> FallbackFor { get; init; }
 }
 
 internal sealed class HubScopeDto

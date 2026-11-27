@@ -1507,7 +1507,7 @@ settings, the key the hub gave this app as `Token`, and the hub's address as `Ap
 ```csharp
 services.AddTelegramHub(hub =>
 {
-    hub.Title = "Питание";                   // the app's topic, and its line in the hub's list of apps
+    hub.Title = "Питание";                   // its line in the hub's list of apps, and its name in the hub's messages
     hub.Site = "https://nutrition.example";
     hub.TakesSignInCodes = true;             // /start <prefix>-<code> reaches this app, from anyone
     hub.UnlistedCommands = ["password"];     // commands it answers that its menu doesn't list
@@ -1517,6 +1517,28 @@ services.AddTelegramHub(hub =>
 The app's manifest goes to the hub on every start and every few minutes, so a hub that lost its file finds out again.
 So do the receiver's webhook and commands, if the hub missed them or has forgotten them, and that repeat never drops
 what's waiting, whatever `DropPendingUpdates` says.
+
+**What reaches the app.** Every app shares one private chat with each person, so the hub decides who gets a message.
+Buttons, replies and edits go to the app that sent the message; a command goes to the one app that has it; the rest
+goes by two claims in the manifest, and what nobody takes gets one plain line from the hub:
+
+```csharp
+services.AddTelegramHub(hub =>
+{
+    hub.Title = "Книги";
+    hub.ClaimPatterns = [@"^(?:[ab]\s*)?\d{1,5}$"];    // "12", "a12", "b 7": the whole text, trimmed
+    hub.FallbackFor = HubFallback.Text | HubFallback.Photo; // what's left of these kinds, when no other app claims it
+});
+```
+
+| | |
+|---|---|
+| `ClaimPatterns` | Whole-text regular expressions for plain text, run with `NonBacktracking \| CultureInvariant \| IgnoreCase`. A pattern that engine can't compile fails the start. A match beats any fallback. |
+| `FallbackFor` | `Text` (not starting with `/`), `Voice`, `Photo`, `Document`. Declare a kind only when the app answers it for real, not with a hint: the hub has its own line for what no app takes. |
+
+Two apps claiming the same text or the same kind leave it to the hub's line, so keep each claim narrow. A reply goes to
+the app that sent the replied-to message only when that app would take the reply by itself, by command, pattern or
+fallback.
 
 **`ITelegramHub`** has the app's people and its sign-in links:
 
@@ -1730,6 +1752,8 @@ optionally, `Telegram:SecretToken`.
   without passes answers `getHubPass` with an error, which a caller gets as `TelegramHubPassUnavailableException`.
 - `Bladehero.Telegram.Platform` now depends on `Microsoft.Extensions.Http`.
 - The manifest always carries `scopes`, empty unless set; a hub older than passes ignores it.
+- New: [`ClaimPatterns` and `FallbackFor`](#behind-a-hub) in the manifest, for a hub that keeps every app in one chat.
+  Both are sent always, empty unless set; an older hub ignores them.
 
 ## License
 

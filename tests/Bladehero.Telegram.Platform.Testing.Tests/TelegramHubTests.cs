@@ -40,6 +40,12 @@ public sealed class TelegramHubTests
             api.HubApp["unlisted_commands"]![0]!.GetValue<string>().Should().Be("password");
             api.HubApp["scopes"]![0]!["scope"]!.GetValue<string>().Should().Be("plan:read");
             api.HubApp["scopes"]![0]!["label"]!.GetValue<string>().Should().Be("План");
+            api.HubApp["claim_patterns"]![0]!.GetValue<string>().Should().Be("^\\d{1,5}$");
+            api.HubApp["fallback_for"]!
+                .AsArray()
+                .Select(kind => kind!.GetValue<string>())
+                .Should()
+                .Equal("text", "photo");
             hub.KnowsPeople.Should().BeTrue();
             hub.People.Should().HaveCount(2);
             hub.FindPerson(222)!.Name.Should().Be("Катя");
@@ -197,6 +203,29 @@ public sealed class TelegramHubTests
         read.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
     }
 
+    [Theory]
+    [InlineData("(?<n>\\d)\\k<n>")] // a back-reference: NonBacktracking can't run it
+    [InlineData("\\d(?=x)")] // a look-ahead, the same
+    [InlineData("[0-9")]
+    public void AddTelegramHub_WithAClaimPatternTheHubCantRun_ShouldBeRefusedOnStart(string pattern)
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramHub(x =>
+        {
+            x.Title = "Книги";
+            x.ClaimPatterns = ["^\\d{1,5}$", pattern];
+        });
+        using var provider = services.BuildServiceProvider();
+
+        // Act
+        var read = () =>
+            provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<TelegramHubConfiguration>>().Value;
+
+        // Assert
+        read.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>().WithMessage("*ClaimPatterns*");
+    }
+
     [Fact]
     public async Task AHubThatMissedTheWebhook_ShouldHearItAtTheNextRefresh_WithNothingDropped()
     {
@@ -300,6 +329,8 @@ public sealed class TelegramHubTests
             x.TakesSignInCodes = true;
             x.UnlistedCommands = ["password"];
             x.Scopes = [new("plan:read", "План")];
+            x.ClaimPatterns = ["^\\d{1,5}$"];
+            x.FallbackFor = HubFallback.Photo | HubFallback.Text;
             configure?.Invoke(x);
         });
         return services.BuildServiceProvider();
