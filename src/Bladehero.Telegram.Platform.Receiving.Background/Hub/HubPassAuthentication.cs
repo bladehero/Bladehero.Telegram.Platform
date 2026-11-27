@@ -260,12 +260,7 @@ internal static class HubPassPrincipal
         List<ClaimsIdentity> identities =
         [
             .. given.Identities.Select(identity => new ClaimsIdentity(
-                identity.Claims.Where(claim =>
-                    !claim.Type.StartsWith("hub_", StringComparison.Ordinal)
-                    && (
-                        claim.Type != HubPassDefaults.ScopeClaim || scopes.Contains(claim.Value, StringComparer.Ordinal)
-                    )
-                ),
+                Cut(identity.Claims.Where(claim => !claim.Type.StartsWith("hub_", StringComparison.Ordinal)), scopes),
                 identity.AuthenticationType ?? HubPassDefaults.Scheme,
                 identity.NameClaimType,
                 identity.RoleClaimType
@@ -286,6 +281,36 @@ internal static class HubPassPrincipal
             );
         identities[0].AddClaim(new Claim(HubPassDefaults.HubViaClaim, via));
         return new ClaimsPrincipal(identities);
+    }
+
+    // Every claim that carries scopes is cut to the pass's, word by word, whatever its type or however it's joined: a
+    // callback that builds the person's key principal mustn't hand the pass more than the cap.
+    private static readonly string[] ScopeTypes =
+    [
+        HubPassDefaults.ScopeClaim,
+        "scp",
+        "http://schemas.microsoft.com/identity/claims/scope",
+    ];
+
+    private static IEnumerable<Claim> Cut(IEnumerable<Claim> claims, IReadOnlyList<string> scopes)
+    {
+        var seen = new HashSet<(string, string)>();
+        foreach (var claim in claims)
+        {
+            if (!ScopeTypes.Contains(claim.Type, StringComparer.Ordinal))
+            {
+                yield return claim;
+                continue;
+            }
+
+            foreach (var word in claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (scopes.Contains(word, StringComparer.Ordinal) && seen.Add((claim.Type, word)))
+                {
+                    yield return new Claim(claim.Type, word, claim.ValueType, claim.Issuer, claim.OriginalIssuer);
+                }
+            }
+        }
     }
 
     public static ClaimsPrincipal For(string caller, string? name, IEnumerable<string> scopes, Guid clientId) =>

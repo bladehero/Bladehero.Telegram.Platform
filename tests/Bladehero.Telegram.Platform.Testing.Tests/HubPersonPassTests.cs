@@ -221,6 +221,24 @@ public sealed class HubPersonPassTests : IAsyncLifetime
         principal["person"]!.GetValue<long>().Should().Be(Nick);
     }
 
+    [Fact]
+    public async Task ScopesJoinedOrUnderAnotherClaimType_ShouldBeCutToThePassToo()
+    {
+        // Arrange: the callback puts the key's scopes in one space-joined claim and under "scp" too.
+        _gym.Joined = true;
+
+        // Act
+        using var response = await _gym.GetAsync(
+            "/mcp",
+            _hub.IssuePersonPass("home", Audience, Nick, NicksClaude, "read")
+        );
+
+        // Assert
+        var principal = JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+        principal["scopes"]!.AsArray().Select(scope => scope!.GetValue<string>()).Should().Equal("read");
+        principal["scp"]!.AsArray().Select(scope => scope!.GetValue<string>()).Should().Equal("read");
+    }
+
     [Theory]
     [InlineData("expired")]
     [InlineData("another app")]
@@ -436,6 +454,8 @@ public sealed class HubPersonPassTests : IAsyncLifetime
 
         public bool Careless { get; set; }
 
+        public bool Joined { get; set; }
+
         public static async Task<Gym> StartAsync(FakeBotApi hub, TimeProvider time, bool people = true)
         {
             var builder = WebApplication.CreateSlimBuilder();
@@ -531,6 +551,22 @@ public sealed class HubPersonPassTests : IAsyncLifetime
                 return null;
             }
 
+            if (Joined)
+            {
+                return new ClaimsPrincipal(
+                    new ClaimsIdentity(
+                        [
+                            new Claim(HubPassDefaults.ClientIdClaim, person.ConnectionId.ToString()),
+                            new Claim(HubPassDefaults.ClientNameClaim, person.ConnectionName),
+                            new Claim("user", user),
+                            new Claim(HubPassDefaults.ScopeClaim, "read workouts:write templates:write"),
+                            new Claim("scp", "templates:write read"),
+                        ],
+                        GymKeys.SchemeName
+                    )
+                );
+            }
+
             IEnumerable<string> scopes = Careless ? ["read", "workouts:write", "templates:write"] : person.Scopes;
             return GymKeys.Principal(person.ConnectionId.ToString(), person.ConnectionName, user, scopes, Careless);
         }
@@ -544,6 +580,7 @@ public sealed class HubPersonPassTests : IAsyncLifetime
                 ["scopes"] = new JsonArray([
                     .. user.FindAll(HubPassDefaults.ScopeClaim).Select(claim => (JsonNode)claim.Value),
                 ]),
+                ["scp"] = new JsonArray([.. user.FindAll("scp").Select(claim => (JsonNode)claim.Value)]),
                 ["person"] = user.HubPerson(),
                 ["via"] = user.HubVia(),
                 ["app"] = user.HubApp(),

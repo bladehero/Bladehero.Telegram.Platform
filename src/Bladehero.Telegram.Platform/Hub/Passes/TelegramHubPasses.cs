@@ -53,6 +53,7 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
             );
         }
 
+        SweepPersonSlots(time.GetUtcNow());
         var asked = Sorted(scopes);
         return GetAsync(
             new SlotKey(audience, Joined(asked), person, connection.Id, connection.Name),
@@ -98,6 +99,19 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
         foreach (var key in _slots.Keys.Where(key => key.Connection == connectionId))
         {
             _slots.TryRemove(key, out _);
+        }
+    }
+
+    // A connection renamed or asking other scopes leaves its old slot behind; once that pass has expired nothing can use
+    // it, so it goes, and the cache stays as big as what's live.
+    private void SweepPersonSlots(DateTimeOffset now)
+    {
+        foreach (var (key, slot) in _slots)
+        {
+            if (key.Person is not null && slot.Gate.CurrentCount == 1 && slot.Pass is { } pass && pass.ExpiresAt <= now)
+            {
+                _slots.TryRemove(new KeyValuePair<SlotKey, Slot>(key, slot));
+            }
         }
     }
 

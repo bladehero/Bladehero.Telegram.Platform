@@ -42,8 +42,9 @@ public sealed class HubPassOptions : AuthenticationSchemeOptions
     /// Called only for a pass that has passed every check: from a caller in <see cref="Delegates"/>, on a path in
     /// <see cref="PeoplePaths"/>, its scopes already cut to the ones this app marks <see cref="TelegramHubScope.ForPeople"/>,
     /// at least one left. The principal then gets <see cref="HubPassDefaults.HubPersonClaim"/> and
-    /// <see cref="HubPassDefaults.HubViaClaim"/>; any <c>hub_*</c> claim it had, and any <c>scope</c> claim outside
-    /// <see cref="HubPassPerson.Scopes"/>, are taken off.
+    /// <see cref="HubPassDefaults.HubViaClaim"/>; any <c>hub_*</c> claim it had is taken off, and every <c>scope</c>,
+    /// <c>scp</c> or Microsoft scope claim is cut word by word to <see cref="HubPassPerson.Scopes"/>, so a space-joined
+    /// value keeps what the pass allows. Roles and any other claim type pass as they are: put scopes only in those three.
     /// </remarks>
     public Func<HubPassPerson, CancellationToken, Task<ClaimsPrincipal?>>? People { get; set; }
 
