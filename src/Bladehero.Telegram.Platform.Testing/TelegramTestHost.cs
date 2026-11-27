@@ -486,6 +486,7 @@ public sealed partial class TelegramTestHost : IAsyncDisposable
 
         // The hub's keys, for an app that checks passes: the fake signs them, so it serves them too.
         services.AddHttpClient(HubPassFormat.KeysClient).ConfigurePrimaryHttpMessageHandler(() => api.CreateHandler());
+        services.AddSingleton(new HubKeysAddress(new Uri(new Uri(FakeBotApi.HubIssuer), HubPassFormat.KeysPath)));
 
         // Added last, so the app's ClearProviders can't remove it, with a rule its own filters can't override.
         services.AddSingleton<ILoggerProvider>(errors.Logs);

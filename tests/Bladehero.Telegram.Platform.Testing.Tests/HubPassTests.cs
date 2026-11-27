@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Claims;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -131,9 +133,23 @@ public sealed class HubPassTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task AForwardedPass_ShouldBeRefused_ThoughTheForwardedHeadersMiddlewareHidIt()
+    {
+        // Arrange: the test server has no remote address, so the middleware takes X-Forwarded-For away and writes no
+        // X-Original-For: by the time the scheme looks, the request seems to come from inside.
+        var pass = _hub.IssueHubPass("income", Audience, "credits:read");
+
+        // Act
+        using var response = await _callee.GetAsync("/credits", pass, ("X-Forwarded-For", "203.0.113.5"));
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     [Theory]
-    [InlineData("X-Forwarded-For", "203.0.113.5")]
     [InlineData("X-Original-For", "203.0.113.5")]
+    [InlineData("Forwarded", "for=203.0.113.5")]
     [InlineData("Host", "expenses.example")]
     public async Task APassThroughTheEdge_ShouldBeRefused(string header, string value)
     {
@@ -209,6 +225,48 @@ public sealed class HubPassTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AHubOutage_ShouldBeWarnedAboutOnce_AndItsEndSaidOnce()
+    {
+        // Arrange: the keys are read, then the hub goes down; a pass with a key id nobody lists makes the callee ask again
+        // every 30 seconds, as the refresh does while it has none.
+        using (await _callee.GetAsync("/credits", _hub.IssueHubPass("income", Audience, "credits:read"))) { }
+        _hub.HubKeysUnreachable = true;
+
+        // Act
+        await AskForANewKeyAsync(times: 3);
+        _hub.HubKeysUnreachable = false;
+        await AskForANewKeyAsync(times: 2);
+        _hub.HubKeysUnreachable = true;
+        await AskForANewKeyAsync(times: 2);
+
+        // Assert
+        _callee.KeyReads.Should().BeGreaterThanOrEqualTo(8);
+        _callee
+            .Logs.Entries.Select(entry => entry[..entry.IndexOf(':')])
+            .Should()
+            .Equal("Warning", "Information", "Warning");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("https://api.telegram.org")]
+    public async Task WithoutAHub_NoKeysShouldBeAskedFor_AndNoPassTaken(string? apiBaseUrl)
+    {
+        // Arrange: a developer's PC, the bot talking to Telegram itself.
+        await using var callee = await Callee.StartAsync(_hub, _time, apiBaseUrl);
+
+        // Act
+        using var response = await callee.GetAsync("/credits", _hub.IssueHubPass("income", Audience, "credits:read"));
+        _time.Advance(TimeSpan.FromMinutes(5));
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        callee.KeyReads.Should().Be(0);
+        callee.Logs.Entries.Should().NotContain(entry => entry.StartsWith("Warning", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ACaller_ShouldGetAPassFromTheHub_AndTheCalleeTakeIt()
     {
         // Arrange: Income behind the fake hub, granted a scope at Expenses.
@@ -236,6 +294,17 @@ public sealed class HubPassTests : IAsyncLifetime
         _hub.Calls.Count(call => call.Method == "getHubPass").Should().Be(1, "the pass is kept");
     }
 
+    private async Task AskForANewKeyAsync(int times)
+    {
+        for (var i = 0; i < times; i++)
+        {
+            _time.Advance(TimeSpan.FromSeconds(31));
+            var header = _hub.Header();
+            header["kid"] = "not-listed";
+            using (await _callee.GetAsync("/credits", _hub.SignHubPass(header, Claims("income", Audience)))) { }
+        }
+    }
+
     private JsonObject Claims(string caller, string audience)
     {
         var now = _time.GetUtcNow();
@@ -258,20 +327,31 @@ public sealed class HubPassTests : IAsyncLifetime
         private readonly HttpClient _client;
         private readonly Counting _keys;
 
-        private Callee(WebApplication app, Counting keys)
+        private Callee(WebApplication app, Counting keys, KeyLogs logs)
         {
             _app = app;
             _keys = keys;
+            Logs = logs;
             _client = app.GetTestClient();
         }
 
         public int KeyReads => _keys.Reads;
 
-        public static async Task<Callee> StartAsync(FakeBotApi hub, TimeProvider time)
+        public KeyLogs Logs { get; }
+
+        // The bot's ApiBaseUrl: the hub's inside address, as on the VPS, or blank or Telegram's, as on a developer's PC.
+        public static async Task<Callee> StartAsync(
+            FakeBotApi hub,
+            TimeProvider time,
+            string? apiBaseUrl = "http://telegramhub:8080"
+        )
         {
             var builder = WebApplication.CreateSlimBuilder();
             builder.WebHost.UseTestServer();
             builder.Logging.ClearProviders();
+            var logs = new KeyLogs();
+            builder.Logging.AddProvider(logs);
+            builder.Services.Configure<TelegramBotConfiguration>(bot => bot.ApiBaseUrl = apiBaseUrl);
             builder.Services.AddSingleton(time);
             var keys = new Counting(hub.CreateHandler());
             builder.Services.AddHttpClient(HubPassFormat.KeysClient).ConfigurePrimaryHttpMessageHandler(() => keys);
@@ -286,6 +366,7 @@ public sealed class HubPassTests : IAsyncLifetime
             builder.Services.AddAuthorization();
 
             var app = builder.Build();
+            app.UseForwardedHeaders(new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor });
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapGet("/credits", (ClaimsPrincipal user) => Describe(user)).RequireHubScope("credits:read");
@@ -296,7 +377,7 @@ public sealed class HubPassTests : IAsyncLifetime
                         .RequireClaim(HubPassDefaults.ClientIdClaim)
                 );
             await app.StartAsync();
-            return new Callee(app, keys);
+            return new Callee(app, keys, logs);
         }
 
         public HttpMessageHandler Handler() => _app.GetTestServer().CreateHandler();
@@ -337,6 +418,34 @@ public sealed class HubPassTests : IAsyncLifetime
                     .. user.FindAll(HubPassDefaults.ScopeClaim).Select(claim => claim.Value),
                 ]
             );
+    }
+
+    // What the verifier's key reading logs, warnings and above, as "Level: message".
+    private sealed class KeyLogs : ILoggerProvider, ILogger
+    {
+        private readonly ConcurrentQueue<string> _entries = new();
+
+        public IReadOnlyList<string> Entries => [.. _entries];
+
+        public ILogger CreateLogger(string categoryName) =>
+            categoryName.StartsWith("Bladehero.Telegram.Platform.Hub.HubPassKeys", StringComparison.Ordinal)
+                ? this
+                : Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter
+        ) => _entries.Enqueue($"{logLevel}: {formatter(state, exception)}");
+
+        public void Dispose() { }
     }
 
     private sealed class Counting(HttpMessageHandler inner) : DelegatingHandler(inner)

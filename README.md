@@ -1574,15 +1574,18 @@ app.MapGroup("/internal/income").RequireHubScope("credits:read");         // or 
 if (!http.User.HasHubScope("spending:read")) { /* refuse, naming the scope */ }
 ```
 
-A pass counts only on a request that didn't come through the edge: one with `X-Forwarded-For` or `X-Original-For`, or
-for the host of the app's `Site` (or `PublicHosts`), is refused before anything else. Then `alg` must be `ES256`, `kid`
+A pass counts only on a request that didn't come through the edge: one with `X-Forwarded-For`, `X-Original-For` or
+`Forwarded`, or for the host of the app's `Site` (or `PublicHosts`), is refused before anything else. The headers are
+noted as the request arrives, so a forwarded-headers middleware that takes them away changes nothing. Then `alg` must be `ES256`, `kid`
 one of the hub's keys, the signature good, `iss` the hub, `aud` this app's slug (from its key), and the time within 30
 seconds of `nbf` and `exp`. The principal carries what an app's key gives: `client_id` (a fixed UUID per caller,
 `HubPassDefaults.ClientIdOf(slug)`, or one from `ClientIds`), `client_name`, a `scope` claim per scope, and `hub_app`, the
 caller's slug. Anything on the header that isn't shaped like a pass (three dot-separated parts) is left to the app's other
 schemes, so its own keys keep working beside passes under one policy:
 `policy.AddAuthenticationSchemes(HubPassDefaults.Scheme, "ApiKey")`. The hub's keys are read from `/hub/keys` at its
-address at the start, every hour, and for a key id not seen yet; while the hub is down the last ones serve.
+address at the start, every hour, and for a key id not seen yet; while the hub is down the last ones serve, with one
+warning per outage. A bot whose `ApiBaseUrl` is blank or Telegram's isn't behind a hub: no keys are read, and no pass
+is taken.
 
 **The caller** puts passes on a named client, one per audience, or asks for them itself:
 

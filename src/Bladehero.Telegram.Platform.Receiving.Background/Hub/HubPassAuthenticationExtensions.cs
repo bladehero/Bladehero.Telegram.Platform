@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -18,7 +19,10 @@ public static class HubPassAuthenticationExtensions
     /// <remarks>
     /// It answers nothing for a bearer token that isn't shaped like a pass, so an app's own keys keep working on the same
     /// header under their own scheme. The keys are read at the start, every hour, and for a key id not seen yet; while the
-    /// hub is down the last ones serve. A route says what it needs with <see cref="RequireHubScope{TBuilder}"/>.
+    /// hub is down the last ones serve; an app whose bot isn't behind a hub reads none and takes no pass. A request that
+    /// carried <c>X-Forwarded-For</c>, <c>X-Original-For</c> or <c>Forwarded</c>, or came for a public host, gets no
+    /// pass in, whatever a forwarded-headers middleware did to it. A route says what it needs with
+    /// <see cref="RequireHubScope{TBuilder}"/>.
     /// </remarks>
     /// <param name="builder">The app's authentication.</param>
     /// <param name="configure">Changes the defaults, which suit an app behind the hub.</param>
@@ -34,6 +38,12 @@ public static class HubPassAuthenticationExtensions
         builder.Services.AddHttpClient(HubPassFormat.KeysClient, client => client.Timeout = TimeSpan.FromSeconds(10));
         builder.Services.TryAddSingleton<HubPassKeys>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, HubPassKeysRefresh>());
+
+        // First of all, so it notes how a request arrived before any forwarded-headers middleware rewrites it.
+        if (!builder.Services.Any(service => service.ImplementationType == typeof(HubPassArrivalFilter)))
+        {
+            builder.Services.Insert(0, ServiceDescriptor.Transient<IStartupFilter, HubPassArrivalFilter>());
+        }
 
         return builder.AddScheme<HubPassOptions, HubPassAuthentication>(HubPassDefaults.Scheme, configure);
     }

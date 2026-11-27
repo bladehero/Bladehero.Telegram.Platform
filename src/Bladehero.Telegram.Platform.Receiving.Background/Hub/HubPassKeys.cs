@@ -10,20 +10,31 @@ namespace Bladehero.Telegram.Platform.Hub;
 internal sealed record HubKeySet(string? Issuer, IReadOnlyDictionary<string, ECParameters> Keys);
 
 // The hub's public keys: read at the start, every hour, and for a key id not seen yet at most every 30 seconds. A failed
-// read keeps the last good set, so a callee keeps checking passes while the hub is down.
+// read keeps the last good set, so a callee keeps checking passes while the hub is down. An app whose bot isn't behind a
+// hub, as on a developer's PC, has none to read and asks nobody.
 internal sealed class HubPassKeys(
     IHttpClientFactory http,
     IOptionsMonitor<HubPassOptions> options,
     IOptions<TelegramBotConfiguration> bot,
+    IEnumerable<HubKeysAddress> addresses,
     TimeProvider time,
     ILogger<HubPassKeys> logger
 )
 {
+    private const string TelegramHost = "api.telegram.org";
+
+    private readonly HubKeysAddress? _address = addresses.LastOrDefault();
     private readonly SemaphoreSlim _reading = new(1, 1);
     private volatile HubKeySet? _set;
     private DateTimeOffset? _lastRead;
 
+    // Set by the first failed read of an outage and cleared by the next good one, so an outage is warned about once.
+    private bool _failing;
+
     public HubKeySet? Current => _set;
+
+    /// <summary>Whether there is a hub to read the keys from: a <c>KeysUrl</c>, or a bot whose API isn't Telegram's.</summary>
+    public bool HasHub => KeysUrl() is not null;
 
     private HubPassOptions Options => options.Get(HubPassDefaults.Scheme);
 
@@ -69,11 +80,16 @@ internal sealed class HubPassKeys(
 
     private async Task<bool> ReadCoreAsync(CancellationToken cancellationToken)
     {
+        if (KeysUrl() is not { } url)
+        {
+            return false;
+        }
+
         _lastRead = time.GetUtcNow();
         try
         {
             using var client = http.CreateClient(HubPassFormat.KeysClient);
-            using var response = await client.GetAsync(KeysUrl(), cancellationToken);
+            using var response = await client.GetAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
             var json = JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
 
@@ -96,43 +112,80 @@ internal sealed class HubPassKeys(
 
             if (keys.Count == 0)
             {
-                logger.LogWarning("The hub's key set has no keys; the last one stays");
+                Failed("no keys in the set");
                 return false;
             }
 
             _set = new HubKeySet(json?["issuer"]?.GetValue<string>(), keys);
+            if (_failing)
+            {
+                _failing = false;
+                logger.LogInformation("The hub's keys can be read again");
+            }
+
             return true;
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning(
-                "Failed to read the hub's keys ({Error}); {State}",
-                exception.GetType().Name,
-                _set is null ? "passes are refused until they come" : "the last ones stay"
-            );
+            Failed(exception.GetType().Name);
             return false;
         }
     }
 
-    private Uri KeysUrl()
+    // Once per outage, with only the error's type: the hub being down is one event, not one every 30 seconds.
+    private void Failed(string why)
+    {
+        if (_failing)
+        {
+            logger.LogDebug("Still can't read the hub's keys ({Error})", why);
+            return;
+        }
+
+        _failing = true;
+        logger.LogWarning(
+            "Failed to read the hub's keys ({Error}); {State}. Said once until they can be read again",
+            why,
+            _set is null ? "passes are refused until they come" : "the last ones stay"
+        );
+    }
+
+    private Uri? KeysUrl()
     {
         if (Options.KeysUrl is { } set)
         {
             return set;
         }
 
-        var hub = bot.Value.ApiBaseUrlIfSet ?? "https://api.telegram.org";
-        return new Uri(new Uri(hub), HubPassFormat.KeysPath);
+        if (_address is not null)
+        {
+            return _address.Url;
+        }
+
+        return
+            Uri.TryCreate(bot.Value.ApiBaseUrlIfSet, UriKind.Absolute, out var hub)
+            && !string.Equals(hub.Host, TelegramHost, StringComparison.OrdinalIgnoreCase)
+            ? new Uri(hub, HubPassFormat.KeysPath)
+            : null;
     }
 }
 
 // Reads the keys at the start without holding it up, then keeps them fresh: every hour, or every 30 seconds while there
-// are none.
-internal sealed class HubPassKeysRefresh(HubPassKeys keys, IOptionsMonitor<HubPassOptions> options, TimeProvider time)
-    : BackgroundService
+// are none. Without a hub it does nothing.
+internal sealed class HubPassKeysRefresh(
+    HubPassKeys keys,
+    IOptionsMonitor<HubPassOptions> options,
+    TimeProvider time,
+    ILogger<HubPassKeysRefresh> logger
+) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!keys.HasHub)
+        {
+            logger.LogInformation("The bot isn't behind a hub, so no hub keys are read and no pass is taken");
+            return;
+        }
+
         try
         {
             while (true)

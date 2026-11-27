@@ -57,6 +57,11 @@ internal sealed class HubPassAuthentication(
             return AuthenticateResult.Fail("The hub pass isn't signed ES256 with a hub key.");
         }
 
+        if (!keys.HasHub)
+        {
+            return AuthenticateResult.Fail("This app isn't behind a hub, so no pass is taken.");
+        }
+
         var (set, key) = await keys.FindAsync(id, Context.RequestAborted);
         if (key is not { } publicKey)
         {
@@ -129,24 +134,24 @@ internal sealed class HubPassAuthentication(
         return Task.CompletedTask;
     }
 
-    // The edge Caddy always says whom it passes on for, and Expenses' own ClientAddress keeps that as X-Original-For. A
-    // request for the app's public host came through the edge too, whatever its headers say.
+    // The edge Caddy always says whom it passes on for. Whether it did is read as the request arrived, before any
+    // forwarded-headers middleware hid it, and as it is now. A request for the app's public host came through the edge
+    // too, whatever its headers say.
     private bool CameThroughTheEdge()
     {
-        if (Request.Headers.ContainsKey("X-Forwarded-For") || Request.Headers.ContainsKey("X-Original-For"))
+        var arrival = Context.Features.Get<HubPassArrival>();
+        if (arrival?.Forwarded == true || HubPassArrival.IsForwarded(Request.Headers))
         {
             return true;
         }
 
-        var host = Request.Host.Host;
-        if (Options.PublicHosts.Any(name => string.Equals(name, host, StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        return Uri.TryCreate(hub.Value.Site, UriKind.Absolute, out var site)
-            && string.Equals(site.Host, host, StringComparison.OrdinalIgnoreCase);
+        return IsPublic(Request.Host.Host) || arrival is not null && IsPublic(arrival.Host);
     }
+
+    private bool IsPublic(string host) =>
+        Options.PublicHosts.Any(name => string.Equals(name, host, StringComparison.OrdinalIgnoreCase))
+        || Uri.TryCreate(hub.Value.Site, UriKind.Absolute, out var site)
+            && string.Equals(site.Host, host, StringComparison.OrdinalIgnoreCase);
 
     private static string? Text(JsonObject json, string name) =>
         json[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;

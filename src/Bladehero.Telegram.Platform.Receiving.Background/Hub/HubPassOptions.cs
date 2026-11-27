@@ -14,7 +14,10 @@ public sealed class HubPassOptions : AuthenticationSchemeOptions
     /// <summary>The hub a pass must come from, as its <c>iss</c>. By default the issuer the hub's key set names.</summary>
     public string? Issuer { get; set; }
 
-    /// <summary>Where the hub's public keys are. By default <c>/hub/keys</c> at the bot's <c>ApiBaseUrl</c>.</summary>
+    /// <summary>
+    /// Where the hub's public keys are. By default <c>/hub/keys</c> at the bot's <c>ApiBaseUrl</c>; with that blank or
+    /// Telegram's the bot isn't behind a hub, so no keys are read and no pass is taken.
+    /// </summary>
     public Uri? KeysUrl { get; set; }
 
     /// <summary>

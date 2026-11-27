@@ -8,6 +8,10 @@ using System.Text.Json.Nodes;
 
 namespace Bladehero.Telegram.Platform.Hub;
 
+// Where the hub's keys are when the bot's ApiBaseUrl doesn't say: the test host registers its fake's, so an app under test
+// checks passes whatever its own settings point at.
+internal sealed record HubKeysAddress(Uri Url);
+
 // A pass as the hub writes it: a compact JWT, ES256 and nothing else. Shared by the verifier and the fake hub.
 internal static class HubPassFormat
 {
