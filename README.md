@@ -767,8 +767,8 @@ To page further back, read `query with { BeforeId = page[0].Id }` until a page c
 - `KeepJson = false` keeps every field but `Json`.
 - `Filter` changes or drops each entry before it's stored: return it, changed with `with` if need be, or `null` to
   drop it. Redacting `Text` alone leaves it in `Json`.
-- Secrets in requests, `secret_token` and `provider_token`, and the bot tokens `getManagedBotToken` and
-  `replaceManagedBotToken` return, are always left out of `Json`.
+- Secrets in requests, `secret_token` and `provider_token`, the bot tokens `getManagedBotToken` and
+  `replaceManagedBotToken` return, and the pass `getHubPass` returns, are always left out of `Json`.
 - URLs, such as `setWebhook`'s, can carry secrets of your own; drop or redact them with `Filter`.
 
 ```csharp
@@ -1533,7 +1533,7 @@ services.AddTelegramHub(hub =>
 
 | | |
 |---|---|
-| `ClaimPatterns` | Whole-text regular expressions for plain text, run with `NonBacktracking \| CultureInvariant \| IgnoreCase`. A pattern that engine can't compile fails the start. A match beats any fallback. |
+| `ClaimPatterns` | Whole-text regular expressions for plain text, run with `NonBacktracking \| CultureInvariant \| IgnoreCase`. At most 20, each up to 500 characters, as the hub takes; a pattern past those or one that engine can't compile fails the start. A match beats any fallback. |
 | `FallbackFor` | `Text` (not starting with `/`), `Voice`, `Photo`, `Document`. Declare a kind only when the app answers it for real, not with a hint: the hub has its own line for what no app takes. |
 
 Two apps claiming the same text or the same kind leave it to the hub's line, so keep each claim narrow. A reply goes to

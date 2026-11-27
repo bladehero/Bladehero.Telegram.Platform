@@ -24,7 +24,8 @@ public sealed class TelegramHubConfiguration
     /// </summary>
     /// <remarks>
     /// A pattern must match the whole text, trimmed: the hub adds the anchors. It runs with
-    /// <c>NonBacktracking | CultureInvariant | IgnoreCase</c>, so a pattern that engine can't compile fails the start.
+    /// <c>NonBacktracking | CultureInvariant | IgnoreCase</c>, so a pattern that engine can't compile fails the start, as
+    /// do more than 20 patterns or one over 500 characters, which the hub refuses.
     /// Keep it narrow, since it takes that text from every other app.
     /// </remarks>
     public IReadOnlyList<string> ClaimPatterns { get; set; } = [];

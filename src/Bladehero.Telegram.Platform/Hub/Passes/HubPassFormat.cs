@@ -27,6 +27,9 @@ internal static class HubPassFormat
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    // A part that names a member twice is unreadable, rather than a crash on that member's first read.
+    private static readonly JsonDocumentOptions Strict = new() { AllowDuplicateProperties = false };
+
     // Three parts and no spaces: what tells a pass from an app's own key on the same header.
     public static bool LooksLikeAPass(string token) =>
         token.Length > 0 && token.Count('.') == 2 && !token.Any(char.IsWhiteSpace);
@@ -49,8 +52,8 @@ internal static class HubPassFormat
         try
         {
             if (
-                JsonNode.Parse(Base64Url.DecodeFromChars(parts[0])) is not JsonObject header
-                || JsonNode.Parse(Base64Url.DecodeFromChars(parts[1])) is not JsonObject claims
+                JsonNode.Parse(Base64Url.DecodeFromChars(parts[0]), documentOptions: Strict) is not JsonObject header
+                || JsonNode.Parse(Base64Url.DecodeFromChars(parts[1]), documentOptions: Strict) is not JsonObject claims
             )
             {
                 return false;

@@ -226,6 +226,33 @@ public sealed class TelegramHubTests
         read.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>().WithMessage("*ClaimPatterns*");
     }
 
+    [Theory]
+    [InlineData(21, 5)] // one pattern more than the hub takes
+    [InlineData(1, 501)] // one character longer than the hub takes
+    public void AddTelegramHub_WithClaimPatternsPastTheHubsLimits_ShouldBeRefusedOnStart(int count, int length)
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramHub(x =>
+        {
+            x.Title = "Книги";
+            x.ClaimPatterns =
+            [
+                .. Enumerable.Range(0, count).Select(i => $"{i}{new string('x', length - 1)}"[..length]),
+            ];
+        });
+        using var provider = services.BuildServiceProvider();
+
+        // Act
+        var read = () =>
+            provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<TelegramHubConfiguration>>().Value;
+
+        // Assert
+        read.Should()
+            .Throw<Microsoft.Extensions.Options.OptionsValidationException>()
+            .WithMessage($"*at most {(count > 20 ? "20 ClaimPatterns" : "500 characters")}*");
+    }
+
     [Fact]
     public async Task AHubThatMissedTheWebhook_ShouldHearItAtTheNextRefresh_WithNothingDropped()
     {

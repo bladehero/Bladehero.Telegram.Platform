@@ -110,6 +110,19 @@ public sealed class HubPassTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task APassNamingAHeaderMemberTwice_ShouldBeRefused_NotCrashTheRequest()
+    {
+        // Arrange
+        var header = System.Buffers.Text.Base64Url.EncodeToString("""{"alg":"ES256","alg":"x"}"""u8);
+
+        // Act
+        using var response = await _callee.GetAsync("/credits", $"{header}.e30.AA");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task APassSignedWithAKeyTheHubDoesNotList_ShouldBeRefused()
     {
         // Arrange

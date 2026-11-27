@@ -32,12 +32,16 @@ internal static class HubClaims
     internal const RegexOptions PatternOptions =
         RegexOptions.NonBacktracking | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase;
 
+    // The hub refuses the whole manifest past these, so the app checks them at its start.
+    internal const int MostPatterns = 20;
+    internal const int LongestPattern = 500;
+
     internal const HubFallback AllFallbacks =
         HubFallback.Text | HubFallback.Voice | HubFallback.Photo | HubFallback.Document;
 
     internal static bool IsValidPattern(string? pattern)
     {
-        if (string.IsNullOrWhiteSpace(pattern))
+        if (string.IsNullOrWhiteSpace(pattern) || pattern.Length > LongestPattern)
         {
             return false;
         }

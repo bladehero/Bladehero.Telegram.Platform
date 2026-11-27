@@ -41,8 +41,13 @@ public static class TelegramHubDependencyInjection
                 "Each of the hub's Scopes is lower-case letters, digits and : . _ -, up to 64, listed once, with a label."
             )
             .Validate(
+                configuration => configuration.ClaimPatterns.Count <= HubClaims.MostPatterns,
+                $"The hub takes at most {HubClaims.MostPatterns} ClaimPatterns per app."
+            )
+            .Validate(
                 configuration => configuration.ClaimPatterns.All(HubClaims.IsValidPattern),
-                "Each of the hub's ClaimPatterns must be a regular expression that .NET's NonBacktracking engine compiles."
+                $"Each of the hub's ClaimPatterns must be at most {HubClaims.LongestPattern} characters and a regular "
+                    + "expression that .NET's NonBacktracking engine compiles."
             )
             .Validate(
                 configuration => (configuration.FallbackFor & ~HubClaims.AllFallbacks) == 0,
