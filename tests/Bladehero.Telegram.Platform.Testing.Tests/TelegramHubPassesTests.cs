@@ -70,6 +70,33 @@ public sealed class TelegramHubPassesTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AfterAFailedRenewal_TheHubShouldNotBeAskedAgainForThirtySeconds()
+    {
+        // Arrange
+        _hub.GrantHubPass("familybudget", "credits:read");
+        var first = await Passes.GetAsync("familybudget");
+        _hub.FailNetwork("getHubPass", times: 2);
+        _time.Advance(TimeSpan.FromMinutes(6));
+        await Passes.GetAsync("familybudget");
+
+        // Act
+        _time.Advance(TimeSpan.FromSeconds(20));
+        var within = await Passes.GetAsync("familybudget");
+        var askedWithin = Asked;
+        _time.Advance(TimeSpan.FromSeconds(11));
+        var failedAgain = await Passes.GetAsync("familybudget");
+        _time.Advance(TimeSpan.FromSeconds(31));
+        var renewed = await Passes.GetAsync("familybudget");
+
+        // Assert
+        within.Token.Should().Be(first.Token);
+        askedWithin.Should().Be(2);
+        failedAgain.Token.Should().Be(first.Token);
+        renewed.Token.Should().NotBe(first.Token);
+        Asked.Should().Be(4);
+    }
+
+    [Fact]
     public async Task WithTheHubHungOnARenewal_TheGoodPassShouldServeAtOnce_AndTheRenewalGiveUpInFiveSeconds()
     {
         // Arrange

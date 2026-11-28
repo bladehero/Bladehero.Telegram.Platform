@@ -1599,7 +1599,8 @@ var pass = await passes.GetAsync("familybudget", cancellationToken: token);   //
 ```
 
 A pass is kept per audience and renewed five minutes before its end. With the hub down, the last one serves while it's
-good; after that a request fails with `TelegramHubPassUnavailableException`, an `HttpRequestException`, before it is sent.
+good, and the hub isn't asked again for 30 s after a failed renewal; after that a request fails with
+`TelegramHubPassUnavailableException`, an `HttpRequestException`, before it is sent.
 
 **In component tests** the fake Telegram is the hub too: `Api.GrantHubPass("familybudget", "credits:read")` and
 `Api.HubSlug = "income"` for a caller; `Api.IssueHubPass("income", "familybudget", "credits:read")` for a request to a

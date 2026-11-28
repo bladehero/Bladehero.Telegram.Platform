@@ -8,7 +8,8 @@ namespace Bladehero.Telegram.Platform.Hub;
 
 // Passes kept per audience (and scopes asked), renewed once five minutes are left, one request to the hub at a time. While
 // one renewal runs, everyone else gets the pass in hand if it's still good, rather than waiting on the hub. When the hub
-// fails, or doesn't answer within HubTimeout, the last pass serves while it's still good, so a hub deploy goes unnoticed.
+// fails, or doesn't answer within HubTimeout, the last pass serves while it's still good, so a hub deploy goes unnoticed,
+// and the hub isn't asked again for RetryAfter: otherwise every call would wait on a hub that is down.
 // A person pass is kept per person and connection too, and a refusal ends it at once: the hub said that person may no
 // longer do this.
 internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider time, ILogger<TelegramHubPasses> logger)
@@ -23,6 +24,9 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
     // The hub sits next to the app and answers in milliseconds: one that hasn't answered in 5 s is hung, and HttpClient's
     // own 100 s would hold every caller that long before the last pass could serve.
     internal static readonly TimeSpan HubTimeout = TimeSpan.FromSeconds(5);
+
+    // After a failed renewal the last pass serves this long before the hub is asked again.
+    internal static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<SlotKey, Slot> _slots = new();
 
@@ -184,8 +188,13 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
                     throw new TelegramHubPassUnavailableException(key.Audience, exception);
                 }
 
-                if (slot.Pass is { } last && last.ExpiresAt - time.GetUtcNow() > GoodFor)
+                now = time.GetUtcNow();
+                if (slot.Pass is { } last && last.ExpiresAt - now > GoodFor)
                 {
+                    // Not asked again for a while, and never handed out closer to its end than GoodFor.
+                    var retryAt = now + RetryAfter;
+                    var lastGood = last.ExpiresAt - GoodFor;
+                    slot.Keep(last, retryAt < lastGood ? retryAt : lastGood);
                     logger.LogWarning(
                         exception,
                         "The hub gave no new pass for {Audience}; the last one serves until {ExpiresAt}",
