@@ -15,8 +15,8 @@ internal static class TelegramHistoryEntries
     // Request fields that hold secrets, at any depth; never kept.
     private static readonly string[] Secrets = ["secret_token", "provider_token"];
 
-    // Calls whose result is a secret: only their request is kept.
-    private static readonly string[] SecretResults = ["getManagedBotToken", "replaceManagedBotToken"];
+    // Calls whose result is a secret: only their request is kept. A hub pass counts until it ends.
+    private static readonly string[] SecretResults = ["getManagedBotToken", "replaceManagedBotToken", "getHubPass"];
 
     // Bot API JSON that keeps non-ASCII text, such as Cyrillic or emoji, readable; quotes and control characters are
     // still escaped.

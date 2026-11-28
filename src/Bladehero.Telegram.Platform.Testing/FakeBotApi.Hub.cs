@@ -142,7 +142,7 @@ public sealed partial class FakeBotApi
             return answer;
         }
 
-        foreach (var message in answer is JsonArray messages ? [.. messages] : new[] { answer })
+        foreach (var message in answer is JsonArray messages ? [.. messages] : new JsonNode?[] { answer })
         {
             if (message is JsonObject sent && sent.ContainsKey("message_id"))
             {

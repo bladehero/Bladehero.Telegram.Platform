@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Net.Http.Headers;
+using Bladehero.Telegram.Platform.Hub;
 using Bladehero.Telegram.Platform.Receiving.Errors;
 using Bladehero.Telegram.Platform.Sandbox.Webhook.Notes;
 using Bladehero.Telegram.Platform.Sandbox.Webhook.Tests.Translator;
@@ -6,7 +8,10 @@ using Bladehero.Telegram.Platform.Sandbox.Webhook.Translator;
 using Bladehero.Telegram.Platform.Testing;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -170,6 +175,35 @@ public sealed class HostingTests
         page.Should().Be("Hello World!");
     }
 
+    [Fact]
+    public async Task AHubPass_ShouldBeTakenByTheApp_ThoughItsBotHasNoHubAddress()
+    {
+        // Arrange: the app checks passes, and its settings point at Telegram, as an app's test settings do.
+        await using var bot = await SandboxBot.StartAsync(
+            BotMode.Webhook,
+            configure: web =>
+                web.ConfigureTestServices(services =>
+                {
+                    services.AddAuthentication().AddHubPasses(options => options.Audience = "sandbox");
+                    services.AddSingleton<IStartupFilter, PassProbe>();
+                })
+        );
+        using var client = bot.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, PassProbe.Path);
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            bot.Api.IssueHubPass("income", "sandbox", "credits:read")
+        );
+
+        // Act
+        using var response = await client.SendAsync(request);
+
+        // Assert
+        (await response.Content.ReadAsStringAsync())
+            .Should()
+            .Be("income");
+    }
+
     [Theory]
     [InlineData(BotMode.Webhook)]
     [InlineData(BotMode.LongPolling)]
@@ -249,6 +283,29 @@ public sealed class HostingTests
             notebook.Should().BeSameAs(bot.Services.GetRequiredService<Notebook>());
             api.Calls.Select(x => x.Method).Should().Contain(startupCall);
         }
+    }
+
+    // Answers the pass's caller on one path, or "refused".
+    private sealed class PassProbe : IStartupFilter
+    {
+        public const string Path = "/pass-probe";
+
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) =>
+            app =>
+            {
+                app.Map(
+                    Path,
+                    probe =>
+                        probe.Run(async context =>
+                        {
+                            var result = await context.AuthenticateAsync(HubPassDefaults.Scheme);
+                            await context.Response.WriteAsync(
+                                result.Succeeded ? result.Principal.HubApp() ?? "nobody" : "refused"
+                            );
+                        })
+                );
+                next(app);
+            };
     }
 
     private static async Task<string> OutcomeOf(Task action)

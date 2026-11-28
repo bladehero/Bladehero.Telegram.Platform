@@ -39,7 +39,7 @@ No registration, no routing table: drop the class in a scanned assembly.
   [logs](#logs) · [history](#read-the-history) · [chat](#chat-with-it) · [taps](#tap-buttons) ·
   [files](#send-and-read-files) · [groups](#groups-and-privacy) · [waits](#wait-for-later-messages) ·
   [races](#stage-a-race) · [fake Telegram](#check-and-fail-telegram) · [production apps](#test-a-production-app)
-- [Behind a hub](#behind-a-hub)
+- [Behind a hub](#behind-a-hub): [passes between apps](#calling-another-app-with-a-pass), [passes for a person](#passes-for-a-person)
 - [Samples](#samples)
 - [Upgrading](#upgrading)
 
@@ -767,8 +767,8 @@ To page further back, read `query with { BeforeId = page[0].Id }` until a page c
 - `KeepJson = false` keeps every field but `Json`.
 - `Filter` changes or drops each entry before it's stored: return it, changed with `with` if need be, or `null` to
   drop it. Redacting `Text` alone leaves it in `Json`.
-- Secrets in requests, `secret_token` and `provider_token`, and the bot tokens `getManagedBotToken` and
-  `replaceManagedBotToken` return, are always left out of `Json`.
+- Secrets in requests, `secret_token` and `provider_token`, the bot tokens `getManagedBotToken` and
+  `replaceManagedBotToken` return, and the pass `getHubPass` returns, are always left out of `Json`.
 - URLs, such as `setWebhook`'s, can carry secrets of your own; drop or redact them with `Filter`.
 
 ```csharp
@@ -1507,7 +1507,7 @@ settings, the key the hub gave this app as `Token`, and the hub's address as `Ap
 ```csharp
 services.AddTelegramHub(hub =>
 {
-    hub.Title = "Питание";                   // the app's topic, and its line in the hub's list of apps
+    hub.Title = "Питание";                   // its line in the hub's list of apps, and its name in the hub's messages
     hub.Site = "https://nutrition.example";
     hub.TakesSignInCodes = true;             // /start <prefix>-<code> reaches this app, from anyone
     hub.UnlistedCommands = ["password"];     // commands it answers that its menu doesn't list
@@ -1518,6 +1518,28 @@ The app's manifest goes to the hub on every start and every few minutes, so a hu
 So do the receiver's webhook and commands, if the hub missed them or has forgotten them, and that repeat never drops
 what's waiting, whatever `DropPendingUpdates` says.
 
+**What reaches the app.** Every app shares one private chat with each person, so the hub decides who gets a message.
+Buttons, replies and edits go to the app that sent the message; a command goes to the one app that has it; the rest
+goes by two claims in the manifest, and what nobody takes gets one plain line from the hub:
+
+```csharp
+services.AddTelegramHub(hub =>
+{
+    hub.Title = "Книги";
+    hub.ClaimPatterns = [@"^(?:[ab]\s*)?\d{1,5}$"];    // "12", "a12", "b 7": the whole text, trimmed
+    hub.FallbackFor = HubFallback.Text | HubFallback.Photo; // what's left of these kinds, when no other app claims it
+});
+```
+
+| | |
+|---|---|
+| `ClaimPatterns` | Whole-text regular expressions for plain text, run with `NonBacktracking \| CultureInvariant \| IgnoreCase`. At most 20, each up to 500 characters, as the hub takes; a pattern past those or one that engine can't compile fails the start. A match beats any fallback. |
+| `FallbackFor` | `Text` (not starting with `/`), `Voice`, `Photo`, `Document`. Declare a kind only when the app answers it for real, not with a hint: the hub has its own line for what no app takes. |
+
+Two apps claiming the same text or the same kind leave it to the hub's line, so keep each claim narrow. A reply goes to
+the app that sent the replied-to message only when that app would take the reply by itself, by command, pattern or
+fallback.
+
 **`ITelegramHub`** has the app's people and its sign-in links:
 
 | | |
@@ -1525,6 +1547,126 @@ what's waiting, whatever `DropPendingUpdates` says.
 | `People`, `FindPerson(id)` | The latest copy of who the hub lists for this app, read every five minutes. It stays while the hub is down. |
 | `KnowsPeople` | Whether a list with anyone on it has arrived since the app started. Start waits up to 30 seconds for one. Until then, keep signed-in people signed in and refuse new sign-ins. |
 | `SignInLinkAsync(code)` | `https://t.me/<bot>?start=<prefix>-<code>`. The hub takes the prefix off, so the app's `/start` command gets the plain code. |
+
+### Calling another app with a pass
+
+Apps behind one hub call each other inside their network with **passes**: short-lived tokens the hub signs, naming the
+caller (from its key), the callee and the scopes the caller was granted there. Nobody makes or copies a key. The callee
+declares what can be granted, the hub's env grants it (`Hub__Grants__<caller>__<callee>=<scopes>`), and each route asks
+for its own scope.
+
+**The callee** declares its scopes in its manifest, adds the scheme, and puts a scope on each route:
+
+```csharp
+services.AddTelegramHub(hub =>
+{
+    hub.Title = "Expenses";
+    hub.Scopes = [new("credits:read", "Поступления"), new("spending:read", "Траты по людям")];
+});
+
+services.AddAuthentication().AddHubPasses();   // checks passes; Bladehero.Telegram.Platform.Receiving.Background
+services.AddAuthorization();
+
+app.MapGet("/internal/income/credits", ReadCredits).RequireHubScope("credits:read");
+app.MapGroup("/internal/income").RequireHubScope("credits:read");         // or a whole group; both are required
+
+// Inside one route that does several things, such as an MCP tool:
+if (!http.User.HasHubScope("spending:read")) { /* refuse, naming the scope */ }
+```
+
+A pass counts only on a request that didn't come through the edge: one with `X-Forwarded-For`, `X-Original-For` or
+`Forwarded`, or for the host of the app's `Site` (or `PublicHosts`), is refused before anything else. The headers are
+noted as the request arrives, so a forwarded-headers middleware that takes them away changes nothing. Then `alg` must be `ES256`, `kid`
+one of the hub's keys, the signature good, `iss` the hub, `aud` this app's slug (from its key), and the time within 30
+seconds of `nbf` and `exp`. The principal carries what an app's key gives: `client_id` (a fixed UUID per caller,
+`HubPassDefaults.ClientIdOf(slug)`, or one from `ClientIds`), `client_name`, a `scope` claim per scope, and `hub_app`, the
+caller's slug. Anything on the header that isn't shaped like a pass (three dot-separated parts) is left to the app's other
+schemes, so its own keys keep working beside passes under one policy:
+`policy.AddAuthenticationSchemes(HubPassDefaults.Scheme, "ApiKey")`. The hub's keys are read from `/hub/keys` at its
+address at the start, every hour, and for a key id not seen yet; while the hub is down the last ones serve, with one
+warning per outage. A bot whose `ApiBaseUrl` is blank or Telegram's isn't behind a hub: no keys are read, and no pass
+is taken.
+
+**The caller** puts passes on a named client, one per audience, or asks for them itself:
+
+```csharp
+services.AddHttpClient("expenses", c => c.BaseAddress = new("http://familybudget:8080")).AddHubPass("familybudget");
+services.AddHttpClient("nutrition", c => c.BaseAddress = new("http://nutrition:8080")).AddHubPass("nutrition");
+
+// Or for a client that sets its own header, such as an MCP session:
+services.AddTelegramHubPasses();
+var pass = await passes.GetAsync("familybudget", cancellationToken: token);   // ITelegramHubPasses
+```
+
+A pass is kept per audience and renewed five minutes before its end. With the hub down, the last one serves while it's
+good, and the hub isn't asked again for 30 s after a failed renewal; after that a request fails with
+`TelegramHubPassUnavailableException`, an `HttpRequestException`, before it is sent.
+
+**In component tests** the fake Telegram is the hub too: `Api.GrantHubPass("familybudget", "credits:read")` and
+`Api.HubSlug = "income"` for a caller; `Api.IssueHubPass("income", "familybudget", "credits:read")` for a request to a
+callee, whose keys `TelegramTestHost` serves from the fake. A callee whose test token isn't a hub key sets its slug:
+`services.Configure<HubPassOptions>(HubPassDefaults.Scheme, o => o.Audience = "familybudget")`.
+
+### Passes for a person
+
+A **delegate** app (Home, which connects a person's Claude to the apps they use) gets passes that act for one person
+through one of their connections: `sub` is the delegate, and the pass adds `person` (their Telegram id) and `cnx` (`id`,
+`name`). The hub gives one only to an app in its `Hub__Delegates`, only for a person on its list who may use both the
+delegate and the callee, with the scopes that are in the owner's cap (`Hub__Grants__home__<callee>`), in the callee's
+scopes for people, and in what was asked. A delegate gets no pass for itself, and no other app gets one for a person.
+
+**The callee** marks the scopes a person may grant, and turns a person pass into the principal that person's own key
+would give, so every tool and scope check works unchanged:
+
+```csharp
+services.AddTelegramHub(hub => hub.Scopes =
+[
+    new("people:read", "Люди"),                                   // for apps only, as before
+    new("read", "Видеть тренировки", ForPeople: true),             // a person may grant it through Home
+    new("workouts:write", "Записывать тренировки", ForPeople: true),
+]);
+
+services.AddAuthentication().AddHubPasses(o => o.People = async (person, cancellationToken) =>
+{
+    // person.TelegramId, person.Via ("home"), person.ConnectionId (fixed: HubPassDefaults.ConnectionIdOf("home", cnx)),
+    // person.ConnectionName, person.Scopes (cut to this app's ForPeople scopes), person.Services (the request's)
+    var users = person.Services.GetRequiredService<Users>();
+    var user = await users.FindOrAdmitAsync(person.TelegramId, cancellationToken);
+    return user is null ? null : KeyPrincipal(person.ConnectionId, person.ConnectionName, user, person.Scopes);
+});
+```
+
+- **Only with the callback.** Without `People`, a person pass is refused, as before 10.8.
+- **Only on `/mcp`** (`PeoplePaths`, each with what's below it). Anywhere else, `/internal/*`, `/api/*`, is 401, and a
+  `RequireHubScope` route is never open to one (403): a person reads what their MCP key reads, never an app's feed.
+- **Only from a delegate** (`Delegates`, `["home"]` by default), checked again here. A delegate's pass naming no person
+  is refused everywhere.
+- **Scopes are cut here too**, to the ones marked `ForPeople`; nothing left is 401. The callback returning `null` (a
+  person the app won't admit) is 401.
+- **The principal** is the callback's, plus `hub_person` and `hub_via`, without any `hub_*` claim of its own and without
+  a `scope` claim outside `person.Scopes`. It has no `hub_app`, so `HasHubScope` is false and code that tells passes
+  from keys by `HubApp()` treats it as a key. `User.HubPerson()` and `User.HubVia()` read the two.
+- The connection's id is the same everywhere for the same connection, so a client's retry with the same request id
+  answers the first save, and a renamed connection keeps what it wrote.
+
+**The delegate** asks through `ITelegramHubPersonPasses`, registered by `AddTelegramHubPasses()`:
+
+```csharp
+var apps = await people.GetAppsAsync(telegramId, token);         // getHubApps: slug, title, site, scopes for people
+var connection = new TelegramHubPersonConnection(id, "Claude · Ник");
+var pass = await people.GetAsync("gym", telegramId, connection, ["read", "workouts:write"], token);
+people.Forget(connection.Id);                                      // when the connection is deleted
+```
+
+A person pass is kept per person, connection, audience and scopes asked, so one person's is never handed out for
+another, and renewed five minutes before its end. While the hub is down the last one serves; when the hub refuses (the
+person was taken off that app, the cap went), the kept one is dropped at once and the call fails with
+`TelegramHubPassUnavailableException`. `GetAppsAsync` isn't cached.
+
+**In component tests:** `Api.IssuePersonPass("home", "gym", 123, new(id, "Claude · Ник"), "read")` for a request to a
+callee; for the delegate, `Api.HubSlug = "home"`, `Api.GrantPersonPass(123, "gym", "read")` and
+`Api.DescribeHubApp("gym", "Gym", "https://gym.example", scopes)`. `Api.HubDelegates` is `["home"]` by default; with
+`HubSlug` outside it, the fake refuses a person as the hub does.
 
 ## Samples
 
@@ -1667,6 +1809,23 @@ optionally, `Telegram:SecretToken`.
 - New: [`AddTelegramLock()`](#one-update-at-a-time-and-background-work) and `ITelegramLock`, to run background work
   one at a time with the updates. It's off until the app calls it, so nothing changes otherwise.
 - New in component tests: [`HoldLockAsync` and `WaitForLockWaitersAsync`](#stage-a-race).
+
+### To 10.7
+
+- New: [passes between apps behind a hub](#calling-another-app-with-a-pass): `AddHubPass` and `ITelegramHubPasses` for a
+  caller, `AddHubPasses` and `RequireHubScope` for a callee, and `TelegramHubConfiguration.Scopes` in the manifest. A hub
+  without passes answers `getHubPass` with an error, which a caller gets as `TelegramHubPassUnavailableException`.
+- `Bladehero.Telegram.Platform` now depends on `Microsoft.Extensions.Http`.
+- The manifest always carries `scopes`, empty unless set; a hub older than passes ignores it.
+- New: [`ClaimPatterns` and `FallbackFor`](#behind-a-hub) in the manifest, for a hub that keeps every app in one chat.
+  Both are sent always, empty unless set; an older hub ignores them.
+
+### To 10.8
+
+- New: [passes for a person](#passes-for-a-person). `TelegramHubScope` gains `ForPeople` (sent as `people`, left out
+  when false, so a manifest without it is the one sent before). A callee opts in with `HubPassOptions.People`; until it
+  does, person passes are refused as before. A delegate gets `ITelegramHubPersonPasses` from `AddTelegramHubPasses()`.
+- A hub pass from a delegate (`HubPassOptions.Delegates`, `home` by default) that names no person is now refused.
 
 ## License
 

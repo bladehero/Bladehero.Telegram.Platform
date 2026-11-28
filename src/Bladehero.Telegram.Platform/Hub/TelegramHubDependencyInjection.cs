@@ -31,6 +31,28 @@ public static class TelegramHubDependencyInjection
                 configuration => !string.IsNullOrWhiteSpace(configuration.Title),
                 "The hub needs the app's Title."
             )
+            .Validate(
+                configuration =>
+                    configuration.Scopes.All(scope =>
+                        TelegramHubScope.IsValid(scope.Scope) && !string.IsNullOrWhiteSpace(scope.Label)
+                    )
+                    && configuration.Scopes.Select(scope => scope.Scope).Distinct(StringComparer.Ordinal).Count()
+                        == configuration.Scopes.Count,
+                "Each of the hub's Scopes is lower-case letters, digits and : . _ -, up to 64, listed once, with a label."
+            )
+            .Validate(
+                configuration => configuration.ClaimPatterns.Count <= HubClaims.MostPatterns,
+                $"The hub takes at most {HubClaims.MostPatterns} ClaimPatterns per app."
+            )
+            .Validate(
+                configuration => configuration.ClaimPatterns.All(HubClaims.IsValidPattern),
+                $"Each of the hub's ClaimPatterns must be at most {HubClaims.LongestPattern} characters and a regular "
+                    + "expression that .NET's NonBacktracking engine compiles."
+            )
+            .Validate(
+                configuration => (configuration.FallbackFor & ~HubClaims.AllFallbacks) == 0,
+                "The hub's FallbackFor takes only Text, Voice, Photo and Document."
+            )
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);

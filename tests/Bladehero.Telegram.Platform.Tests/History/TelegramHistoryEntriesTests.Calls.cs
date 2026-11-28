@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Bladehero.Telegram.Platform.History;
+using Bladehero.Telegram.Platform.Hub;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using Telegram.Bot.Exceptions;
@@ -503,6 +504,29 @@ public sealed partial class TelegramHistoryEntriesTests
         {
             Json(entries.Single())["result"].Should().BeNull();
             entries.Single().Json.Should().NotContain("AAHmanagedSecret");
+        }
+    }
+
+    [Fact]
+    public void FromCall_GetHubPass_ShouldNotKeepThePass()
+    {
+        // Arrange
+        var request = new GetHubPassRequest { Audience = "familybudget" };
+        var pass = new HubPassDto
+        {
+            Pass = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJpbmNvbWUifQ.livePassSignature",
+            ExpiresAt = 1795000000,
+            Scope = "spending:read",
+        };
+
+        // Act
+        var entries = Call(request, pass);
+
+        // Assert
+        using (new AssertionScope())
+        {
+            Json(entries.Single())["result"].Should().BeNull();
+            entries.Single().Json.Should().NotContain("livePassSignature").And.Contain("familybudget");
         }
     }
 

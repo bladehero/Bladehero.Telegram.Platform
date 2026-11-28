@@ -38,6 +38,20 @@ public sealed class TelegramHubTests
             api.HubApp["takes_sign_in_codes"]!.GetValue<bool>().Should().BeTrue();
             api.HubApp.ContainsKey("takes_groups").Should().BeFalse("a false value is left out");
             api.HubApp["unlisted_commands"]![0]!.GetValue<string>().Should().Be("password");
+            api.HubApp["scopes"]![0]!["scope"]!.GetValue<string>().Should().Be("plan:read");
+            api.HubApp["scopes"]![0]!["label"]!.GetValue<string>().Should().Be("План");
+            api.HubApp["scopes"]![0]!
+                .AsObject()
+                .ContainsKey("people")
+                .Should()
+                .BeFalse("an app scope is sent as before");
+            api.HubApp["scopes"]![1]!["people"]!.GetValue<bool>().Should().BeTrue();
+            api.HubApp["claim_patterns"]![0]!.GetValue<string>().Should().Be("^\\d{1,5}$");
+            api.HubApp["fallback_for"]!
+                .AsArray()
+                .Select(kind => kind!.GetValue<string>())
+                .Should()
+                .Equal("text", "photo");
             hub.KnowsPeople.Should().BeTrue();
             hub.People.Should().HaveCount(2);
             hub.FindPerson(222)!.Name.Should().Be("Катя");
@@ -195,6 +209,56 @@ public sealed class TelegramHubTests
         read.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
     }
 
+    [Theory]
+    [InlineData("(?<n>\\d)\\k<n>")] // a back-reference: NonBacktracking can't run it
+    [InlineData("\\d(?=x)")] // a look-ahead, the same
+    [InlineData("[0-9")]
+    public void AddTelegramHub_WithAClaimPatternTheHubCantRun_ShouldBeRefusedOnStart(string pattern)
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramHub(x =>
+        {
+            x.Title = "Книги";
+            x.ClaimPatterns = ["^\\d{1,5}$", pattern];
+        });
+        using var provider = services.BuildServiceProvider();
+
+        // Act
+        var read = () =>
+            provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<TelegramHubConfiguration>>().Value;
+
+        // Assert
+        read.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>().WithMessage("*ClaimPatterns*");
+    }
+
+    [Theory]
+    [InlineData(21, 5)] // one pattern more than the hub takes
+    [InlineData(1, 501)] // one character longer than the hub takes
+    public void AddTelegramHub_WithClaimPatternsPastTheHubsLimits_ShouldBeRefusedOnStart(int count, int length)
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddTelegramHub(x =>
+        {
+            x.Title = "Книги";
+            x.ClaimPatterns =
+            [
+                .. Enumerable.Range(0, count).Select(i => $"{i}{new string('x', length - 1)}"[..length]),
+            ];
+        });
+        using var provider = services.BuildServiceProvider();
+
+        // Act
+        var read = () =>
+            provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<TelegramHubConfiguration>>().Value;
+
+        // Assert
+        read.Should()
+            .Throw<Microsoft.Extensions.Options.OptionsValidationException>()
+            .WithMessage($"*at most {(count > 20 ? "20 ClaimPatterns" : "500 characters")}*");
+    }
+
     [Fact]
     public async Task AHubThatMissedTheWebhook_ShouldHearItAtTheNextRefresh_WithNothingDropped()
     {
@@ -297,6 +361,9 @@ public sealed class TelegramHubTests
             x.Site = "https://nutrition.example";
             x.TakesSignInCodes = true;
             x.UnlistedCommands = ["password"];
+            x.Scopes = [new("plan:read", "План"), new("read", "Видеть план", ForPeople: true)];
+            x.ClaimPatterns = ["^\\d{1,5}$"];
+            x.FallbackFor = HubFallback.Photo | HubFallback.Text;
             configure?.Invoke(x);
         });
         return services.BuildServiceProvider();
