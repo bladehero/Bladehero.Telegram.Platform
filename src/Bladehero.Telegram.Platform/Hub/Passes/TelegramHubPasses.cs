@@ -2,12 +2,15 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
+using Telegram.Bot.Requests.Abstractions;
 
 namespace Bladehero.Telegram.Platform.Hub;
 
-// Passes kept per audience (and scopes asked), renewed once five minutes are left, one request to the hub at a time. When
-// the hub fails, the last pass serves while it's still good, so a hub deploy goes unnoticed. A person pass is kept per
-// person and connection too, and a refusal ends it at once: the hub said that person may no longer do this.
+// Passes kept per audience (and scopes asked), renewed once five minutes are left, one request to the hub at a time. While
+// one renewal runs, everyone else gets the pass in hand if it's still good, rather than waiting on the hub. When the hub
+// fails, or doesn't answer within HubTimeout, the last pass serves while it's still good, so a hub deploy goes unnoticed.
+// A person pass is kept per person and connection too, and a refusal ends it at once: the hub said that person may no
+// longer do this.
 internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider time, ILogger<TelegramHubPasses> logger)
     : ITelegramHubPasses,
         ITelegramHubPersonPasses
@@ -16,6 +19,10 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
 
     // A pass closer to its end than this isn't handed out: the call it goes on may take a while.
     private static readonly TimeSpan GoodFor = TimeSpan.FromSeconds(30);
+
+    // The hub sits next to the app and answers in milliseconds: one that hasn't answered in 5 s is hung, and HttpClient's
+    // own 100 s would hold every caller that long before the last pass could serve.
+    internal static readonly TimeSpan HubTimeout = TimeSpan.FromSeconds(5);
 
     private readonly ConcurrentDictionary<SlotKey, Slot> _slots = new();
 
@@ -76,7 +83,7 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
         HubAppDto[] apps;
         try
         {
-            apps = await client.SendRequest(new GetHubAppsRequest { Person = person }, cancellationToken);
+            apps = await AskHubAsync(new GetHubAppsRequest { Person = person }, cancellationToken);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -123,12 +130,25 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
     {
         var slot = _slots.GetOrAdd(key, _ => new Slot());
 
-        if (slot.Fresh(time.GetUtcNow()) is { } fresh)
+        var now = time.GetUtcNow();
+        if (slot.Fresh(now) is { } fresh)
         {
             return fresh;
         }
 
-        await slot.Gate.WaitAsync(cancellationToken);
+        if (slot.Pass is { } held && held.ExpiresAt - now > GoodFor)
+        {
+            // Someone is renewing it already: the pass in hand is still good, so nobody waits on the hub for a new one.
+            if (!slot.Gate.Wait(0))
+            {
+                return held;
+            }
+        }
+        else
+        {
+            await slot.Gate.WaitAsync(cancellationToken);
+        }
+
         try
         {
             // Whoever waited may find it renewed by the one before.
@@ -139,8 +159,8 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
 
             try
             {
-                var answer = await client.SendRequest(request, cancellationToken);
-                var now = time.GetUtcNow();
+                var answer = await AskHubAsync(request, cancellationToken);
+                now = time.GetUtcNow();
                 var pass = new TelegramHubPass(
                     key.Audience,
                     answer.Pass,
@@ -157,7 +177,9 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
             {
                 if (key.Person is not null && exception is ApiRequestException { ErrorCode: >= 400 and < 500 })
                 {
-                    // The hub refused this person: the pass it gave before isn't handed out again.
+                    // The hub refused this person: the pass it gave before isn't handed out again, not even to a caller
+                    // that found this slot before it went.
+                    slot.Drop();
                     _slots.TryRemove(new KeyValuePair<SlotKey, Slot>(key, slot));
                     throw new TelegramHubPassUnavailableException(key.Audience, exception);
                 }
@@ -180,6 +202,17 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
         {
             slot.Gate.Release();
         }
+    }
+
+    private async Task<TResponse> AskHubAsync<TResponse>(
+        IRequest<TResponse> request,
+        CancellationToken cancellationToken
+    )
+    {
+        // A time-out isn't the caller's cancellation, so the callers' catches take it as the hub failing.
+        using var limit = new CancellationTokenSource(HubTimeout, time);
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token);
+        return await client.SendRequest(request, either.Token);
     }
 
     private static string[]? Sorted(IReadOnlyCollection<string>? scopes) =>
@@ -207,6 +240,8 @@ internal sealed class TelegramHubPasses(ITelegramBotClient client, TimeProvider 
         public TelegramHubPass? Fresh(DateTimeOffset now) => _kept is { } kept && now < kept.RenewAt ? kept.Pass : null;
 
         public void Keep(TelegramHubPass pass, DateTimeOffset renewAt) => _kept = new Kept(pass, renewAt);
+
+        public void Drop() => _kept = null;
 
         private sealed record Kept(TelegramHubPass Pass, DateTimeOffset RenewAt);
     }

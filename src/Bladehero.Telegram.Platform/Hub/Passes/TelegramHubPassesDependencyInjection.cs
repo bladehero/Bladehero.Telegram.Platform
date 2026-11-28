@@ -13,7 +13,9 @@ public static class TelegramHubPassesDependencyInjection
     /// </summary>
     /// <remarks>
     /// The bot is registered as usual, with the app's hub key as its token and the hub as its address. It registers
-    /// <see cref="ITelegramHubPersonPasses"/> too, which only a delegate app such as Home gets anything from.
+    /// <see cref="ITelegramHubPersonPasses"/> too, which only a delegate app such as Home gets anything from. Each call
+    /// to the hub gives up after 5 seconds, whatever the bot's own time-out; while one renewal runs, other callers get
+    /// the pass in hand if it is still good.
     /// </remarks>
     /// <param name="services">The app's services.</param>
     /// <returns><paramref name="services"/>, for chaining.</returns>

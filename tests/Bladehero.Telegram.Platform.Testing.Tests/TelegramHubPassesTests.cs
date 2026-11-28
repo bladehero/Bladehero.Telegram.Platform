@@ -2,6 +2,7 @@ using Bladehero.Telegram.Platform.Hub;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using Telegram.Bot;
 
 namespace Bladehero.Telegram.Platform.Testing.Tests;
 
@@ -69,6 +70,38 @@ public sealed class TelegramHubPassesTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task WithTheHubHungOnARenewal_TheGoodPassShouldServeAtOnce_AndTheRenewalGiveUpInFiveSeconds()
+    {
+        // Arrange
+        var hub = new HangingHub(_hub.CreateHandler());
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<TimeProvider>(_time);
+        services.AddSingleton<ITelegramBotClient>(
+            new TelegramBotClient(new TelegramBotClientOptions(FakeBotApi.Token), new HttpClient(hub))
+        );
+        services.AddTelegramHubPasses();
+        await using var provider = services.BuildServiceProvider();
+        var passes = provider.GetRequiredService<ITelegramHubPasses>();
+        _hub.GrantHubPass("familybudget", "credits:read");
+        var first = await passes.GetAsync("familybudget");
+        hub.Hangs = true;
+        _time.Advance(TimeSpan.FromMinutes(6));
+        var renewal = passes.GetAsync("familybudget").AsTask();
+        await hub.Reached.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Act
+        var during = passes.GetAsync("familybudget");
+
+        // Assert
+        during.IsCompletedSuccessfully.Should().BeTrue();
+        (await during).Token.Should().Be(first.Token);
+        renewal.IsCompleted.Should().BeFalse();
+        _time.Advance(TimeSpan.FromSeconds(5));
+        (await renewal.WaitAsync(TimeSpan.FromSeconds(10))).Token.Should().Be(first.Token);
+    }
+
+    [Fact]
     public async Task NoGrant_ShouldBeUnavailable_AsAnHttpFailure()
     {
         // Act
@@ -80,5 +113,29 @@ public sealed class TelegramHubPassesTests : IAsyncDisposable
             .BeOfType<TelegramHubPassUnavailableException>()
             .Which.Message.Should()
             .Contain("not granted");
+    }
+
+    // A hub that, once told to, takes getHubPass and never answers, as a hung host would, until the call gives up.
+    private sealed class HangingHub(HttpMessageHandler hub) : DelegatingHandler(hub)
+    {
+        private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool Hangs { get; set; }
+
+        public Task Reached => _reached.Task;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken
+        )
+        {
+            if (Hangs && request.RequestUri!.AbsolutePath.EndsWith("/getHubPass", StringComparison.Ordinal))
+            {
+                _reached.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            return await base.SendAsync(request, cancellationToken);
+        }
     }
 }
